@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createFundsChangedEvent } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
-import { accumulateScore, formatScore, INITIAL_SCORE } from './score';
+import { accumulateScore, formatCumulativeSales, formatScore, INITIAL_SCORE } from './score';
 
 const event = (delta: number, reason: FundsChangeReason): FundsChangedEvent => ({
   previous: 0,
@@ -132,5 +132,19 @@ describe('formatScore', () => {
     [1000000, 'スコア: 1,000,000円'],
   ])('formatScore(%d) = %s', (score, expected) => {
     expect(formatScore(score)).toBe(expected);
+  });
+});
+
+describe('formatCumulativeSales', () => {
+  it.each([
+    [0, '累計売上: 0円'],
+    [1, '累計売上: 1円'],
+    [999, '累計売上: 999円'],
+    [1000, '累計売上: 1,000円'],
+    [999999, '累計売上: 999,999円'],
+    [1000000, '累計売上: 1,000,000円'],
+    [Number.MAX_SAFE_INTEGER, '累計売上: 9,007,199,254,740,991円'],
+  ])('formatCumulativeSales(%d) = %s', (score, expected) => {
+    expect(formatCumulativeSales(score)).toBe(expected);
   });
 });

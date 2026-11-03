@@ -149,6 +149,11 @@ export const REVENUE_PER_NORMAL_CODE = 20000;
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
 // 仮・要確認: 企画書に記載なし。資金の表示位置。経過日数表示のすぐ下。
 export const FUNDS_POSITION = { x: 12, y: 40 } as const;
+// 仮・要確認(#59): 企画書は「スコアは倒産までの累計売上」とだけで、プレイ中の表示書式は未記載。「累計売上: 20,000円」。数値部分は3桁区切り。
+export const CUMULATIVE_SALES_FORMAT = { prefix: '累計売上: ', suffix: '円' } as const;
+// 仮・要確認(#59): 累計売上の表示位置。資金表示（y=40）のすぐ下の左列。文字スタイルは資金表示と同じ ELAPSED_DAYS_STYLE（24px）。
+// 24px の行は y=72〜約100 に収まる。雇用ボタン（y=8〜36）・エンジニア数/雇用メッセージ（y=42〜約66）は x=300 以降かつ y<72 なので、縦で分離して重ならない。
+export const CUMULATIVE_SALES_POSITION = { x: 12, y: 72 } as const;
 
 // 仮・要確認: 企画書に記載なし。「資金がなくなったら」を残高ちょうど 0 も倒産とするか。false なら 0 未満のみ倒産。
 export const BANKRUPT_INCLUDES_ZERO = true;

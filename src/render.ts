@@ -36,6 +36,7 @@ import {
   DEFEAT_EFFECT_DURATION_MS,
   DEFEAT_EFFECT_END_RADIUS_RATIO,
   DEFEAT_EFFECT_START_RADIUS_RATIO,
+  CUMULATIVE_SALES_POSITION,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
   FUNDS_POSITION,
@@ -59,7 +60,7 @@ import {
 import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
-import { formatScore } from './score';
+import { formatCumulativeSales, formatScore } from './score';
 import { formatEngineerCount, formatHireButton } from './engineer';
 import type { EngineerRank } from './engineer';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
@@ -337,6 +338,17 @@ export const drawElapsedDays = (scene: Phaser.Scene, days: number): Phaser.GameO
 export const drawFunds = (scene: Phaser.Scene, funds: number): Phaser.GameObjects.Text =>
   scene.add
     .text(FUNDS_POSITION.x, FUNDS_POSITION.y, formatFunds(funds), {
+      fontSize: ELAPSED_DAYS_STYLE.fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ELAPSED_DAYS_STYLE.color,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
+export const drawCumulativeSales = (scene: Phaser.Scene, score: number): Phaser.GameObjects.Text =>
+  scene.add
+    .text(CUMULATIVE_SALES_POSITION.x, CUMULATIVE_SALES_POSITION.y, formatCumulativeSales(score), {
       fontSize: ELAPSED_DAYS_STYLE.fontSize,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: ELAPSED_DAYS_STYLE.color,

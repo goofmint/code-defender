@@ -40,6 +40,7 @@ import {
   drawDefeatEffect,
   drawElapsedDays,
   drawField,
+  drawCumulativeSales,
   drawFunds,
   drawEngineerCount,
   drawGameOver,
@@ -77,7 +78,7 @@ import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFat
 import type { CodeDefeatedPayload } from './defeat';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
-import { accumulateScore, INITIAL_SCORE } from './score';
+import { accumulateScore, formatCumulativeSales, INITIAL_SCORE } from './score';
 import {
   canRestart,
   checkBankruptcy,
@@ -140,6 +141,7 @@ class MainScene extends Phaser.Scene {
   private funds = 0;
   private fundsText?: Phaser.GameObjects.Text;
   private score = INITIAL_SCORE;
+  private salesText?: Phaser.GameObjects.Text;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
   private engineers: Engineer[] = [];
   private nextEngineerId = 0;
@@ -166,6 +168,7 @@ class MainScene extends Phaser.Scene {
     this.funds = INITIAL_FUNDS;
     this.fundsText = drawFunds(this, this.funds);
     this.score = INITIAL_SCORE;
+    this.salesText = drawCumulativeSales(this, this.score);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
@@ -461,6 +464,7 @@ class MainScene extends Phaser.Scene {
   // 資金の変化ごとに倒産を判定する。倒産したら Tween を止めてゲームオーバー表示を出す。
   private onFundsChanged(event: FundsChangedEvent): void {
     this.score = accumulateScore(this.score, event, this.gameOver.over);
+    this.salesText?.setText(formatCumulativeSales(this.score));
     const result = checkBankruptcy(this.gameOver, event.current, this.time.now);
     this.gameOver = result.state;
     if (!result.triggered) {
