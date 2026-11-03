@@ -3,8 +3,13 @@ import {
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   MAX_ENGINEER_ROUTES,
+  PLAYER_START_COL,
+  PLAYER_START_ROW,
   RELEASE_POINT_CELL,
-  ROUTE_TURN_COL,
+  ROUTE_TURN_COL_MAX,
+  ROUTE_TURN_COL_MIN,
+  ROUTE_TURN_COUNT_MAX,
+  ROUTE_TURN_COUNT_MIN,
 } from './config';
 import { CELL_SIZE } from './field';
 
@@ -22,22 +27,91 @@ export type Route = {
 const isSameCell = (a: GridCell, b: GridCell): boolean =>
   a.col === b.col && a.row === b.row;
 
-// 出現行を横に進み、曲がり列で縦に進み、リリース行を横に進む。同じ入力から常に同じルートを返す。
+const range = (min: number, max: number): number[] =>
+  Array.from({ length: max - min + 1 }, (_, i) => min + i);
+
+// 0 以上 count 未満の整数。random() が 1 に近くても範囲外にならないよう上限で止める。
+const randomInt = (random: () => number, count: number): number =>
+  Math.min(count - 1, Math.floor(random() * count));
+
+const pickOne = (random: () => number, items: readonly number[]): number =>
+  items[randomInt(random, items.length)];
+
+const pickDistinct = (
+  random: () => number,
+  items: readonly number[],
+  count: number,
+): number[] => {
+  const rest = [...items];
+  const picked: number[] = [];
+  for (let i = 0; i < count; i++) {
+    picked.push(...rest.splice(randomInt(random, rest.length), 1));
+  }
+  return picked;
+};
+
+// 左から右へ単調に進む曲がりくねったルートを random で作る。random は 0 以上 1 未満の値を返す関数（注入）。
+// 曲がり列 c1<…<ck（k は ROUTE_TURN_COUNT の範囲）と、中間行 r1…r(k-1) を選ぶ。
+// 点列: 出現セル → (c1, 出現行) → (c1, r1) → (c2, r1) → … → (ck, r(k-1)) → (ck, リリース行) → リリースセル。
+// 仮・要確認: 主人公の初期セルを通らないよう、リトライではなく次の規則で構造的に保証する。
+//  - 曲がり列に PLAYER_START_COL を使わない（縦区間が主人公の列を通らない）
+//  - 中間行に PLAYER_START_ROW を使わない（主人公の列をまたぐ水平区間が主人公の行にならない）
+//  - 最後の曲がり列 ck は PLAYER_START_COL より右（最後の水平区間はリリース行＝主人公の行のため）
+//  - 出現行が PLAYER_START_ROW なら c1 は PLAYER_START_COL より左（最初の水平区間は出現行のため）
+// 仮・要確認: ルート同士の重なり・交差は許す。
 export const createRoute = (
   id: number,
   spawn: GridCell,
   release: GridCell,
+  random: () => number,
 ): Route => {
-  const corners: GridCell[] = [
-    spawn,
-    { col: ROUTE_TURN_COL, row: spawn.row },
-    { col: ROUTE_TURN_COL, row: release.row },
-    release,
-  ];
+  const turnCount =
+    ROUTE_TURN_COUNT_MIN +
+    randomInt(random, ROUTE_TURN_COUNT_MAX - ROUTE_TURN_COUNT_MIN + 1);
+  const columns = range(ROUTE_TURN_COL_MIN, ROUTE_TURN_COL_MAX).filter(
+    (col) => col !== PLAYER_START_COL,
+  );
+  const lastCol = pickOne(
+    random,
+    columns.filter((col) => col > PLAYER_START_COL),
+  );
+  const earlier = columns.filter((col) => col < lastCol);
+  const firstPool =
+    spawn.row === PLAYER_START_ROW
+      ? earlier.filter((col) => col < PLAYER_START_COL)
+      : earlier;
+  const first = pickOne(random, firstPool);
+  const others = pickDistinct(
+    random,
+    earlier.filter((col) => col !== first),
+    turnCount - 2,
+  );
+  const turnCols = [first, ...others].sort((a, b) => a - b);
+  turnCols.push(lastCol);
+
+  const corners: GridCell[] = [spawn];
+  let row = spawn.row;
+  turnCols.forEach((col, i) => {
+    corners.push({ col, row });
+    if (i === turnCols.length - 1) {
+      corners.push({ col, row: release.row });
+      return;
+    }
+    const nextRow = pickOne(
+      random,
+      range(0, FIELD_ROWS - 1).filter(
+        (r) => r !== row && r !== PLAYER_START_ROW,
+      ),
+    );
+    corners.push({ col, row: nextRow });
+    row = nextRow;
+  });
+  corners.push(release);
+
   const distinct = corners.filter(
     (cell, i) => i === 0 || !isSameCell(cell, corners[i - 1]),
   );
-  // 一直線上の中間点は曲がらないので除く（出現行とリリース行が同じなら直線になる）。
+  // 一直線上の中間点は曲がらないので除く。
   const waypoints = distinct.filter((cell, i) => {
     if (i === 0 || i === distinct.length - 1) return true;
     const prev = distinct[i - 1];
@@ -50,8 +124,12 @@ export const createRoute = (
   return { id, spawn, waypoints };
 };
 
-export const createRoutes = (spawns: readonly GridCell[]): Route[] =>
-  spawns.map((spawn, i) => createRoute(i, spawn, RELEASE_POINT_CELL));
+// 仮・要確認: ルートは作る時点でそのルートだけ生成し、既存ルートは作り直さない（流れているコードの path とずれないため）。
+export const createRoutes = (
+  spawns: readonly GridCell[],
+  random: () => number,
+): Route[] =>
+  spawns.map((spawn, i) => createRoute(i, spawn, RELEASE_POINT_CELL, random));
 
 // 追加する出現セルを決める。ENGINEER_SPAWN_COL 列を上の行から調べ、使用中でもリリース地点でもない最初のセルを返す。
 export const nextSpawnCell = (
@@ -67,12 +145,15 @@ export const nextSpawnCell = (
 
 // エンジニアが増えたときの新しいルートを返す。入力は変更しない。上限または空きなしなら undefined。
 // id は既存の最大 id + 1（空なら 0）。将来ルートが消えても id が重複しない。
-export const addRoute = (routes: readonly Route[]): Route | undefined => {
+export const addRoute = (
+  routes: readonly Route[],
+  random: () => number,
+): Route | undefined => {
   if (routes.length >= MAX_ENGINEER_ROUTES) return undefined;
   const spawn = nextSpawnCell(routes.map((route) => route.spawn));
   if (spawn === undefined) return undefined;
   const id = routes.reduce((max, route) => Math.max(max, route.id), -1) + 1;
-  return createRoute(id, spawn, RELEASE_POINT_CELL);
+  return createRoute(id, spawn, RELEASE_POINT_CELL, random);
 };
 
 export const cellCenter = (cell: GridCell): Point => ({

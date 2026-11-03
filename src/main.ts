@@ -103,7 +103,7 @@ class MainScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     });
-    this.routes = createRoutes(ENGINEER_SPAWN_CELLS);
+    this.routes = createRoutes(ENGINEER_SPAWN_CELLS, Math.random);
     this.codes = [];
     this.spawnElapsed = new Map();
     this.nextCodeId = 0;
@@ -290,7 +290,7 @@ class MainScene extends Phaser.Scene {
 
   // エンジニアが増えたときに出現場所とルートを追加して描画する。上限などで追加できなければ undefined。
   addEngineerRoute(): Route | undefined {
-    const route = addRoute(this.routes);
+    const route = addRoute(this.routes, Math.random);
     if (route === undefined) return undefined;
     this.routes.push(route);
     drawRoutes(this, [route]);
