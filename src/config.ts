@@ -295,3 +295,81 @@ export const ITEM_POWER_DAMAGE = { weak: 1, medium: 2, strong: 3 } as const;
 // 万能型(all)は得意ボーナスなしで全種類に等倍（「クリティカル・メジャーはスキャナーがないと苦戦」と矛盾させないため）。
 // 種類なしの不正コード(maliciousType undefined)は得意でない扱いで等倍。
 export const ITEM_STRONG_AGAINST_MULTIPLIER = 2;
+
+// 仮・要確認(#48): 企画書(8)は「リリースで稼いだポイントでプレイ中にアイテムを追加できる」とだけで、通貨・操作・置ける場所は未記載。以下はすべて仮の値。
+// 通貨: 別のポイントは作らず資金(funds)で買う。正常コードのリリースは売上として資金に入り(#17)、スコアも累計売上(#22)で、別通貨が存在しないため。
+// 価格の段階(円)。企画書の「安い・普通・高い」に対応。1回の購入額。月額払いの毎月の引き落としは #51。
+export const ITEM_PRICE_TIERS = { cheap: 50000, normal: 100000, expensive: 200000 } as const;
+// アイテムごとの価格の段階（企画書 8 の価格列）。
+export const ITEM_PRICE_TIER_BY_TYPE = {
+  codeRabbit: 'expensive',
+  linter: 'cheap',
+  testTool: 'normal',
+  ci: 'normal',
+  securityScanner: 'expensive',
+  pairProgrammer: 'normal',
+} as const;
+// 仮・要確認(#48): アイテムを置けない行（UI と重なる行）。上端=雇うボタン・HUD、下端=アイテム購入ボタン。
+export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
+// 仮・要確認(#48): HUD（経過日数・資金・累計売上の3行）が占める範囲。幅は「資金: 1,000,000円」で約300px、
+// 高さは最下行（累計売上）の上端から文字の行高さ約30px（ELAPSED_DAYS_STYLE 24px）まで。
+const ITEM_HUD_WIDTH = 300;
+const ITEM_HUD_LINE_HEIGHT = 30;
+// 仮・要確認(#48): アイテムを置けないセル。HUD は x=ELAPSED_DAYS_POSITION.x（72）〜372、y=80〜約174 で、行1〜2 × col 1〜6 と重なる。
+// 範囲は ELAPSED_DAYS_POSITION / CUMULATIVE_SALES_POSITION / CELL_SIZE から計算する（右端・下端ちょうどがセル境界なら次のセルは含めない）。
+// col 0 は出現列（ルートがあれば元々置けない）なので含めない。
+const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
+const itemHudMaxCol = Math.ceil((ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH) / CELL_SIZE) - 1;
+const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
+const itemHudMaxRow = Math.ceil((CUMULATIVE_SALES_POSITION.y + ITEM_HUD_LINE_HEIGHT) / CELL_SIZE) - 1;
+export const ITEM_BLOCKED_CELLS = Array.from(
+  { length: itemHudMaxRow - itemHudMinRow + 1 },
+  (_, r) => itemHudMinRow + r,
+).flatMap((row) =>
+  Array.from({ length: itemHudMaxCol - itemHudMinCol + 1 }, (_, c) => ({ col: itemHudMinCol + c, row })),
+);
+// 仮・要確認(#48): アイテム購入キー（ITEM_TYPES の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・リスタートと重ならない。Phaser の KeyCodes のキー名。
+export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
+// 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
+export const ITEM_SHORT_NAMES = {
+  codeRabbit: 'CodeRabbit',
+  linter: 'Linter',
+  testTool: 'Test',
+  ci: 'CI',
+  securityScanner: 'Scanner',
+  pairProgrammer: 'Pair',
+} as const;
+export const ITEM_MARKS = {
+  codeRabbit: 'CR',
+  linter: 'Lint',
+  testTool: 'Test',
+  ci: 'CI',
+  securityScanner: 'Sec',
+  pairProgrammer: 'Pair',
+} as const;
+// 仮・要確認(#48): アイテムの攻撃間隔（ミリ秒）。全アイテム共通。置いた直後はクールダウンなしで攻撃できる。
+export const ITEM_ATTACK_COOLDOWN_MS = 1000;
+// 仮・要確認(#48): アイテムの見た目。セル内の色付き四角（セルに対する比率）と文字。色は種類ごと。
+export const ITEM_BOX_RATIO = 0.6;
+export const ITEM_COLORS = {
+  codeRabbit: 0xff8a3d,
+  linter: 0x4db6ac,
+  testTool: 0x7e57c2,
+  ci: 0x42a5f5,
+  securityScanner: 0xe53935,
+  pairProgrammer: 0xfdd835,
+} as const;
+export const ITEM_MARK_STYLE = { fontSize: '14px', color: '#ffffff', strokeColor: '#000000', strokeThickness: 3 } as const;
+// 仮・要確認(#48): アイテムの攻撃演出（アイテムから対象への線）の色・太さ・表示時間（ミリ秒）。
+export const ITEM_ATTACK_LINE = { color: 0xffffff, width: 3, durationMs: 150 } as const;
+// 仮・要確認(#48): 購入ボタンの配置。画面下端の行（アイテムを置けない行）に6個を横に並べる。
+export const ITEM_UI_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 34 } as const;
+export const ITEM_BUTTON_SIZE = { width: 154, height: 28, gap: 4 } as const;
+export const ITEM_BUTTON_COLORS = { fill: 0x1e3a2a, stroke: 0x6cff9c, text: '#ffffff' } as const;
+// 仮・要確認(#48): 購入ボタンの背景の不透明度。下端の行を流れるコードがボタン越しに見えるよう半透明にする。
+export const ITEM_BUTTON_FILL_ALPHA = 0.7;
+export const ITEM_BUTTON_FONT_SIZE = '13px';
+// 仮・要確認(#48): 結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。雇うメッセージ(y=42)と重ならない下側、購入ボタンの上。
+export const ITEM_MESSAGE_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 70 } as const;
+export const ITEM_MESSAGE_COLOR = '#b9f6ca';
+export const ITEM_MESSAGE_DURATION_MS = 2000;
