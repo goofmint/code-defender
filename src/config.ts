@@ -206,3 +206,28 @@ export const PENALTY_TEXT_COLOR = '#ff1744';
 export const PENALTY_TEXT_DURATION_MS = 800;
 export const PENALTY_TEXT_RISE_PX = 40;
 export const PENALTY_TEXT_FONT_SIZE = '20px';
+
+// 仮・要確認(#23): 企画書(6)は「ジュニア・ミドル・シニアの3ランクから雇える」とだけで、費用・人数・上限・操作は未記載。以下はすべて仮の値。
+// ランク表。表示名のほか、給料(#25/#33)・不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。
+export const ENGINEER_RANKS = [
+  { id: 'junior', label: 'ジュニア' },
+  { id: 'middle', label: 'ミドル' },
+  { id: 'senior', label: 'シニア' },
+] as const;
+// 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
+export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
+// 仮・要確認(#23): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。
+export const INITIAL_ENGINEER_RANKS = ['junior', 'junior', 'junior'] as const;
+// 仮・要確認(#23): エンジニアの上限人数。#27 で1人1ルートになるため、ルートの上限と揃える。
+export const MAX_ENGINEERS = MAX_ENGINEER_ROUTES;
+// 仮・要確認(#23): 雇うキー（ENGINEER_RANKS の順に対応）。移動・攻撃・リスタートのキーと重ならない。Phaser の KeyCodes のキー名。
+export const HIRE_KEYS = ['ONE', 'TWO', 'THREE'] as const;
+// 仮・要確認(#23): 雇う画面の配置。上端の行（出現セル列0・リリース地点と重ならない）。経過日数・資金表示の右。
+export const HIRE_UI_POSITION = { x: 300, y: 8 } as const;
+export const HIRE_BUTTON_SIZE = { width: 170, height: 28, gap: 10 } as const;
+export const HIRE_BUTTON_COLORS = { fill: 0x1e2a4a, stroke: 0x6c8cff, text: '#ffffff' } as const;
+export const HIRE_BUTTON_FONT_SIZE = '16px';
+// 仮・要確認(#23): 人数表示とメッセージの位置（ボタンの下）、メッセージの表示時間（ミリ秒）。
+export const HIRE_COUNT_POSITION = { x: 300, y: 42 } as const;
+export const HIRE_MESSAGE_POSITION = { x: 480, y: 42 } as const;
+export const HIRE_MESSAGE_DURATION_MS = 2000;
