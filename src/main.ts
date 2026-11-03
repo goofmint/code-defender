@@ -29,6 +29,7 @@ import {
 import {
   drawAttackEffect,
   drawCode,
+  drawElapsedDays,
   drawField,
   drawPlayer,
   drawReleasePoint,
@@ -44,6 +45,14 @@ import {
   stepSpawnTimer,
 } from './codeFlow';
 import type { CodeReleasedPayload, FlowingCode } from './codeFlow';
+import {
+  advanceElapsedMs,
+  createMonthElapsedEvent,
+  formatElapsedDays,
+  getCrossedMonths,
+  getElapsedDays,
+  MONTH_ELAPSED_EVENT,
+} from './gameTime';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
@@ -61,6 +70,10 @@ class MainScene extends Phaser.Scene {
   private lastAttackTime: number | null = null;
   // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
   private attackPointerHeld = false;
+  // ゲーム内の経過ミリ秒（累積）。一時停止・休暇中に止めるかは未決定。止める場合は加算をやめるだけでよい。
+  private elapsedMs = 0;
+  private elapsedDaysText?: Phaser.GameObjects.Text;
+  private displayedDays = 0;
 
   constructor() {
     super('main');
@@ -68,6 +81,7 @@ class MainScene extends Phaser.Scene {
 
   create(): void {
     drawField(this);
+    this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS);
     this.codes = [];
     this.spawnElapsed = new Map();
@@ -132,6 +146,7 @@ class MainScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    this.advanceClock(delta);
     this.updatePlayer(delta);
     this.updateCodes(delta);
   }
@@ -183,6 +198,21 @@ class MainScene extends Phaser.Scene {
     }
     const next = clampToField(movePlayerToward(position, target, direction, delta));
     player.setPosition(next.x, next.y);
+  }
+
+  // 経過時間を累積し、日数表示を更新して、越えた月ごとに MONTH_ELAPSED_EVENT を1回ずつ発行する。
+  // 後続タスクは `scene.events.on(MONTH_ELAPSED_EVENT, ...)` で接続する（#19 の給料など）。
+  private advanceClock(delta: number): void {
+    const prev = this.elapsedMs;
+    this.elapsedMs = advanceElapsedMs(prev, delta);
+    const days = getElapsedDays(this.elapsedMs);
+    if (days !== this.displayedDays) {
+      this.displayedDays = days;
+      this.elapsedDaysText?.setText(formatElapsedDays(days));
+    }
+    for (const month of getCrossedMonths(prev, this.elapsedMs)) {
+      this.events.emit(MONTH_ELAPSED_EVENT, createMonthElapsedEvent(month));
+    }
   }
 
   private updateCodes(delta: number): void {
