@@ -395,8 +395,12 @@ export const drawHireButtons = (
       .container(x, HIRE_UI_POSITION.y, [background, label])
       .setSize(width, height)
       .setDepth(ELAPSED_DAYS_DEPTH);
-    // コンテナの原点は左上ではなく中心。当たり判定を矩形（左上基準）で明示する。
-    button.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
+    // コンテナの表示位置は左上、原点は中心。InputManager は判定時に local 座標へ displayOrigin（幅・高さの半分）を加算するため、
+    // 矩形を半分ずらして、表示範囲（左上 0,0〜width,height）と当たり判定を一致させる。
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
     // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
     button.on('pointerdown', () => onHire(entry.rank));
     return button;
