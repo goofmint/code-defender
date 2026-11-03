@@ -104,7 +104,8 @@ class MainScene extends Phaser.Scene {
     this.elapsedMs = 0;
     this.displayedDays = 0;
     this.lastAttackTime = null;
-    this.attackPointerHeld = false;
+    // タップでリスタートしたとき、押したままのポインターで主人公が動かないよう、離すまでポインター移動を止める（updatePlayer で解除）。
+    this.attackPointerHeld = this.input.activePointer.isDown;
     this.gameOver = INITIAL_GAME_OVER_STATE;
     drawField(this);
     this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
