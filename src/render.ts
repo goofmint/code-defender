@@ -43,7 +43,12 @@ import {
   GAME_OVER_OVERLAY,
   GAME_OVER_RESTART_TEXT,
   GAME_OVER_TEXT,
+  PENALTY_TEXT_COLOR,
+  PENALTY_TEXT_DURATION_MS,
+  PENALTY_TEXT_FONT_SIZE,
+  PENALTY_TEXT_RISE_PX,
 } from './config';
+import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
@@ -261,6 +266,27 @@ export const drawDefeatEffect = (scene: Phaser.Scene, position: Point): void => 
     alpha: 0,
     duration: DEFEAT_EFFECT_DURATION_MS,
     onComplete: () => ring.destroy(),
+  });
+};
+
+// 減点表示（コード位置から浮かんで消える赤い文字）。
+export const drawPenaltyText = (scene: Phaser.Scene, position: Point, amount: number): void => {
+  const text = scene.add
+    .text(position.x, position.y, formatPenalty(amount), {
+      fontSize: PENALTY_TEXT_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: PENALTY_TEXT_COLOR,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setOrigin(0.5)
+    .setDepth(ATTACK_EFFECT_DEPTH);
+  scene.tweens.add({
+    targets: text,
+    y: position.y - PENALTY_TEXT_RISE_PX,
+    alpha: 0,
+    duration: PENALTY_TEXT_DURATION_MS,
+    onComplete: () => text.destroy(),
   });
 };
 
