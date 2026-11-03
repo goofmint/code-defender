@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { INCIDENT_DAMAGE_UNIT_YEN, INCIDENT_DEFAULT_DAMAGE_POINTS } from './config';
+import { INCIDENT_DAMAGE_UNIT_YEN, INCIDENT_DEFAULT_DAMAGE_POINTS, REVENUE_PER_NORMAL_CODE } from './config';
 import type { CodeReleasedPayload } from './codeFlow';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
 import type { GameOverState } from './gameOver';
@@ -11,6 +11,7 @@ import {
   settleIncident,
 } from './incident';
 import { MALICIOUS_CODE_TYPE_DEFINITIONS, MALICIOUS_CODE_TYPES } from './maliciousCode';
+import { sellReleasedCode } from './sales';
 
 const malicious = (id: number, maliciousType?: CodeReleasedPayload['maliciousType']): CodeReleasedPayload => ({
   id,
@@ -103,12 +104,16 @@ describe('ゲームオーバー後のリリース', () => {
   });
 });
 
-// シーンと同じ順序: settleIncident → 資金更新 → checkBankruptcy（funds-changed → onFundsChanged）。
+// シーンと同じ順序: 倒産していたら残りは処理しない（updateCodes）→ 売上（#17）→ settleIncident → 資金更新 → checkBankruptcy
+// （onCodeReleased → funds-changed → onFundsChanged）。
 const releaseAll = (funds: number, payloads: readonly CodeReleasedPayload[]) => {
   let currentFunds = funds;
   let state: GameOverState = INITIAL_GAME_OVER_STATE;
   let count = 0;
   for (const payload of payloads) {
+    if (state.over) break;
+    currentFunds = sellReleasedCode(currentFunds, payload.kind);
+    state = checkBankruptcy(state, currentFunds, 100).state;
     const incident = settleIncident(currentFunds, payload, state);
     if (incident === null) continue;
     count += 1;
@@ -119,9 +124,9 @@ const releaseAll = (funds: number, payloads: readonly CodeReleasedPayload[]) => 
 };
 
 describe('同一フレームの複数リリース', () => {
-  it('正常コードだけなら資金は減らない', () => {
+  it('正常コードだけなら資金は減らない（売上だけ増える）', () => {
     expect(releaseAll(1000, [normal(1), normal(2)])).toEqual({
-      funds: 1000,
+      funds: 1000 + REVENUE_PER_NORMAL_CODE * 2,
       state: INITIAL_GAME_OVER_STATE,
       count: 0,
     });
@@ -143,6 +148,6 @@ describe('同一フレームの複数リリース', () => {
   it('正常コードを挟んでも不正コードだけ精算する', () => {
     const result = releaseAll(1000000, [malicious(1, 'typo'), normal(2), malicious(3, 'bug')]);
     expect(result.count).toBe(2);
-    expect(result.funds).toBe(1000000 - (3 + 10) * INCIDENT_DAMAGE_UNIT_YEN);
+    expect(result.funds).toBe(1000000 + REVENUE_PER_NORMAL_CODE - (3 + 10) * INCIDENT_DAMAGE_UNIT_YEN);
   });
 });
