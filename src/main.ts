@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
-import { drawField, drawPlayer } from './render';
+import { ENGINEER_SPAWN_CELLS } from './config';
+import { drawField, drawPlayer, drawReleasePoint, drawRoutes } from './render';
+import { createRoutes } from './route';
 
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -10,6 +12,8 @@ class MainScene extends Phaser.Scene {
 
   create(): void {
     drawField(this);
+    drawRoutes(this, createRoutes(ENGINEER_SPAWN_CELLS));
+    drawReleasePoint(this);
     drawPlayer(this);
   }
 }
