@@ -15,7 +15,17 @@ import {
   routePixelPoints,
   SPAWN_MARKER_STYLE,
 } from './route';
-import type { Route } from './route';
+import type { Point, Route } from './route';
+import {
+  CODE_CORNER_RADIUS_RATIO,
+  CODE_SIZE,
+  CODE_STAR_INNER_RATIO,
+  CODE_STAR_SPIKES,
+  CODE_STROKE_WIDTH,
+  CODE_STYLES,
+  starPoints,
+} from './code';
+import type { CodeKind } from './code';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
 
 // 後続オブジェクトより常に下に描画する。
@@ -111,5 +121,69 @@ export const drawPlayer = (scene: Phaser.Scene): Phaser.GameObjects.Graphics => 
   const start = getPlayerStartPosition();
   g.setPosition(start.x, start.y);
   g.setDepth(PLAYER_DEPTH);
+  return g;
+};
+
+// 仮: リリース地点(0)とプレイヤー(1)の間。
+const CODE_DEPTH = 0.5;
+
+// コードを描く。ローカル原点を中心に CODE_SIZE 内へ収め、position に置く。
+export const drawCode = (
+  scene: Phaser.Scene,
+  kind: CodeKind,
+  position: Point,
+): Phaser.GameObjects.Graphics => {
+  const g = scene.add.graphics();
+  const style = CODE_STYLES[kind];
+  const s = CODE_SIZE;
+  const { shape, pattern } = style;
+  g.fillStyle(style.fillColor, 1);
+  g.lineStyle(CODE_STROKE_WIDTH, style.strokeColor, 1);
+  switch (shape) {
+    case 'roundedRect': {
+      const r = s * CODE_CORNER_RADIUS_RATIO;
+      g.fillRoundedRect(-s / 2, -s / 2, s, s, r);
+      g.strokeRoundedRect(-s / 2, -s / 2, s, s, r);
+      break;
+    }
+    case 'star': {
+      const points = starPoints(s, CODE_STAR_SPIKES, CODE_STAR_INNER_RATIO);
+      g.beginPath();
+      points.forEach((p, i) => (i === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y)));
+      g.closePath();
+      g.fillPath();
+      g.strokePath();
+      break;
+    }
+    default: {
+      const unreachable: never = shape;
+      throw new Error(`未対応の形: ${String(unreachable)}`);
+    }
+  }
+  g.fillStyle(style.patternColor, 1);
+  switch (pattern) {
+    case 'lines': {
+      // コードの行を表す短い横線 3 本（長さを変えて行らしくする）。
+      const h = s * 0.08;
+      const lengths = [0.5, 0.35, 0.45];
+      lengths.forEach((ratio, i) => {
+        g.fillRect(-s * 0.25, -s * 0.2 + i * s * 0.2, s * ratio, h);
+      });
+      break;
+    }
+    case 'exclamation': {
+      // 「!」: 縦棒 + 点。
+      const barW = s * 0.1;
+      g.fillRect(-barW / 2, -s * 0.22, barW, s * 0.26);
+      g.fillCircle(0, s * 0.16, s * 0.07);
+      break;
+    }
+    default: {
+      const unreachable: never = pattern;
+      throw new Error(`未対応の模様: ${String(unreachable)}`);
+    }
+  }
+  g.setPosition(position.x, position.y);
+  g.setDepth(CODE_DEPTH);
   return g;
 };
