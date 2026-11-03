@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
-import { ENGINEER_SPAWN_CELLS, PLAYER_MOVE_KEYS, PLAYER_POINTER_DEAD_ZONE } from './config';
+import {
+  CODE_SAMPLES,
+  ENGINEER_SPAWN_CELLS,
+  PLAYER_MOVE_KEYS,
+  PLAYER_POINTER_DEAD_ZONE,
+} from './config';
 import {
   clampToField,
   getMoveDirection,
@@ -9,8 +14,8 @@ import {
   movePlayer,
   movePlayerToward,
 } from './player';
-import { drawField, drawPlayer, drawReleasePoint, drawRoutes } from './render';
-import { createRoutes } from './route';
+import { drawCode, drawField, drawPlayer, drawReleasePoint, drawRoutes } from './render';
+import { cellCenter, createRoutes } from './route';
 
 type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[]>;
 
@@ -27,6 +32,7 @@ class MainScene extends Phaser.Scene {
     drawRoutes(this, createRoutes(ENGINEER_SPAWN_CELLS));
     drawReleasePoint(this);
     this.player = drawPlayer(this);
+    CODE_SAMPLES.forEach(({ kind, cell }) => drawCode(this, kind, cellCenter(cell)));
     const keyboard = this.input.keyboard;
     if (keyboard) {
       const register = (names: readonly string[]): Phaser.Input.Keyboard.Key[] =>
