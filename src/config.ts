@@ -131,3 +131,21 @@ export const ENGINEER_MONTHLY_SALARY = 300000;
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
 // 仮・要確認: 企画書に記載なし。資金の表示位置。経過日数表示のすぐ下。
 export const FUNDS_POSITION = { x: 12, y: 40 } as const;
+
+// 仮・要確認: 企画書(3-1)では不正なコードの種類ごとの見た目・強さ・損害額は未定。以下はすべて仮の値。
+// 見た目: 不正コード共通の赤い星形＋「!」に、星の右上へ付ける小円（バッジ）の色と大きさで種類を区別する。
+// 正常コードの水色/白と紛らわしくならないよう、水色・白は使わない。脆弱性は重大度が高いほど濃く・大きくする。
+// 強さ(hp)・損害額(damage)は整数。脆弱性は重大度が高いほど大きい。
+export const MALICIOUS_CODE_BADGE_BORDER_COLOR = 0xffffff;
+export const MALICIOUS_CODE_BADGE_BORDER_WIDTH = 1;
+export const MALICIOUS_CODE_PARAMS = {
+  vulnerabilityCritical: { badgeColor: 0x4a0000, badgeRadiusRatio: 0.26, hp: 5, damage: 50 },
+  vulnerabilityMajor: { badgeColor: 0xb71c1c, badgeRadiusRatio: 0.22, hp: 4, damage: 30 },
+  vulnerabilityMinor: { badgeColor: 0xff6d00, badgeRadiusRatio: 0.18, hp: 3, damage: 15 },
+  vulnerabilityInfo: { badgeColor: 0xffee58, badgeRadiusRatio: 0.14, hp: 2, damage: 5 },
+  spaghetti: { badgeColor: 0xab47bc, badgeRadiusRatio: 0.18, hp: 4, damage: 20 },
+  bug: { badgeColor: 0x43a047, badgeRadiusRatio: 0.18, hp: 2, damage: 10 },
+  duplication: { badgeColor: 0x8d6e63, badgeRadiusRatio: 0.18, hp: 3, damage: 8 },
+  lowPerformance: { badgeColor: 0x9e9e9e, badgeRadiusRatio: 0.18, hp: 3, damage: 12 },
+  typo: { badgeColor: 0xec407a, badgeRadiusRatio: 0.18, hp: 1, damage: 3 },
+} as const;

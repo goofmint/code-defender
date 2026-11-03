@@ -26,6 +26,8 @@ import {
   starPoints,
 } from './code';
 import type { CodeKind } from './code';
+import { getMaliciousCodeAppearance } from './maliciousCode';
+import type { MaliciousCodeType } from './maliciousCode';
 import {
   ATTACK_EFFECT_COLOR,
   ATTACK_EFFECT_DURATION_MS,
@@ -142,6 +144,7 @@ export const drawCode = (
   scene: Phaser.Scene,
   kind: CodeKind,
   position: Point,
+  maliciousType?: MaliciousCodeType,
 ): Phaser.GameObjects.Graphics => {
   const g = scene.add.graphics();
   const style = CODE_STYLES[kind];
@@ -192,6 +195,14 @@ export const drawCode = (
       const unreachable: never = pattern;
       throw new Error(`未対応の模様: ${String(unreachable)}`);
     }
+  }
+  if (kind === 'malicious' && maliciousType !== undefined) {
+    // 種類ごとの差分: 星の右上の小円（バッジ）。
+    const badge = getMaliciousCodeAppearance(maliciousType);
+    g.fillStyle(badge.badgeColor, 1);
+    g.lineStyle(badge.badgeBorderWidth, badge.badgeBorderColor, 1);
+    g.fillCircle(s * 0.35, -s * 0.35, badge.badgeRadius);
+    g.strokeCircle(s * 0.35, -s * 0.35, badge.badgeRadius);
   }
   g.setPosition(position.x, position.y);
   g.setDepth(CODE_DEPTH);
