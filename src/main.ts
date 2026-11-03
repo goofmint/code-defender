@@ -59,6 +59,7 @@ import type { MonthElapsedEvent } from './gameTime';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangeReason } from './funds';
 import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
+import { getReleaseRevenue, sellReleasedCode } from './sales';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
@@ -93,8 +94,10 @@ class MainScene extends Phaser.Scene {
     this.funds = INITIAL_FUNDS;
     this.fundsText = drawFunds(this, this.funds);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
+    this.events.on(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
+      this.events.off(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     });
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS, Math.random);
     this.codes = [];
@@ -246,6 +249,13 @@ class MainScene extends Phaser.Scene {
     );
     this.changeFunds(paid.fundsAfter, 'salary');
     this.events.emit(SALARY_PAID_EVENT, paid);
+  }
+
+  // 正常なコードがリリースされたら売上を加算する。不正コード（売上 0）では資金を変えない。
+  private onCodeReleased(payload: CodeReleasedPayload): void {
+    if (getReleaseRevenue(payload.kind) > 0) {
+      this.changeFunds(sellReleasedCode(this.funds, payload.kind), 'sales');
+    }
   }
 
   private updateCodes(delta: number): void {
