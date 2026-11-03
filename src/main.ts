@@ -89,13 +89,9 @@ import {
 import type { GameOverState } from './gameOver';
 import { NORMAL_CODE_PENALIZED_EVENT, resolveNormalCodePenalty } from './penalty';
 import type { NormalCodePenalizedPayload } from './penalty';
-import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
-import {
-  getMonthlyItemFees,
-  ITEM_FEE_PAID_EVENT,
-  settleMonthlyItemFees,
-  shouldChargeItemFees,
-} from './itemFee';
+import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
+import { ITEM_FEE_PAID_EVENT } from './itemFee';
+import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
@@ -458,18 +454,17 @@ class MainScene extends Phaser.Scene {
 
   // 月の境界ごとに給料、続けて月額アイテムの費用を引く。エンジニア数は仮に現在のルート数とする（主人公の給料は含めない）。
   private onMonthElapsed(event: MonthElapsedEvent): void {
-    const paid = settleMonthlySalary(
+    const { salary, itemFee } = settleMonthBoundary(
       this.funds,
       event.month,
       getEngineerSalaries(this.routes.length, ENGINEER_MONTHLY_SALARY),
+      this.placedItems,
+      this.gameOver.over,
     );
-    this.changeFunds(paid.fundsAfter, 'salary');
-    this.events.emit(SALARY_PAID_EVENT, paid);
-    // 給料のあとに月額アイテムの費用を引く（給料で倒産していたら引かない）。
-    if (!shouldChargeItemFees(this.gameOver.over, getMonthlyItemFees(this.placedItems).itemCount)) {
-      return;
-    }
-    const itemFee = settleMonthlyItemFees(this.funds, event.month, this.placedItems);
+    this.changeFunds(salary.fundsAfter, 'salary');
+    this.events.emit(SALARY_PAID_EVENT, salary);
+    // 給料のあとに月額アイテムの費用を引く（給料で倒産していたら itemFee は null）。
+    if (itemFee === null) return;
     this.changeFunds(itemFee.fundsAfter, 'itemFee');
     this.events.emit(ITEM_FEE_PAID_EVENT, itemFee);
   }

@@ -15,7 +15,8 @@ import {
 } from './itemFee';
 import type { ItemFeePaidEvent } from './itemFee';
 import type { PlacedItem } from './itemPlacement';
-import { getEngineerSalaries, settleMonthlySalary } from './salary';
+import { settleMonthBoundary } from './monthBoundary';
+import { getEngineerSalaries } from './salary';
 
 const placed = (id: number, itemType: ItemType): PlacedItem => ({
   id,
@@ -226,15 +227,10 @@ describe('給料と同じ月: 給料 → アイテム費の順', () => {
   const items = [placed(0, 'codeRabbit')]; // 月額 200000
   const salaries = getEngineerSalaries(1, ENGINEER_MONTHLY_SALARY);
 
-  // main.ts の onMonthElapsed と同じ手順。
-  const monthBoundary = (funds: number, over: boolean) => {
-    const month = createMonthElapsedEvent(1).month;
-    const salary = settleMonthlySalary(funds, month, salaries);
-    const gameOver = over || isBankrupt(salary.fundsAfter);
-    const fee = shouldChargeItemFees(gameOver, getMonthlyItemFees(items).itemCount)
-      ? settleMonthlyItemFees(salary.fundsAfter, month, items)
-      : null;
-    return { salary, fee };
+  // main.ts の onMonthElapsed が使う精算と同じ関数（settleMonthBoundary）を呼ぶ。
+  const monthBoundary = (funds: number, over: boolean, placedItems: readonly PlacedItem[] = items) => {
+    const { salary, itemFee } = settleMonthBoundary(funds, createMonthElapsedEvent(1).month, salaries, placedItems, over);
+    return { salary, fee: itemFee };
   };
 
   it('給料後の資金からアイテム費を引く', () => {
@@ -253,6 +249,15 @@ describe('給料と同じ月: 給料 → アイテム費の順', () => {
     const { fee } = monthBoundary(ENGINEER_MONTHLY_SALARY + 1, false);
     expect(fee?.fundsBefore).toBe(1);
     expect(fee?.fundsAfter).toBe(-199999);
+  });
+
+  it('ゲームオーバー中なら給料は精算してもアイテム費は null', () => {
+    expect(monthBoundary(10000000, true).fee).toBeNull();
+  });
+
+  it('月額アイテムが0個ならアイテム費は null（1回払いだけでも同じ）', () => {
+    expect(monthBoundary(10000000, false, []).fee).toBeNull();
+    expect(monthBoundary(10000000, false, [placed(0, 'linter')]).fee).toBeNull();
   });
 });
 
