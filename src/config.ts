@@ -81,13 +81,26 @@ export const CODE_STAR_INNER_RATIO = 0.6;
 export const CODE_CORNER_RADIUS_RATIO = 0.2;
 export const CODE_STROKE_WIDTH = 2;
 
-// 仮・要確認: コードの移動速度（ピクセル/秒）。企画書に数値の記載なし。主人公(PLAYER_SPEED)より遅くする。
-// 後続の「時間による加速」(#14)で変わる前提の初期値。
+// 仮・要確認: ゲーム開始時のコードの移動速度（ピクセル/秒）。企画書に数値の記載なし。主人公(PLAYER_SPEED)より遅くする。
+// 時間とともに速くなる(#14)。経過時間ごとの値は difficulty.ts の codeSpeedAt で求める。
 export const CODE_SPEED = 80;
 // 仮・要確認: ルートごとのコード生成間隔（ミリ秒）。企画書に数値の記載なし。
 export const CODE_SPAWN_INTERVAL_MS = 2000;
-// 仮・要確認: 不正コードの割合（0〜1）。企画書の「ランク別割合」(#12/#13)が入るまでの固定値。
+// 仮・要確認: ゲーム開始時の不正コードの割合（0〜1）。企画書の「ランク別割合」(#12/#13)が入るまでの開始値。
+// 時間とともに増える(#14)。経過時間ごとの値は difficulty.ts の maliciousRateAt で求める。
 export const CODE_MALICIOUS_RATE = 0.3;
+
+// 仮・要確認(#14): 企画書は「時間とともにコードの流れが速くなり、不正なコードも増える」とだけで、数値・増え方は未記載。
+// 難易度を上げる間隔（ミリ秒）。経過時間をこの間隔で区切り、1段階ごとに速度と不正コード率を上げる。
+export const DIFFICULTY_STEP_MS = 30000;
+// 仮・要確認(#14): 1段階ごとのコード速度の増加量（ピクセル/秒）。
+export const CODE_SPEED_INCREMENT = 8;
+// 仮・要確認(#14): コード速度の上限（ピクセル/秒）。主人公(PLAYER_SPEED)より遅くする。
+export const CODE_SPEED_MAX = 160;
+// 仮・要確認(#14): 1段階ごとの不正コード率の増加量（0〜1）。
+export const CODE_MALICIOUS_RATE_INCREMENT = 0.02;
+// 仮・要確認(#14): 不正コード率の上限（0〜1）。
+export const CODE_MALICIOUS_RATE_MAX = 0.5;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
 // 移動キーではないので、移動のキーボード優先判定には含めない。
