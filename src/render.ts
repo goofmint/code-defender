@@ -32,8 +32,10 @@ import {
   ATTACK_HIT_FLASH_DURATION_MS,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
+  FUNDS_POSITION,
 } from './config';
 import { formatElapsedDays } from './gameTime';
+import { formatFunds } from './funds';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
 
 // 後続オブジェクトより常に下に描画する。
@@ -235,6 +237,17 @@ const ELAPSED_DAYS_DEPTH = 2;
 export const drawElapsedDays = (scene: Phaser.Scene, days: number): Phaser.GameObjects.Text =>
   scene.add
     .text(ELAPSED_DAYS_POSITION.x, ELAPSED_DAYS_POSITION.y, formatElapsedDays(days), {
+      fontSize: ELAPSED_DAYS_STYLE.fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ELAPSED_DAYS_STYLE.color,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
+export const drawFunds = (scene: Phaser.Scene, funds: number): Phaser.GameObjects.Text =>
+  scene.add
+    .text(FUNDS_POSITION.x, FUNDS_POSITION.y, formatFunds(funds), {
       fontSize: ELAPSED_DAYS_STYLE.fontSize,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: ELAPSED_DAYS_STYLE.color,

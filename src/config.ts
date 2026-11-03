@@ -122,3 +122,12 @@ export const ELAPSED_DAYS_STYLE = {
   strokeColor: '#000000',
   strokeThickness: 4,
 } as const;
+
+// 仮・要確認: 企画書に記載なし。初期資金（円）。
+export const INITIAL_FUNDS = 1000000;
+// 仮・要確認: 企画書に記載なし。エンジニア1人の月給（円）。全ランク一律。ランク別は #23 以降。
+export const ENGINEER_MONTHLY_SALARY = 300000;
+// 仮・要確認: 企画書に記載なし。資金の表示書式。「資金: 1,000,000円」。数値部分は3桁区切り。
+export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
+// 仮・要確認: 企画書に記載なし。資金の表示位置。経過日数表示のすぐ下。
+export const FUNDS_POSITION = { x: 12, y: 40 } as const;
