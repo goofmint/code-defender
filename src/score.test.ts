@@ -11,7 +11,12 @@ const event = (delta: number, reason: FundsChangeReason): FundsChangedEvent => (
 });
 
 // FundsChangeReason の全値。Record にしているので、理由が増えるとここで型エラーになり、足し忘れない。
-const REASONS: Record<FundsChangeReason, true> = { salary: true, sales: true, penalty: true };
+const REASONS: Record<FundsChangeReason, true> = {
+  salary: true,
+  sales: true,
+  penalty: true,
+  damage: true,
+};
 const NON_SALES_REASONS = (Object.keys(REASONS) as FundsChangeReason[]).filter(
   (reason) => reason !== 'sales',
 );
@@ -58,12 +63,15 @@ describe('accumulateScore: 理由', () => {
     expect(accumulateScore(100, event(20000, reason), false)).toBe(100);
   });
 
-  // 'penalty'（正常なコードへの攻撃）と 'salary'（給料）は資金を減らす。スコアは変えない。
+  // 'penalty'（正常なコードへの攻撃）、'damage'（不正コードのリリースによる損害）、'salary'（給料）は資金を減らす。スコアは変えない。
   // 資金が正→負になる（倒産する）イベントも含める。
   it.each([
     ['penalty', 0, -50000, 1000000, 950000],
     ['penalty', 100, -50000, 1000000, 950000],
     ['penalty', 100, -50000, 30000, -20000],
+    ['damage', 0, -30000, 1000000, 970000],
+    ['damage', 100, -30000, 1000000, 970000],
+    ['damage', 100, -30000, 10000, -20000],
     ['salary', 0, -300000, 1000000, 700000],
     ['salary', 100, -300000, 1000000, 700000],
     ['salary', 100, -300000, 100000, -200000],
