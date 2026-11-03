@@ -397,7 +397,7 @@ class MainScene extends Phaser.Scene {
       return;
     }
     this.tweens.pauseAll();
-    drawGameOver(this, this.score);
+    drawGameOver(this, this.score, getElapsedDays(this.elapsedMs));
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
   }
 
