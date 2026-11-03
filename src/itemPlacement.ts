@@ -4,6 +4,7 @@ import { canAttack, findAttackTarget } from './attack';
 import type { AttackTarget } from './attack';
 import {
   ITEM_ATTACK_COOLDOWN_MS,
+  ITEM_BLOCKED_CELLS,
   ITEM_BLOCKED_ROWS,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_PRICE_TIERS,
@@ -78,6 +79,7 @@ export type PlacementContext = {
   readonly placedItems: readonly PlacedItem[];
   // UI と重なる行。既定は config の ITEM_BLOCKED_ROWS。
   readonly blockedRows?: readonly number[];
+  // HUD と重なるセル。既定は config の ITEM_BLOCKED_CELLS。
   readonly blockedCells?: readonly GridCell[];
 };
 
@@ -86,7 +88,7 @@ const isOpenTerrain = (cell: GridCell, context: PlacementContext): boolean => {
   if (!Number.isInteger(cell.col) || !Number.isInteger(cell.row)) return false;
   if (cell.col < 0 || cell.col >= FIELD_COLS || cell.row < 0 || cell.row >= FIELD_ROWS) return false;
   if ((context.blockedRows ?? ITEM_BLOCKED_ROWS).includes(cell.row)) return false;
-  if (context.blockedCells?.some((blocked) => isSameCell(blocked, cell))) return false;
+  if ((context.blockedCells ?? ITEM_BLOCKED_CELLS).some((blocked) => isSameCell(blocked, cell))) return false;
   if (isSameCell(cell, RELEASE_POINT_CELL)) return false;
   return !context.routes.some((route) => getRouteCells(route).some((c) => isSameCell(c, cell)));
 };

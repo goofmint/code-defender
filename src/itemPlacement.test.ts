@@ -141,9 +141,14 @@ describe('isPlaceableCell: 置ける場所', () => {
   const lastRow = FIELD_ROWS - 1;
 
   it.each([
-    [{ col: 0, row: 1 }, true], // 左端の列（ルートでない）
+    [{ col: 0, row: 2 }, true], // 左端の列（ルートでない）
     [{ col: lastCol, row: 1 }, true], // 右端の列
-    [{ col: 3, row: 1 }, true],
+    [{ col: 3, row: 2 }, true],
+    [{ col: 5, row: 1 }, false], // HUD と重なるセルの右端
+    [{ col: 6, row: 1 }, true], // HUD の右隣
+    [{ col: 0, row: 1 }, false],
+    [{ col: 1, row: 2 }, true], // 行2は HUD と重ならない（col 0〜5）
+    [{ col: 5, row: 2 }, true],
     [{ col: 3, row: lastRow - 1 }, true], // UI の行の1つ内側
     [{ col: 3, row: 0 }, false], // 上端 UI 行
     [{ col: 3, row: lastRow }, false], // 下端 UI 行
@@ -187,9 +192,10 @@ describe('isPlaceableCell: 置ける場所', () => {
   });
 
   it('blockedRows / blockedCells を引数で差し替えられる', () => {
-    expect(isPlaceableCell({ col: 3, row: 1 }, { ...ctx, blockedRows: [1] })).toBe(false);
+    expect(isPlaceableCell({ col: 8, row: 1 }, { ...ctx, blockedRows: [1] })).toBe(false);
     expect(isPlaceableCell({ col: 3, row: 0 }, { ...ctx, blockedRows: [] })).toBe(true);
-    expect(isPlaceableCell({ col: 3, row: 1 }, { ...ctx, blockedCells: [{ col: 3, row: 1 }] })).toBe(false);
+    expect(isPlaceableCell({ col: 3, row: 1 }, { ...ctx, blockedCells: [] })).toBe(true);
+    expect(isPlaceableCell({ col: 8, row: 1 }, { ...ctx, blockedCells: [{ col: 8, row: 1 }] })).toBe(false);
   });
 });
 
@@ -222,6 +228,7 @@ describe('purchaseItem: 置く場所と重複', () => {
     ['出現セル', route.spawn],
     ['リリース地点', RELEASE_POINT_CELL],
     ['UI 行（上）', { col: 3, row: 0 }],
+    ['HUD と重なるセル', { col: 3, row: 1 }],
     ['UI 行（下）', { col: 3, row: FIELD_ROWS - 1 }],
     ['範囲外', { col: -1, row: 1 }],
   ])('%s は notPlaceable で資金・配列は変わらない', (_name, cell) => {
@@ -278,7 +285,7 @@ describe('purchaseItem: 成功時の結果', () => {
     let current = state();
     const ids: number[] = [];
     for (let col = 1; col <= 3; col++) {
-      const result = purchaseItem(current, 'linter', { col, row: 1 }, options);
+      const result = purchaseItem(current, 'linter', { col, row: 2 }, options);
       if (!result.ok) throw new Error('purchase failed');
       ids.push(result.item.id);
       current = { ...current, placedItems: result.placedItems, nextId: result.item.id + 1, funds: result.fundsAfter };

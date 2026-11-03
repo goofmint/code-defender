@@ -277,6 +277,9 @@ export const ITEM_PRICE_TIER_BY_TYPE = {
 } as const;
 // 仮・要確認(#48): アイテムを置けない行（UI と重なる行）。上端=雇うボタン・HUD、下端=アイテム購入ボタン。
 export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
+// 仮・要確認(#48): アイテムを置けないセル。左上の HUD（経過日数 y=8〜、資金 y=40〜64、累計売上 y=72〜・幅およそ300px）が
+// 行1(y=60〜120)の左側のセルと重なるため、行1の col 0〜5 を置けないセルにする。
+export const ITEM_BLOCKED_CELLS = [0, 1, 2, 3, 4, 5].map((col) => ({ col, row: 1 }));
 // 仮・要確認(#48): アイテム購入キー（ITEM_TYPES の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・リスタートと重ならない。Phaser の KeyCodes のキー名。
 export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
