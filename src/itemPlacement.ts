@@ -12,7 +12,7 @@ import {
   RELEASE_POINT_CELL,
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
-import { getItemRange, ITEM_TYPES } from './item';
+import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
@@ -175,9 +175,11 @@ export const formatItemMessage = (result: PurchaseResult, itemType: string): str
 // ボタン表示の番号は 4 から（1〜3 は雇うキー）。
 const ITEM_BUY_KEY_OFFSET = 4;
 
-// 購入ボタンの文言。「[4] Linter 5万円」。
-export const formatItemButton = (index: number, itemType: ItemType): string =>
-  `[${index + ITEM_BUY_KEY_OFFSET}] ${ITEM_SHORT_NAMES[itemType]} ${getItemPrice(itemType) / 10000}万円`;
+// 購入ボタンの文言。「[5] Linter 5万円」。月額払いは「[4] CodeRabbit 20万/月」（ボタン幅 154px に収めるため「円」を省く）。
+export const formatItemButton = (index: number, itemType: ItemType): string => {
+  const unit = ITEM_DEFINITIONS[itemType].payment === 'monthly' ? '万/月' : '万円';
+  return `[${index + ITEM_BUY_KEY_OFFSET}] ${ITEM_SHORT_NAMES[itemType]} ${getItemPrice(itemType) / 10000}${unit}`;
+};
 
 // アイテムの範囲内で最も近い不正なコード。正常なコードは近くても除く。境界ちょうどは範囲内。なければ null。
 export const findItemTarget = <T extends AttackTarget>(

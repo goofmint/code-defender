@@ -322,7 +322,8 @@ describe('formatItemMessage / formatItemButton', () => {
 
   it('ボタンは 4 番から始まる', () => {
     expect(formatItemButton(1, 'linter')).toBe('[5] Linter 5万円');
-    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 20万円');
+    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 20万/月');
+    expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 20万/月');
   });
 });
 
