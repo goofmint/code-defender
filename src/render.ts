@@ -36,19 +36,22 @@ export const drawPlayer = (scene: Phaser.Scene): Phaser.GameObjects.Graphics => 
   const headR = u * 0.2;
   const bodyW = u * 0.5;
   const bodyH = u * 0.4;
-  const bodyTop = -u / 2 + headR * 2;
+  // 図形全体（高さ 0.8u）が縦方向の中心に来るよう、上端を -0.4u にする。
+  const top = -u * 0.4;
+  const bodyTop = top + headR * 2;
   // 胴体
   g.fillStyle(PLAYER_COLORS.body, 1);
   g.fillRect(-bodyW / 2, bodyTop, bodyW, bodyH);
   // 頭と髪
   g.fillStyle(PLAYER_COLORS.skin, 1);
-  g.fillCircle(0, -u / 2 + headR, headR);
+  g.fillCircle(0, top + headR, headR);
   g.fillStyle(PLAYER_COLORS.hair, 1);
-  g.fillRect(-headR, -u / 2, headR * 2, headR * 0.6);
+  g.fillRect(-headR, top, headR * 2, headR * 0.6);
   // 胴体前のノートPC
   g.fillStyle(PLAYER_COLORS.laptop, 1);
   g.fillRect(-u * 0.25, bodyTop + bodyH * 0.5, u * 0.5, u * 0.2);
-  g.setPosition(getPlayerStartPosition().x, getPlayerStartPosition().y);
+  const start = getPlayerStartPosition();
+  g.setPosition(start.x, start.y);
   g.setDepth(PLAYER_DEPTH);
   return g;
 };
