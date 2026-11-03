@@ -42,6 +42,7 @@ import {
   GAME_OVER_FONT_SIZES,
   GAME_OVER_OVERLAY,
   GAME_OVER_RESTART_TEXT,
+  GAME_OVER_SCORE_FONT_SIZE,
   GAME_OVER_TEXT,
   HIRE_BUTTON_COLORS,
   HIRE_BUTTON_FONT_SIZE,
@@ -58,6 +59,7 @@ import {
 import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
+import { formatScore } from './score';
 import { formatEngineerCount, formatHireButton } from './engineer';
 import type { EngineerRank } from './engineer';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
@@ -327,11 +329,18 @@ export const drawFunds = (scene: Phaser.Scene, funds: number): Phaser.GameObject
 
 // 仮: HUD(2)より上。
 const GAME_OVER_DEPTH = 3;
-// 仮: タイトルと案内の縦の間隔（タイトル中心を画面中央から上に、案内を下にずらす量）。
+// 仮: タイトルの縦位置（タイトル中心を画面中央から上にずらす量）。
 const GAME_OVER_TEXT_OFFSET_Y = 30;
+// 仮・要確認(#22): スコア行の縦位置（画面中央から下にずらす量）。タイトル(48px)の下端(-6)と案内の上端の間に収める。
+const GAME_OVER_SCORE_OFFSET_Y = 14;
+// 仮・要確認(#22): 案内の縦位置（画面中央から下にずらす量）。スコア行(24px)の下に置く。
+const GAME_OVER_RESTART_OFFSET_Y = 50;
 
-// ゲームオーバー表示（全面の半透明オーバーレイと中央の2行テキスト）。返した Container を destroy すると消える。
-export const drawGameOver = (scene: Phaser.Scene): Phaser.GameObjects.Container => {
+// ゲームオーバー表示（全面の半透明オーバーレイと中央のタイトル・スコア・案内の3行テキスト）。返した Container を destroy すると消える。
+export const drawGameOver = (
+  scene: Phaser.Scene,
+  score: number,
+): Phaser.GameObjects.Container => {
   const centerX = FIELD_WIDTH / 2;
   const centerY = FIELD_HEIGHT / 2;
   const overlay = scene.add.rectangle(
@@ -353,12 +362,17 @@ export const drawGameOver = (scene: Phaser.Scene): Phaser.GameObjects.Container 
       })
       .setOrigin(0.5);
   const title = makeText(centerY - GAME_OVER_TEXT_OFFSET_Y, GAME_OVER_TEXT, GAME_OVER_FONT_SIZES.title);
+  const scoreLine = makeText(
+    centerY + GAME_OVER_SCORE_OFFSET_Y,
+    formatScore(score),
+    GAME_OVER_SCORE_FONT_SIZE,
+  );
   const restart = makeText(
-    centerY + GAME_OVER_TEXT_OFFSET_Y,
+    centerY + GAME_OVER_RESTART_OFFSET_Y,
     GAME_OVER_RESTART_TEXT,
     GAME_OVER_FONT_SIZES.restart,
   );
-  return scene.add.container(0, 0, [overlay, title, restart]).setDepth(GAME_OVER_DEPTH);
+  return scene.add.container(0, 0, [overlay, title, scoreLine, restart]).setDepth(GAME_OVER_DEPTH);
 };
 
 // 雇う画面の文字スタイル。既存 HUD と同じ（サイズだけ指定可）。

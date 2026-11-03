@@ -195,6 +195,12 @@ export const DEFEAT_EFFECT_DURATION_MS = 300;
 export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
 export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
 
+// 仮・要確認(#22): 企画書は「スコアは倒産までの累計売上」とだけで、表示の書式・位置は未記載。
+// ゲームオーバー画面のスコア表示書式。「スコア: 20,000円」。数値部分は3桁区切り。
+export const SCORE_FORMAT = { prefix: 'スコア: ', suffix: '円' } as const;
+// 仮・要確認(#22): ゲームオーバー画面のスコア行の文字サイズ。タイトルと案内の間に置く。
+export const GAME_OVER_SCORE_FONT_SIZE = '24px';
+
 // 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコア（累計売上 #22）が未実装のため、減点は資金から引く。
 export const NORMAL_CODE_PENALTY_TARGET = 'funds' as const;
 // 仮・要確認: 正常なコードを1回攻撃したときの減点額（円）。企画書には未記載。
