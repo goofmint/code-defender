@@ -1,33 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import {
-  CODE_SAMPLES,
-  ENGINEER_SPAWN_CELLS,
-  PLAYER_START_COL,
-  PLAYER_START_ROW,
-  RELEASE_POINT_CELL,
-} from './config';
 import { CODE_SIZE, CODE_STAR_INNER_RATIO, CODE_STAR_SPIKES, CODE_STYLES, starPoints } from './code';
 import type { CodeKind } from './code';
-import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
+import { CELL_SIZE } from './field';
 import { PLAYER_SIZE } from './player';
-import { createRoutes } from './route';
-import type { GridCell } from './route';
 
 const kinds: CodeKind[] = ['normal', 'malicious'];
-
-const isOnRoute = (cell: GridCell): boolean =>
-  createRoutes(ENGINEER_SPAWN_CELLS).some((route) =>
-    route.waypoints.some((from, i) => {
-      if (i === 0) return false;
-      const to = route.waypoints[i - 1];
-      return (
-        cell.col >= Math.min(from.col, to.col) &&
-        cell.col <= Math.max(from.col, to.col) &&
-        cell.row >= Math.min(from.row, to.row) &&
-        cell.row <= Math.max(from.row, to.row)
-      );
-    }),
-  );
 
 describe('コードの見た目', () => {
   it('正常・不正の両方にスタイルがある', () => {
@@ -60,23 +37,5 @@ describe('コードの見た目', () => {
       const expected = i % 2 === 0 ? outer : outer * CODE_STAR_INNER_RATIO;
       expect(Math.hypot(p.x, p.y)).toBeCloseTo(expected);
     });
-  });
-
-  it('見本配置は両種類を含み、フィールド内のルート上のセルにある', () => {
-    expect(new Set(CODE_SAMPLES.map((s) => s.kind))).toEqual(new Set(kinds));
-    for (const { cell } of CODE_SAMPLES) {
-      expect(cell.col).toBeGreaterThanOrEqual(0);
-      expect(cell.col).toBeLessThan(FIELD_COLS);
-      expect(cell.row).toBeGreaterThanOrEqual(0);
-      expect(cell.row).toBeLessThan(FIELD_ROWS);
-      expect(isOnRoute(cell)).toBe(true);
-    }
-  });
-
-  it('見本配置は主人公の初期セルとリリース地点のセルに重ならない', () => {
-    for (const { cell } of CODE_SAMPLES) {
-      expect(cell).not.toEqual({ col: PLAYER_START_COL, row: PLAYER_START_ROW });
-      expect(cell).not.toEqual(RELEASE_POINT_CELL);
-    }
   });
 });

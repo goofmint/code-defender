@@ -76,15 +76,13 @@ export const CODE_STAR_INNER_RATIO = 0.6;
 export const CODE_CORNER_RADIUS_RATIO = 0.2;
 export const CODE_STROKE_WIDTH = 2;
 
-// 仮: コード生成タスクで置き換える仮の表示。見た目確認用に既存ルート上のセルへ正常/不正を交互に置く（主人公・リリース地点のセルは避ける）。
-export const CODE_SAMPLES = [
-  { kind: 'normal', cell: { col: 3, row: 1 } },
-  { kind: 'malicious', cell: { col: 7, row: 1 } },
-  { kind: 'normal', cell: { col: 4, row: 4 } },
-  { kind: 'malicious', cell: { col: 10, row: 4 } },
-  { kind: 'normal', cell: { col: 4, row: 7 } },
-  { kind: 'malicious', cell: { col: 9, row: 7 } },
-] as const;
+// 仮・要確認: コードの移動速度（ピクセル/秒）。企画書に数値の記載なし。主人公(PLAYER_SPEED)より遅くする。
+// 後続の「時間による加速」(#14)で変わる前提の初期値。
+export const CODE_SPEED = 80;
+// 仮・要確認: ルートごとのコード生成間隔（ミリ秒）。企画書に数値の記載なし。
+export const CODE_SPAWN_INTERVAL_MS = 2000;
+// 仮・要確認: 不正コードの割合（0〜1）。企画書の「ランク別割合」(#12/#13)が入るまでの固定値。
+export const CODE_MALICIOUS_RATE = 0.3;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
 // 移動キーではないので、移動のキーボード優先判定には含めない。

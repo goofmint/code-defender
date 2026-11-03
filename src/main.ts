@@ -3,7 +3,9 @@ import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
   ATTACK_KEYS,
-  CODE_SAMPLES,
+  CODE_MALICIOUS_RATE,
+  CODE_SPAWN_INTERVAL_MS,
+  CODE_SPEED,
   ENGINEER_SPAWN_CELLS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
@@ -16,7 +18,7 @@ import {
   findAttackTarget,
   isInsideTapArea,
 } from './attack';
-import type { AttackTarget, CodeHitEvent } from './attack';
+import type { CodeHitEvent } from './attack';
 import {
   clampToField,
   getMoveDirection,
@@ -33,19 +35,29 @@ import {
   drawRoutes,
   flashCode,
 } from './render';
-import { addRoute, cellCenter, createRoutes } from './route';
+import {
+  CODE_RELEASED_EVENT,
+  advanceCode,
+  initialSpawnElapsed,
+  pickCodeKind,
+  spawnCode,
+  stepSpawnTimer,
+} from './codeFlow';
+import type { CodeReleasedPayload, FlowingCode } from './codeFlow';
+import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
-type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[]>;
+type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics };
 
-// 攻撃対象のコード。後続タスクが撃破時に消せるよう Graphics を持つ。
-type CodeObject = AttackTarget & { readonly graphics: Phaser.GameObjects.Graphics };
+type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[]>;
 
 class MainScene extends Phaser.Scene {
   private routes: Route[] = [];
   private player?: Phaser.GameObjects.Graphics;
   private moveKeys?: MoveKeys;
-  private codes: CodeObject[] = [];
+  private codes: ActiveCode[] = [];
+  private spawnElapsed = new Map<number, number>();
+  private nextCodeId = 0;
   private lastAttackTime: number | null = null;
   // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
   private attackPointerHeld = false;
@@ -57,13 +69,12 @@ class MainScene extends Phaser.Scene {
   create(): void {
     drawField(this);
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS);
+    this.codes = [];
+    this.spawnElapsed = new Map();
+    this.nextCodeId = 0;
     drawRoutes(this, this.routes);
     drawReleasePoint(this);
     this.player = drawPlayer(this);
-    this.codes = CODE_SAMPLES.map(({ kind, cell }) => {
-      const position = cellCenter(cell);
-      return { kind, position, graphics: drawCode(this, kind, position) };
-    });
     const keyboard = this.input.keyboard;
     if (keyboard) {
       const register = (names: readonly string[]): Phaser.Input.Keyboard.Key[] =>
@@ -94,10 +105,9 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  // 現在の攻撃対象（コード一覧）を返す。
-  // #11 でコードが流れるようになったら、ここが現在フィールド上にあるコードを返すようにする。
+  // 現在の攻撃対象（フィールド上を流れているコードの一覧）を返す。
   // 命中判定（findAttackTarget）は渡された一覧だけを見る。
-  private getAttackTargets(): readonly CodeObject[] {
+  private getAttackTargets(): readonly ActiveCode[] {
     return this.codes;
   }
 
@@ -117,11 +127,16 @@ class MainScene extends Phaser.Scene {
       return;
     }
     flashCode(this, hit.graphics);
-    const payload: CodeHitEvent<CodeObject> = { code: hit, playerPosition, time: now };
+    const payload: CodeHitEvent<ActiveCode> = { code: hit, playerPosition, time: now };
     this.events.emit(CODE_HIT_EVENT, payload);
   }
 
   update(_time: number, delta: number): void {
+    this.updatePlayer(delta);
+    this.updateCodes(delta);
+  }
+
+  private updatePlayer(delta: number): void {
     const player = this.player;
     if (!player) {
       return;
@@ -168,6 +183,36 @@ class MainScene extends Phaser.Scene {
     }
     const next = clampToField(movePlayerToward(position, target, direction, delta));
     player.setPosition(next.x, next.y);
+  }
+
+  private updateCodes(delta: number): void {
+    for (const route of this.routes) {
+      const step = stepSpawnTimer(
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(CODE_SPAWN_INTERVAL_MS),
+        delta,
+        CODE_SPAWN_INTERVAL_MS,
+      );
+      this.spawnElapsed.set(route.id, step.elapsedMs);
+      if (step.spawn) {
+        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, CODE_MALICIOUS_RATE), route);
+        this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position) });
+      }
+    }
+
+    const distance = (CODE_SPEED * delta) / 1000;
+    const flowing: ActiveCode[] = [];
+    for (const active of this.codes) {
+      const next: ActiveCode = { ...advanceCode(active, distance), graphics: active.graphics };
+      if (next.released) {
+        next.graphics.destroy();
+        const payload: CodeReleasedPayload = { id: next.id, kind: next.kind, routeId: next.routeId };
+        this.events.emit(CODE_RELEASED_EVENT, payload);
+      } else {
+        next.graphics.setPosition(next.position.x, next.position.y);
+        flowing.push(next);
+      }
+    }
+    this.codes = flowing;
   }
 
   // エンジニアが増えたときに出現場所とルートを追加して描画する。上限などで追加できなければ undefined。
