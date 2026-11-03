@@ -102,7 +102,7 @@ describe('canRestart', () => {
   });
 });
 
-describe('給料との組み合わせ', () => {
+describe('settleMonthlySalary と checkBankruptcy の組み合わせ（純粋関数のみ。シーンの購読はブラウザで確認）', () => {
   it('初期資金 1,000,000・3 人（月 900,000）なら 2 か月目に倒産する', () => {
     const salaries = [300000, 300000, 300000];
     const month1 = settleMonthlySalary(INITIAL_FUNDS, 1, salaries);
