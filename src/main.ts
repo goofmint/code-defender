@@ -37,6 +37,7 @@ import {
   drawField,
   drawFunds,
   drawGameOver,
+  drawPenaltyText,
   drawPlayer,
   drawReleasePoint,
   drawRoutes,
@@ -73,6 +74,8 @@ import {
   INITIAL_GAME_OVER_STATE,
 } from './gameOver';
 import type { GameOverState } from './gameOver';
+import { NORMAL_CODE_PENALIZED_EVENT, resolveNormalCodePenalty } from './penalty';
+import type { NormalCodePenalizedPayload } from './penalty';
 import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import { addRoute, createRoutes } from './route';
@@ -329,9 +332,30 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // 命中した不正なコードの hp を減らし、0以下なら撃破する。対象は id で特定する。正常なコードは何もしない（減点は #16）。
+  // 命中した不正なコードの hp を減らし、0以下なら撃破する。対象は id で特定する。正常なコードは資金を減点する（コードは消えない）。
   private onCodeHit(event: CodeHitEvent<ActiveCode>): void {
     const target = this.codes.find((code) => code.id === event.code.id);
+    if (target && target.kind === 'normal') {
+      const penalty = resolveNormalCodePenalty({
+        kind: target.kind,
+        funds: this.funds,
+        gameOver: this.gameOver.over,
+      });
+      if (penalty.applied) {
+        this.changeFunds(penalty.fundsAfter, 'penalty');
+        // 倒産すると tweens.pauseAll() で Tween が止まり、文字の破棄が走らず画面に残るため、倒産時は描画しない。
+        if (!this.gameOver.over) {
+          drawPenaltyText(this, target.position, penalty.amount);
+        }
+        const payload: NormalCodePenalizedPayload = {
+          id: target.id,
+          routeId: target.routeId,
+          amount: penalty.amount,
+        };
+        this.events.emit(NORMAL_CODE_PENALIZED_EVENT, payload);
+      }
+      return;
+    }
     const hp = this.codeHp.get(event.code.id);
     if (!target || target.kind !== 'malicious' || hp === undefined) {
       return;
