@@ -32,9 +32,17 @@ import {
   ATTACK_EFFECT_COLOR,
   ATTACK_EFFECT_DURATION_MS,
   ATTACK_HIT_FLASH_DURATION_MS,
+  DEFEAT_EFFECT_COLOR,
+  DEFEAT_EFFECT_DURATION_MS,
+  DEFEAT_EFFECT_END_RADIUS_RATIO,
+  DEFEAT_EFFECT_START_RADIUS_RATIO,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
   FUNDS_POSITION,
+  GAME_OVER_FONT_SIZES,
+  GAME_OVER_OVERLAY,
+  GAME_OVER_RESTART_TEXT,
+  GAME_OVER_TEXT,
 } from './config';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
@@ -241,6 +249,21 @@ export const flashCode = (scene: Phaser.Scene, code: Phaser.GameObjects.Graphics
   });
 };
 
+// 撃破エフェクト（コード位置に広がって消える輪）。コード本体は呼び出し側で破棄する。
+export const drawDefeatEffect = (scene: Phaser.Scene, position: Point): void => {
+  const ring = scene.add
+    .circle(position.x, position.y, CODE_SIZE * DEFEAT_EFFECT_START_RADIUS_RATIO, DEFEAT_EFFECT_COLOR, 0.4)
+    .setStrokeStyle(ATTACK_EFFECT_STROKE_WIDTH, DEFEAT_EFFECT_COLOR)
+    .setDepth(ATTACK_EFFECT_DEPTH);
+  scene.tweens.add({
+    targets: ring,
+    scale: DEFEAT_EFFECT_END_RADIUS_RATIO / DEFEAT_EFFECT_START_RADIUS_RATIO,
+    alpha: 0,
+    duration: DEFEAT_EFFECT_DURATION_MS,
+    onComplete: () => ring.destroy(),
+  });
+};
+
 // 仮: 攻撃エフェクト(1.5)より上の最前面。
 const ELAPSED_DAYS_DEPTH = 2;
 
@@ -266,3 +289,39 @@ export const drawFunds = (scene: Phaser.Scene, funds: number): Phaser.GameObject
       strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
+
+// 仮: HUD(2)より上。
+const GAME_OVER_DEPTH = 3;
+// 仮: タイトルと案内の縦の間隔（タイトル中心を画面中央から上に、案内を下にずらす量）。
+const GAME_OVER_TEXT_OFFSET_Y = 30;
+
+// ゲームオーバー表示（全面の半透明オーバーレイと中央の2行テキスト）。返した Container を destroy すると消える。
+export const drawGameOver = (scene: Phaser.Scene): Phaser.GameObjects.Container => {
+  const centerX = FIELD_WIDTH / 2;
+  const centerY = FIELD_HEIGHT / 2;
+  const overlay = scene.add.rectangle(
+    centerX,
+    centerY,
+    FIELD_WIDTH,
+    FIELD_HEIGHT,
+    GAME_OVER_OVERLAY.color,
+    GAME_OVER_OVERLAY.alpha,
+  );
+  const makeText = (y: number, text: string, fontSize: string): Phaser.GameObjects.Text =>
+    scene.add
+      .text(centerX, y, text, {
+        fontSize,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: ELAPSED_DAYS_STYLE.color,
+        stroke: ELAPSED_DAYS_STYLE.strokeColor,
+        strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+      })
+      .setOrigin(0.5);
+  const title = makeText(centerY - GAME_OVER_TEXT_OFFSET_Y, GAME_OVER_TEXT, GAME_OVER_FONT_SIZES.title);
+  const restart = makeText(
+    centerY + GAME_OVER_TEXT_OFFSET_Y,
+    GAME_OVER_RESTART_TEXT,
+    GAME_OVER_FONT_SIZES.restart,
+  );
+  return scene.add.container(0, 0, [overlay, title, restart]).setDepth(GAME_OVER_DEPTH);
+};

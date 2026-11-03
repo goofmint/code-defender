@@ -2,10 +2,12 @@ import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
+  ATTACK_DAMAGE,
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MS,
   ENGINEER_MONTHLY_SALARY,
   ENGINEER_SPAWN_CELLS,
+  GAME_OVER_RESTART_KEYS,
   INITIAL_FUNDS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
@@ -30,9 +32,11 @@ import {
 import {
   drawAttackEffect,
   drawCode,
+  drawDefeatEffect,
   drawElapsedDays,
   drawField,
   drawFunds,
+  drawGameOver,
   drawPlayer,
   drawReleasePoint,
   drawRoutes,
@@ -56,8 +60,18 @@ import {
   MONTH_ELAPSED_EVENT,
 } from './gameTime';
 import type { MonthElapsedEvent } from './gameTime';
+import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFate } from './defeat';
+import type { CodeDefeatedPayload } from './defeat';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
-import type { FundsChangeReason } from './funds';
+import type { FundsChangedEvent, FundsChangeReason } from './funds';
+import {
+  canRestart,
+  checkBankruptcy,
+  createGameOverEvent,
+  GAME_OVER_EVENT,
+  INITIAL_GAME_OVER_STATE,
+} from './gameOver';
+import type { GameOverState } from './gameOver';
 import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import { addRoute, createRoutes } from './route';
@@ -74,6 +88,8 @@ class MainScene extends Phaser.Scene {
   private codes: ActiveCode[] = [];
   private spawnElapsed = new Map<number, number>();
   private nextCodeId = 0;
+  // 不正なコードの残り hp（コードIDがキー）。FlowingCode は変更しない。撃破・リリースで削除する。
+  private codeHp = new Map<number, number>();
   private lastAttackTime: number | null = null;
   // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
   private attackPointerHeld = false;
@@ -83,26 +99,39 @@ class MainScene extends Phaser.Scene {
   private displayedDays = 0;
   private funds = 0;
   private fundsText?: Phaser.GameObjects.Text;
+  private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
 
   constructor() {
     super('main');
   }
 
   create(): void {
+    // scene.restart() は同じインスタンスで create() を再実行し、クラスフィールドの初期値は再設定されない。ここで初期化する。
+    this.elapsedMs = 0;
+    this.displayedDays = 0;
+    this.lastAttackTime = null;
+    // タップでリスタートしたとき、押したままのポインターで主人公が動かないよう、離すまでポインター移動を止める（updatePlayer で解除）。
+    this.attackPointerHeld = this.input.activePointer.isDown;
+    this.gameOver = INITIAL_GAME_OVER_STATE;
     drawField(this);
     this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
     this.funds = INITIAL_FUNDS;
     this.fundsText = drawFunds(this, this.funds);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
+    this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
+    this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
     this.events.on(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
+      this.events.off(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
+      this.events.off(CODE_HIT_EVENT, this.onCodeHit, this);
       this.events.off(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     });
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS, Math.random);
     this.codes = [];
     this.spawnElapsed = new Map();
     this.nextCodeId = 0;
+    this.codeHp = new Map();
     drawRoutes(this, this.routes);
     drawReleasePoint(this);
     this.player = drawPlayer(this);
@@ -118,8 +147,13 @@ class MainScene extends Phaser.Scene {
       };
       // 'down' イベントで発動する（短い押下の取りこぼし防止）。emitOnRepeat は既定 false なので押しっぱなしでは連発しない。
       register(ATTACK_KEYS).forEach((key) => key.on('down', () => this.tryAttack()));
+      register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
     }
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.gameOver.over) {
+        this.tryRestart();
+        return;
+      }
       const player = this.player;
       if (!player) {
         return;
@@ -145,6 +179,9 @@ class MainScene extends Phaser.Scene {
   // クールダウンが明けていれば攻撃する。射程内で最も近いコード1つに命中し、空振りでもクールダウンを消費する。
   // 命中時は CODE_HIT_EVENT を発行する。後続タスクは `scene.events.on(CODE_HIT_EVENT, ...)` で接続する。
   private tryAttack(): void {
+    if (this.gameOver.over) {
+      return;
+    }
     const player = this.player;
     const now = this.time.now;
     if (!player || !canAttack(now, this.lastAttackTime, ATTACK_COOLDOWN_MS)) {
@@ -163,7 +200,14 @@ class MainScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    if (this.gameOver.over) {
+      return;
+    }
     this.advanceClock(delta);
+    // 月の給料で倒産したら、同じフレームの移動・コードの更新はしない。
+    if (this.gameOver.over) {
+      return;
+    }
     this.updatePlayer(delta);
     this.updateCodes(delta);
   }
@@ -228,6 +272,10 @@ class MainScene extends Phaser.Scene {
       this.elapsedDaysText?.setText(formatElapsedDays(days));
     }
     for (const month of getCrossedMonths(prev, this.elapsedMs)) {
+      // 倒産したら残りの月は発行しない（倒産後に給料を引かない）。
+      if (this.gameOver.over) {
+        break;
+      }
       this.events.emit(MONTH_ELAPSED_EVENT, createMonthElapsedEvent(month));
     }
   }
@@ -258,6 +306,46 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  // 資金の変化ごとに倒産を判定する。倒産したら Tween を止めてゲームオーバー表示を出す。
+  private onFundsChanged(event: FundsChangedEvent): void {
+    const result = checkBankruptcy(this.gameOver, event.current, this.time.now);
+    this.gameOver = result.state;
+    if (!result.triggered) {
+      return;
+    }
+    this.tweens.pauseAll();
+    drawGameOver(this);
+    this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
+  }
+
+  // ゲームオーバー中で待ち時間を過ぎていれば、最初からやり直す。
+  private tryRestart(): void {
+    if (canRestart(this.gameOver, this.time.now)) {
+      this.scene.restart();
+    }
+  }
+
+  // 命中した不正なコードの hp を減らし、0以下なら撃破する。対象は id で特定する。正常なコードは何もしない（減点は #16）。
+  private onCodeHit(event: CodeHitEvent<ActiveCode>): void {
+    const target = this.codes.find((code) => code.id === event.code.id);
+    const hp = this.codeHp.get(event.code.id);
+    if (!target || target.kind !== 'malicious' || hp === undefined) {
+      return;
+    }
+    const result = applyHit(hp, ATTACK_DAMAGE);
+    this.codeHp.set(target.id, result.hp);
+    if (!result.defeated) {
+      return;
+    }
+    this.codes = this.codes.filter((code) => code.id !== target.id);
+    this.codeHp.delete(target.id);
+    this.tweens.killTweensOf(target.graphics);
+    drawDefeatEffect(this, target.position);
+    target.graphics.destroy();
+    const payload: CodeDefeatedPayload = { id: target.id, routeId: target.routeId };
+    this.events.emit(CODE_DEFEATED_EVENT, payload);
+  }
+
   private updateCodes(delta: number): void {
     for (const route of this.routes) {
       const step = stepSpawnTimer(
@@ -268,6 +356,9 @@ class MainScene extends Phaser.Scene {
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
         const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, maliciousRateAt(this.elapsedMs)), route);
+        if (code.kind === 'malicious') {
+          this.codeHp.set(code.id, getInitialHp());
+        }
         this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position) });
       }
     }
@@ -276,7 +367,14 @@ class MainScene extends Phaser.Scene {
     const flowing: ActiveCode[] = [];
     for (const active of this.codes) {
       const next: ActiveCode = { ...advanceCode(active, distance), graphics: active.graphics };
-      if (next.released) {
+      // hp を持つのは不正なコードだけ。正常なコードは撃破されない。
+      const hp = this.codeHp.get(next.id);
+      const fate = resolveCodeFate(hp !== undefined && isDefeated(hp), next.released);
+      if (fate === 'defeated') {
+        continue;
+      }
+      if (fate === 'released') {
+        this.codeHp.delete(next.id);
         next.graphics.destroy();
         const payload: CodeReleasedPayload = { id: next.id, kind: next.kind, routeId: next.routeId };
         this.events.emit(CODE_RELEASED_EVENT, payload);

@@ -150,6 +150,21 @@ export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
 // 仮・要確認: 企画書に記載なし。資金の表示位置。経過日数表示のすぐ下。
 export const FUNDS_POSITION = { x: 12, y: 40 } as const;
 
+// 仮・要確認: 企画書に記載なし。「資金がなくなったら」を残高ちょうど 0 も倒産とするか。false なら 0 未満のみ倒産。
+export const BANKRUPT_INCLUDES_ZERO = true;
+// 仮・要確認: 企画書に記載なし。ゲームオーバー画面の文言。案内はタッチ端末でも読める文言にしている。
+export const GAME_OVER_TEXT = '倒産しました';
+export const GAME_OVER_RESTART_TEXT = 'タップ / クリック / Enter でもう一度';
+// 仮・要確認: 企画書に記載なし。ゲームオーバー中のリスタートキー（Phaser の KeyCodes のキー名）。
+// Space は攻撃キーと同じだが、ゲームオーバー中は攻撃しないのでリスタートに使う。
+export const GAME_OVER_RESTART_KEYS = ['ENTER', 'SPACE'] as const;
+// 仮・要確認: 企画書に記載なし。ゲームオーバー直後の誤操作でリスタートしないための待ち時間（ミリ秒）。
+export const GAME_OVER_RESTART_DELAY_MS = 1000;
+// 仮・要確認: 企画書に記載なし。ゲームオーバー表示の全面オーバーレイ（半透明の黒）。
+export const GAME_OVER_OVERLAY = { color: 0x000000, alpha: 0.6 } as const;
+// 仮・要確認: 企画書に記載なし。ゲームオーバー表示の文字サイズ（タイトル・案内）。文字の色・縁取りは ELAPSED_DAYS_STYLE と同じ。
+export const GAME_OVER_FONT_SIZES = { title: '48px', restart: '24px' } as const;
+
 // 仮・要確認: 企画書(3-1)では不正なコードの種類ごとの見た目・強さ・損害額は未定。以下はすべて仮の値。
 // 見た目: 不正コード共通の赤い星形＋「!」に、星の右上へ付ける小円（バッジ）の色と大きさで種類を区別する。
 // 正常コードの水色/白と紛らわしくならないよう、水色・白は使わない。脆弱性は重大度が高いほど濃く・大きくする。
@@ -167,3 +182,15 @@ export const MALICIOUS_CODE_PARAMS = {
   lowPerformance: { badgeColor: 0x9e9e9e, badgeRadiusRatio: 0.18, hp: 3, damage: 12 },
   typo: { badgeColor: 0xec407a, badgeRadiusRatio: 0.18, hp: 1, damage: 3 },
 } as const;
+
+// 仮: 種類（#10）が未割り当ての不正なコードの hp。種類のランダム割り当ては未決定のため、当面は全員これを使う。企画書には未記載。
+export const DEFAULT_MALICIOUS_CODE_HP = 3;
+// 仮: 攻撃1回（1ヒット）あたりのダメージ。企画書には未記載。
+export const ATTACK_DAMAGE = 1;
+// 仮: 撃破エフェクト（コード位置に広がって消える輪）の色（0xRRGGBB）。企画書には未記載。
+export const DEFEAT_EFFECT_COLOR = 0x69f0ae;
+// 仮: 撃破エフェクトの表示時間（ミリ秒）。企画書には未記載。
+export const DEFEAT_EFFECT_DURATION_MS = 300;
+// 仮: 撃破エフェクトの輪の開始半径と終了半径（コードの大きさに対する比率）。企画書には未記載。
+export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
+export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
