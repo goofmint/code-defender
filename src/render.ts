@@ -32,6 +32,10 @@ import {
   ATTACK_EFFECT_COLOR,
   ATTACK_EFFECT_DURATION_MS,
   ATTACK_HIT_FLASH_DURATION_MS,
+  DEFEAT_EFFECT_COLOR,
+  DEFEAT_EFFECT_DURATION_MS,
+  DEFEAT_EFFECT_END_RADIUS_RATIO,
+  DEFEAT_EFFECT_START_RADIUS_RATIO,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
   FUNDS_POSITION,
@@ -242,6 +246,21 @@ export const flashCode = (scene: Phaser.Scene, code: Phaser.GameObjects.Graphics
     duration: ATTACK_HIT_FLASH_DURATION_MS / 4,
     yoyo: true,
     repeat: 1,
+  });
+};
+
+// 撃破エフェクト（コード位置に広がって消える輪）。コード本体は呼び出し側で破棄する。
+export const drawDefeatEffect = (scene: Phaser.Scene, position: Point): void => {
+  const ring = scene.add
+    .circle(position.x, position.y, CODE_SIZE * DEFEAT_EFFECT_START_RADIUS_RATIO, DEFEAT_EFFECT_COLOR, 0.4)
+    .setStrokeStyle(ATTACK_EFFECT_STROKE_WIDTH, DEFEAT_EFFECT_COLOR)
+    .setDepth(ATTACK_EFFECT_DEPTH);
+  scene.tweens.add({
+    targets: ring,
+    scale: DEFEAT_EFFECT_END_RADIUS_RATIO / DEFEAT_EFFECT_START_RADIUS_RATIO,
+    alpha: 0,
+    duration: DEFEAT_EFFECT_DURATION_MS,
+    onComplete: () => ring.destroy(),
   });
 };
 

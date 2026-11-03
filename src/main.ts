@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
+  ATTACK_DAMAGE,
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MS,
   ENGINEER_MONTHLY_SALARY,
@@ -33,6 +34,7 @@ import {
 import {
   drawAttackEffect,
   drawCode,
+  drawDefeatEffect,
   drawElapsedDays,
   drawField,
   drawFunds,
@@ -60,6 +62,8 @@ import {
   MONTH_ELAPSED_EVENT,
 } from './gameTime';
 import type { MonthElapsedEvent } from './gameTime';
+import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFate } from './defeat';
+import type { CodeDefeatedPayload } from './defeat';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
 import {
@@ -72,6 +76,7 @@ import {
 import type { GameOverState } from './gameOver';
 import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
+import { getReleaseRevenue, sellReleasedCode } from './sales';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
@@ -86,6 +91,8 @@ class MainScene extends Phaser.Scene {
   private codes: ActiveCode[] = [];
   private spawnElapsed = new Map<number, number>();
   private nextCodeId = 0;
+  // 不正なコードの残り hp（コードIDがキー）。FlowingCode は変更しない。撃破・リリースで削除する。
+  private codeHp = new Map<number, number>();
   private lastAttackTime: number | null = null;
   // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
   private attackPointerHeld = false;
@@ -115,16 +122,19 @@ class MainScene extends Phaser.Scene {
     this.fundsText = drawFunds(this, this.funds);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
+    this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
     this.events.on(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
       this.events.off(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
+      this.events.off(CODE_HIT_EVENT, this.onCodeHit, this);
       this.events.off(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     });
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS, Math.random);
     this.codes = [];
     this.spawnElapsed = new Map();
     this.nextCodeId = 0;
+    this.codeHp = new Map();
     drawRoutes(this, this.routes);
     drawReleasePoint(this);
     this.player = drawPlayer(this);
@@ -304,9 +314,12 @@ class MainScene extends Phaser.Scene {
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
   }
 
-  // 不正コードのリリースを障害として扱い、損害ぶん資金を減らす。倒産判定は FUNDS_CHANGED_EVENT 経由（onFundsChanged）。
-  // 正常コードの売上は #17 の範囲。
+  // 正常なコードがリリースされたら売上を加算する。不正コード（売上 0）では売上は変えない。
+  // 不正コードのリリースは障害として扱い、損害ぶん資金を減らす。倒産判定は FUNDS_CHANGED_EVENT 経由（onFundsChanged）。
   private onCodeReleased(payload: CodeReleasedPayload): void {
+    if (getReleaseRevenue(payload.kind) > 0) {
+      this.changeFunds(sellReleasedCode(this.funds, payload.kind), 'sales');
+    }
     const incident = settleIncident(this.funds, payload, this.gameOver);
     if (incident === null) {
       return;
@@ -324,6 +337,27 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  // 命中した不正なコードの hp を減らし、0以下なら撃破する。対象は id で特定する。正常なコードは何もしない（減点は #16）。
+  private onCodeHit(event: CodeHitEvent<ActiveCode>): void {
+    const target = this.codes.find((code) => code.id === event.code.id);
+    const hp = this.codeHp.get(event.code.id);
+    if (!target || target.kind !== 'malicious' || hp === undefined) {
+      return;
+    }
+    const result = applyHit(hp, ATTACK_DAMAGE);
+    this.codeHp.set(target.id, result.hp);
+    if (!result.defeated) {
+      return;
+    }
+    this.codes = this.codes.filter((code) => code.id !== target.id);
+    this.codeHp.delete(target.id);
+    this.tweens.killTweensOf(target.graphics);
+    drawDefeatEffect(this, target.position);
+    target.graphics.destroy();
+    const payload: CodeDefeatedPayload = { id: target.id, routeId: target.routeId };
+    this.events.emit(CODE_DEFEATED_EVENT, payload);
+  }
+
   private updateCodes(delta: number): void {
     for (const route of this.routes) {
       const step = stepSpawnTimer(
@@ -334,6 +368,9 @@ class MainScene extends Phaser.Scene {
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
         const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, maliciousRateAt(this.elapsedMs)), route);
+        if (code.kind === 'malicious') {
+          this.codeHp.set(code.id, getInitialHp());
+        }
         this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position) });
       }
     }
@@ -347,7 +384,14 @@ class MainScene extends Phaser.Scene {
         break;
       }
       const next: ActiveCode = { ...advanceCode(active, distance), graphics: active.graphics };
-      if (next.released) {
+      // hp を持つのは不正なコードだけ。正常なコードは撃破されない。
+      const hp = this.codeHp.get(next.id);
+      const fate = resolveCodeFate(hp !== undefined && isDefeated(hp), next.released);
+      if (fate === 'defeated') {
+        continue;
+      }
+      if (fate === 'released') {
+        this.codeHp.delete(next.id);
         next.graphics.destroy();
         const payload: CodeReleasedPayload = {
           id: next.id,

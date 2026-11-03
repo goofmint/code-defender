@@ -140,6 +140,11 @@ export const ELAPSED_DAYS_STYLE = {
 export const INITIAL_FUNDS = 1000000;
 // 仮・要確認: 企画書に記載なし。エンジニア1人の月給（円）。全ランク一律。ランク別は #23 以降。
 export const ENGINEER_MONTHLY_SALARY = 300000;
+// 仮・要確認(#17): 正常なコード1件をリリースしたときの売上（円）。企画書に数値の記載なし。
+// 根拠: 1ルートは2秒に1件=ゲーム内1か月(60秒)に30件出る。正常率は70%→50%（#14）なので月21〜15件。
+// 20000円なら正常コードを全部通したとき月420000〜300000円で、エンジニア1人の給料(300000円/月)を上回る〜同等になる。
+// 10000円だと全部通しても給料に届かず常に赤字になる。
+export const REVENUE_PER_NORMAL_CODE = 20000;
 // 仮・要確認: 企画書に記載なし。資金の表示書式。「資金: 1,000,000円」。数値部分は3桁区切り。
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
 // 仮・要確認: 企画書に記載なし。資金の表示位置。経過日数表示のすぐ下。
@@ -177,6 +182,18 @@ export const MALICIOUS_CODE_PARAMS = {
   lowPerformance: { badgeColor: 0x9e9e9e, badgeRadiusRatio: 0.18, hp: 3, damage: 12 },
   typo: { badgeColor: 0xec407a, badgeRadiusRatio: 0.18, hp: 1, damage: 3 },
 } as const;
+
+// 仮: 種類（#10）が未割り当ての不正なコードの hp。種類のランダム割り当ては未決定のため、当面は全員これを使う。企画書には未記載。
+export const DEFAULT_MALICIOUS_CODE_HP = 3;
+// 仮: 攻撃1回（1ヒット）あたりのダメージ。企画書には未記載。
+export const ATTACK_DAMAGE = 1;
+// 仮: 撃破エフェクト（コード位置に広がって消える輪）の色（0xRRGGBB）。企画書には未記載。
+export const DEFEAT_EFFECT_COLOR = 0x69f0ae;
+// 仮: 撃破エフェクトの表示時間（ミリ秒）。企画書には未記載。
+export const DEFEAT_EFFECT_DURATION_MS = 300;
+// 仮: 撃破エフェクトの輪の開始半径と終了半径（コードの大きさに対する比率）。企画書には未記載。
+export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
+export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
 
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
