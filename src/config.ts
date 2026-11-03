@@ -102,3 +102,20 @@ export const ATTACK_EFFECT_COLOR = 0xffd54f;
 export const ATTACK_EFFECT_DURATION_MS = 200;
 // 仮: 命中したコードの点滅時間（ミリ秒）。企画書には未記載。
 export const ATTACK_HIT_FLASH_DURATION_MS = 300;
+
+// 企画書(docs/game_plan.md)どおり: 現実の1分 = ゲーム内の1か月。単位はミリ秒。これは仮の値ではない。
+export const MS_PER_GAME_MONTH = 60000;
+// 仮: 1か月 = 30日。企画書には日数の記載なし。1日 = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH = 2000ms になる。
+export const DAYS_PER_GAME_MONTH = 30;
+// 仮: 経過日数の表示書式。「経過日数: N日」。接頭辞と接尾辞で挟む。企画書には表示書式の記載なし。
+export const ELAPSED_DAYS_FORMAT = { prefix: '経過日数: ', suffix: '日' } as const;
+// 仮: 経過日数の表示位置。ゲーム画面左上からの余白（ピクセル）。企画書には未記載。
+export const ELAPSED_DAYS_POSITION = { x: 12, y: 8 } as const;
+// 仮: 経過日数の文字スタイル。フォントサイズ・色・縁取りの色と太さ。フィールド上でも読めるよう縁取りを付ける。
+export const ELAPSED_DAYS_STYLE = {
+  fontSize: '24px',
+  fontFamily: 'sans-serif',
+  color: '#ffffff',
+  strokeColor: '#000000',
+  strokeThickness: 4,
+} as const;
