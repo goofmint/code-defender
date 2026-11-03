@@ -6,7 +6,9 @@ import {
   CODE_MALICIOUS_RATE,
   CODE_SPAWN_INTERVAL_MS,
   CODE_SPEED,
+  ENGINEER_MONTHLY_SALARY,
   ENGINEER_SPAWN_CELLS,
+  INITIAL_FUNDS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
 } from './config';
@@ -31,6 +33,7 @@ import {
   drawCode,
   drawElapsedDays,
   drawField,
+  drawFunds,
   drawPlayer,
   drawReleasePoint,
   drawRoutes,
@@ -53,6 +56,16 @@ import {
   getElapsedDays,
   MONTH_ELAPSED_EVENT,
 } from './gameTime';
+import type { MonthElapsedEvent } from './gameTime';
+import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
+import type { FundsChangeReason } from './funds';
+import {
+  createSalaryPaidEvent,
+  getEngineerSalaries,
+  getMonthlyPayroll,
+  paySalary,
+  SALARY_PAID_EVENT,
+} from './salary';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
@@ -74,6 +87,8 @@ class MainScene extends Phaser.Scene {
   private elapsedMs = 0;
   private elapsedDaysText?: Phaser.GameObjects.Text;
   private displayedDays = 0;
+  private funds = 0;
+  private fundsText?: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -82,6 +97,12 @@ class MainScene extends Phaser.Scene {
   create(): void {
     drawField(this);
     this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
+    this.funds = INITIAL_FUNDS;
+    this.fundsText = drawFunds(this, this.funds);
+    this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
+    });
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS);
     this.codes = [];
     this.spawnElapsed = new Map();
@@ -213,6 +234,28 @@ class MainScene extends Phaser.Scene {
     for (const month of getCrossedMonths(prev, this.elapsedMs)) {
       this.events.emit(MONTH_ELAPSED_EVENT, createMonthElapsedEvent(month));
     }
+  }
+
+  // 資金を変更して、表示更新と FUNDS_CHANGED_EVENT の発行を一か所で行う。#17（売上）・#18（損害）もここを通す想定。
+  private changeFunds(next: number, reason: FundsChangeReason): void {
+    const previous = this.funds;
+    this.funds = next;
+    this.fundsText?.setText(formatFunds(next));
+    this.events.emit(FUNDS_CHANGED_EVENT, createFundsChangedEvent(previous, next, reason));
+  }
+
+  // 月の境界ごとに給料を引く。エンジニア数は仮に現在のルート数とする（主人公の給料は含めない）。
+  private onMonthElapsed(event: MonthElapsedEvent): void {
+    const payroll = getMonthlyPayroll(
+      getEngineerSalaries(this.routes.length, ENGINEER_MONTHLY_SALARY),
+    );
+    const fundsBefore = this.funds;
+    const fundsAfter = paySalary(fundsBefore, payroll);
+    this.changeFunds(fundsAfter, 'salary');
+    this.events.emit(
+      SALARY_PAID_EVENT,
+      createSalaryPaidEvent(event.month, payroll, fundsBefore, fundsAfter),
+    );
   }
 
   private updateCodes(delta: number): void {
