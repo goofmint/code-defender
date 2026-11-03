@@ -31,3 +31,13 @@ export const createSalaryPaidEvent = (
   fundsBefore: number,
   fundsAfter: number,
 ): SalaryPaidEvent => ({ month, amount, fundsBefore, fundsAfter });
+
+// 1か月分の給料を精算する。給料合計を引き、month・amount・fundsBefore・fundsAfter を返す。
+export const settleMonthlySalary = (
+  funds: number,
+  month: number,
+  salaries: readonly number[],
+): SalaryPaidEvent => {
+  const amount = getMonthlyPayroll(salaries);
+  return createSalaryPaidEvent(month, amount, funds, paySalary(funds, amount));
+};

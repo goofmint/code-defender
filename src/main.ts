@@ -59,13 +59,7 @@ import {
 import type { MonthElapsedEvent } from './gameTime';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangeReason } from './funds';
-import {
-  createSalaryPaidEvent,
-  getEngineerSalaries,
-  getMonthlyPayroll,
-  paySalary,
-  SALARY_PAID_EVENT,
-} from './salary';
+import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
@@ -246,16 +240,13 @@ class MainScene extends Phaser.Scene {
 
   // 月の境界ごとに給料を引く。エンジニア数は仮に現在のルート数とする（主人公の給料は含めない）。
   private onMonthElapsed(event: MonthElapsedEvent): void {
-    const payroll = getMonthlyPayroll(
+    const paid = settleMonthlySalary(
+      this.funds,
+      event.month,
       getEngineerSalaries(this.routes.length, ENGINEER_MONTHLY_SALARY),
     );
-    const fundsBefore = this.funds;
-    const fundsAfter = paySalary(fundsBefore, payroll);
-    this.changeFunds(fundsAfter, 'salary');
-    this.events.emit(
-      SALARY_PAID_EVENT,
-      createSalaryPaidEvent(event.month, payroll, fundsBefore, fundsAfter),
-    );
+    this.changeFunds(paid.fundsAfter, 'salary');
+    this.events.emit(SALARY_PAID_EVENT, paid);
   }
 
   private updateCodes(delta: number): void {

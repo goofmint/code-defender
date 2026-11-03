@@ -6,6 +6,7 @@ import {
   getMonthlyPayroll,
   paySalary,
   SALARY_PAID_EVENT,
+  settleMonthlySalary,
 } from './salary';
 
 describe('getMonthlyPayroll', () => {
@@ -55,17 +56,51 @@ describe('paySalary', () => {
   });
 });
 
-describe('複数月を1フレームでまたぐ', () => {
-  it('59999 → 180000 は3か月分引かれる', () => {
+describe('settleMonthlySalary', () => {
+  it.each([
+    [300, 300, 0],
+    [301, 300, 1],
+    [299, 300, -1],
+  ])('資金 %d、給料 %d → 精算後 %d', (funds, salary, expected) => {
+    expect(settleMonthlySalary(funds, 4, [salary])).toEqual({
+      month: 4,
+      amount: salary,
+      fundsBefore: funds,
+      fundsAfter: expected,
+    });
+  });
+
+  it('0人なら資金は変わらない', () => {
+    expect(settleMonthlySalary(1000, 1, [])).toEqual({
+      month: 1,
+      amount: 0,
+      fundsBefore: 1000,
+      fundsAfter: 1000,
+    });
+  });
+});
+
+describe('越えた月ごとに1回ずつ給料を引く（getCrossedMonths と組み合わせ）', () => {
+  const settleAll = (months: number[], initial: number, salaries: readonly number[]) => {
+    let funds = initial;
+    return months.map((month) => {
+      const paid = settleMonthlySalary(funds, month, salaries);
+      funds = paid.fundsAfter;
+      return paid;
+    });
+  };
+
+  it('59999 → 180000 は月 1,2,3 を順に3か月分ちょうど引く', () => {
     const months = getCrossedMonths(59999, 180000);
-    expect(months).toHaveLength(3);
-    const funds = months.reduce((current) => paySalary(current, 100), 1000);
-    expect(funds).toBe(700);
+    expect(months).toEqual([1, 2, 3]);
+    const results = settleAll(months, 1000, [60, 40]);
+    expect(results.map((r) => r.month)).toEqual([1, 2, 3]);
+    expect(results.map((r) => r.fundsAfter)).toEqual([900, 800, 700]);
   });
 
   it('60000 → 60001 は0回', () => {
     const months = getCrossedMonths(60000, 60001);
-    expect(months).toHaveLength(0);
-    expect(months.reduce((current) => paySalary(current, 100), 1000)).toBe(1000);
+    expect(months).toEqual([]);
+    expect(settleAll(months, 1000, [100])).toEqual([]);
   });
 });
