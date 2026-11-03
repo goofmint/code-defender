@@ -259,6 +259,32 @@ export const ENGINEER_INITIAL_PARAMETERS: Readonly<
   middle: { fatigue: 0, concentration: 50, skill: 50, attachment: 50 },
   senior: { fatigue: 0, concentration: 50, skill: 50, attachment: 50 },
 };
+// 仮・要確認(#26): 企画書(6)の性格8種。順序は企画書の表どおり。雇ったときにランダムで1つ付く。
+// 性格ごとのパラメータの傾向（企画書の表の高い・普通・低い）は今回は入れない。#29 でこの表に列を足して使う。
+// 性格は画面には出さない（仮）。#59 の表示と衝突するため。
+export const ENGINEER_PERSONALITIES = [
+  { id: 'meticulous', label: '几帳面' },
+  { id: 'passive', label: '消極的' },
+  { id: 'careless', label: '適当' },
+  { id: 'slacker', label: 'サボりがち' },
+  { id: 'earnest', label: '真面目' },
+  { id: 'calm', label: '冷静沈着' },
+  { id: 'cheerful', label: '陽気' },
+  { id: 'gloomy', label: '根暗' },
+] as const;
+// 仮・要確認(#26): 性格を選ぶ重み。企画書に偏りの記載はないので全部 1（均等）。Record なので過不足は型エラーになる。
+export const ENGINEER_PERSONALITY_WEIGHTS: Readonly<
+  Record<(typeof ENGINEER_PERSONALITIES)[number]['id'], number>
+> = {
+  meticulous: 1,
+  passive: 1,
+  careless: 1,
+  slacker: 1,
+  earnest: 1,
+  calm: 1,
+  cheerful: 1,
+  gloomy: 1,
+};
 // 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
 export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
 // 仮・要確認(#23): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。
