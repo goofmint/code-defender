@@ -7,6 +7,8 @@ import {
   ENGINEER_MONTHLY_SALARY,
   ENGINEER_SPAWN_CELLS,
   GAME_OVER_RESTART_KEYS,
+  INCIDENT_FLASH_COLOR,
+  INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
@@ -69,6 +71,7 @@ import {
 } from './gameOver';
 import type { GameOverState } from './gameOver';
 import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
+import { INCIDENT_EVENT, settleIncident } from './incident';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
@@ -112,9 +115,11 @@ class MainScene extends Phaser.Scene {
     this.fundsText = drawFunds(this, this.funds);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
+    this.events.on(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
       this.events.off(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
+      this.events.off(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     });
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS, Math.random);
     this.codes = [];
@@ -299,6 +304,19 @@ class MainScene extends Phaser.Scene {
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
   }
 
+  // 不正コードのリリースを障害として扱い、損害ぶん資金を減らす。倒産判定は FUNDS_CHANGED_EVENT 経由（onFundsChanged）。
+  // 正常コードの売上は #17 の範囲。
+  private onCodeReleased(payload: CodeReleasedPayload): void {
+    const incident = settleIncident(this.funds, payload, this.gameOver);
+    if (incident === null) {
+      return;
+    }
+    this.changeFunds(incident.fundsAfter, 'damage');
+    const { r, g, b } = Phaser.Display.Color.IntegerToRGB(INCIDENT_FLASH_COLOR);
+    this.cameras.main.flash(INCIDENT_FLASH_DURATION_MS, r, g, b);
+    this.events.emit(INCIDENT_EVENT, incident);
+  }
+
   // ゲームオーバー中で待ち時間を過ぎていれば、最初からやり直す。
   private tryRestart(): void {
     if (canRestart(this.gameOver, this.time.now)) {
@@ -322,11 +340,21 @@ class MainScene extends Phaser.Scene {
 
     const distance = (codeSpeedAt(this.elapsedMs) * delta) / 1000;
     const flowing: ActiveCode[] = [];
-    for (const active of this.codes) {
+    for (const [index, active] of this.codes.entries()) {
+      // 同じフレームで倒産したら、残りのコードは処理せず流れたままにする（追加の損害を出さない）。
+      if (this.gameOver.over) {
+        flowing.push(...this.codes.slice(index));
+        break;
+      }
       const next: ActiveCode = { ...advanceCode(active, distance), graphics: active.graphics };
       if (next.released) {
         next.graphics.destroy();
-        const payload: CodeReleasedPayload = { id: next.id, kind: next.kind, routeId: next.routeId };
+        const payload: CodeReleasedPayload = {
+          id: next.id,
+          kind: next.kind,
+          routeId: next.routeId,
+          maliciousType: next.maliciousType,
+        };
         this.events.emit(CODE_RELEASED_EVENT, payload);
       } else {
         next.graphics.setPosition(next.position.x, next.position.y);
