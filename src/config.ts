@@ -27,8 +27,13 @@ export const ENGINEER_SPAWN_COL = 0;
 // ENGINEER_SPAWN_COL の列に重ならず置ける数（行数）を上限にしている。
 export const MAX_ENGINEER_ROUTES = FIELD_ROWS;
 
-// 仮・要確認: ルートが縦方向に曲がる列。企画書にはルートの形状の記載なし。
-export const ROUTE_TURN_COL = FIELD_COLS - 3;
+// 仮・要確認: ルートが縦方向に曲がる列の範囲（両端を含む）。企画書にはルートの形状の記載なし。
+// 出現列（左端）とリリース列（右端）の内側にして、縦区間が他の出現セル・リリースセルを通らないようにする。
+export const ROUTE_TURN_COL_MIN = 1;
+export const ROUTE_TURN_COL_MAX = FIELD_COLS - 2;
+// 仮・要確認: ルート1本あたりの曲がる列の個数の範囲（両端を含む）。
+export const ROUTE_TURN_COUNT_MIN = 2;
+export const ROUTE_TURN_COUNT_MAX = 4;
 
 // 仮: 主人公のサイズ比率（セルに対する割合）。企画書には未記載。
 export const PLAYER_SIZE_RATIO = 0.7;
