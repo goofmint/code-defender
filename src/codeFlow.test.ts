@@ -11,7 +11,8 @@ import type { FlowingCode } from './codeFlow';
 import { RELEASE_POINT_CENTER } from './releasePoint';
 import { cellCenter, createRoutes, routePixelPoints } from './route';
 
-const routes = createRoutes(ENGINEER_SPAWN_CELLS);
+// 乱数を固定してルートの形を決める（常に 0 なら曲がり列は最左、曲がる回数は最小）。
+const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0);
 const topRoute = routes[0];
 const middleRoute = routes[1];
 
@@ -28,20 +29,22 @@ describe('spawnCode', () => {
 });
 
 describe('advanceCode の移動', () => {
-  it('中央ルートは直線で進む', () => {
+  it('最初の区間（水平）は直線で進む', () => {
     const code = spawnCode(1, 'normal', middleRoute);
-    const next = advanceCode(code, 100);
-    expect(next.position.x).toBeCloseTo(code.position.x + 100);
+    const next = advanceCode(code, 30);
+    expect(next.position.x).toBeCloseTo(code.position.x + 30);
     expect(next.position.y).toBeCloseTo(code.position.y);
   });
 
   it('上ルートは曲がり角を越えた残距離を縦方向に使う', () => {
     const code = spawnCode(1, 'normal', topRoute);
-    const corner = routePixelPoints(topRoute)[1];
+    const path = routePixelPoints(topRoute);
+    const corner = path[1];
+    const direction = Math.sign(path[2].y - corner.y);
     const toCorner = corner.x - code.position.x;
     const next = advanceCode(code, toCorner + 30);
     expect(next.position.x).toBeCloseTo(corner.x);
-    expect(next.position.y).toBeCloseTo(corner.y + 30);
+    expect(next.position.y).toBeCloseTo(corner.y + direction * 30);
   });
 
   it('1 回で複数区間を通過できる', () => {
