@@ -1,4 +1,5 @@
-import { ENGINEER_RANKS } from './config';
+import { ENGINEER_RANKS, ENGINEER_SPAWN_CELLS, INITIAL_ENGINEER_RANKS } from './config';
+import { createRoutes } from './route';
 import type { Route } from './route';
 
 // エンジニア（雇用）の純粋ロジック。Phaser に依存しない。
@@ -11,7 +12,7 @@ export { ENGINEER_RANKS };
 // 雇ったときに scene.events で発行するイベント名。#27（出現場所とルートを増やす）などが購読する。
 export const ENGINEER_HIRED_EVENT = 'engineer-hired';
 
-// routeId: 担当ルート。雇った直後はまだルートがないので null（#27 で付ける）。
+// routeId: 担当ルート。雇った直後はまだルートがないので null。ENGINEER_HIRED_EVENT を受けてルートを追加したあと assignEngineerRoute で付ける。
 export type Engineer = {
   readonly id: number;
   readonly rank: EngineerRank;
@@ -59,6 +60,39 @@ export const createInitialEngineers = (
     rank: ranks[index],
     routeId: route.id,
   }));
+
+// 対象のエンジニアだけ routeId を差し替えた新しい配列を返す。他のエンジニアは同じ参照のまま。入力は変更しない。
+// 該当 id がなければ同じ内容の配列。
+export const assignEngineerRoute = (
+  engineers: readonly Engineer[],
+  engineerId: number,
+  routeId: number | null,
+): Engineer[] =>
+  engineers.map((engineer) => (engineer.id === engineerId ? { ...engineer, routeId } : engineer));
+
+// そのルートを担当するエンジニア。いなければ undefined。退職(#32)・休暇(#36)でルートを外す・止めるときに使う。
+export const findEngineerByRoute = (
+  engineers: readonly Engineer[],
+  routeId: number,
+): Engineer | undefined => engineers.find((engineer) => engineer.routeId === routeId);
+
+// そのエンジニアの担当ルート id。エンジニアがいない、またはルートなしなら null。
+export const findRouteIdOfEngineer = (
+  engineers: readonly Engineer[],
+  engineerId: number,
+): number | null => engineers.find((engineer) => engineer.id === engineerId)?.routeId ?? null;
+
+// 仮・要確認(#27): ゲームオーバー中に雇用イベントを受けたらルートを追加しない（雇ったエンジニア自体は人数に入る）。
+export const shouldAddRouteOnHire = (gameOver: boolean): boolean => !gameOver;
+
+// ゲーム開始・やり直しの初期状態。呼ぶたびに新しいルートとエンジニアを作る（前回の雇用状態は残らない）。
+export const createInitialFleet = (
+  random: () => number,
+): { readonly routes: Route[]; readonly engineers: Engineer[]; readonly nextEngineerId: number } => {
+  const routes = createRoutes(ENGINEER_SPAWN_CELLS, random);
+  const engineers = createInitialEngineers(routes, INITIAL_ENGINEER_RANKS);
+  return { routes, engineers, nextEngineerId: engineers.length };
+};
 
 // 費用が不正（負・NaN・Infinity）なら雇えない扱いにする。
 const isValidCost = (cost: number): boolean => Number.isFinite(cost) && cost >= 0;
