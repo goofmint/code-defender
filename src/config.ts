@@ -225,6 +225,30 @@ export const ENGINEER_RANKS = [
   { id: 'middle', label: 'ミドル' },
   { id: 'senior', label: 'シニア' },
 ] as const;
+// 仮・要確認(#28): 企画書(8)はパラメータ（疲労度・集中力・技術力・愛着心）の効果だけで、範囲・初期値・刻みは未記載。以下はすべて仮の値。
+// パラメータの範囲（両端を含む）。
+export const ENGINEER_PARAMETER_MIN = 0;
+export const ENGINEER_PARAMETER_MAX = 100;
+// 仮・要確認(#28): 値が NaN で、呼び出し側の現在値（fallback）も不正なときに使う既定値。範囲の中央。
+export const ENGINEER_PARAMETER_FALLBACK = 50;
+// 仮・要確認(#28): ランク別の初期値。疲労度は 0（雇った直後は疲れていない）、他は中央値。
+// 企画書では技術力は「ランクとは別の個人差」なので、ランクでは変えない（仮）。変えたくなったらこの表の値を変えるだけでよい。
+// 性格(#26/#29)による差もここには入れない。
+export const ENGINEER_INITIAL_PARAMETERS: Readonly<
+  Record<
+    (typeof ENGINEER_RANKS)[number]['id'],
+    {
+      readonly fatigue: number;
+      readonly concentration: number;
+      readonly skill: number;
+      readonly attachment: number;
+    }
+  >
+> = {
+  junior: { fatigue: 0, concentration: 50, skill: 50, attachment: 50 },
+  middle: { fatigue: 0, concentration: 50, skill: 50, attachment: 50 },
+  senior: { fatigue: 0, concentration: 50, skill: 50, attachment: 50 },
+};
 // 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
 export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
 // 仮・要確認(#23): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。
