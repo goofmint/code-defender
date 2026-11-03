@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import './style.css';
+import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
+import { drawField } from './render';
 
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -7,21 +9,15 @@ class MainScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.add
-      .text(this.scale.width / 2, this.scale.height / 2, 'Code Defender', {
-        fontFamily: 'system-ui, sans-serif',
-        fontSize: '48px',
-        color: '#e8eef7',
-      })
-      .setOrigin(0.5);
+    drawField(this);
   }
 }
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'app',
-  width: 960,
-  height: 540,
+  width: FIELD_WIDTH,
+  height: FIELD_HEIGHT,
   backgroundColor: '#0b1020',
   scale: {
     mode: Phaser.Scale.FIT,
