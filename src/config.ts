@@ -194,3 +194,9 @@ export const DEFEAT_EFFECT_DURATION_MS = 300;
 // 仮: 撃破エフェクトの輪の開始半径と終了半径（コードの大きさに対する比率）。企画書には未記載。
 export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
 export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
+
+// 仮・要確認(#22): 企画書は「スコアは倒産までの累計売上」とだけで、表示の書式・位置は未記載。
+// ゲームオーバー画面のスコア表示書式。「スコア: 20,000円」。数値部分は3桁区切り。
+export const SCORE_FORMAT = { prefix: 'スコア: ', suffix: '円' } as const;
+// 仮・要確認(#22): ゲームオーバー画面のスコア行の文字サイズ。タイトルと案内の間に置く。
+export const GAME_OVER_SCORE_FONT_SIZE = '24px';

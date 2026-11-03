@@ -64,6 +64,7 @@ import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFat
 import type { CodeDefeatedPayload } from './defeat';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
+import { accumulateScore, INITIAL_SCORE } from './score';
 import {
   canRestart,
   checkBankruptcy,
@@ -99,6 +100,7 @@ class MainScene extends Phaser.Scene {
   private displayedDays = 0;
   private funds = 0;
   private fundsText?: Phaser.GameObjects.Text;
+  private score = INITIAL_SCORE;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
 
   constructor() {
@@ -117,6 +119,7 @@ class MainScene extends Phaser.Scene {
     this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
     this.funds = INITIAL_FUNDS;
     this.fundsText = drawFunds(this, this.funds);
+    this.score = INITIAL_SCORE;
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
@@ -308,13 +311,14 @@ class MainScene extends Phaser.Scene {
 
   // 資金の変化ごとに倒産を判定する。倒産したら Tween を止めてゲームオーバー表示を出す。
   private onFundsChanged(event: FundsChangedEvent): void {
+    this.score = accumulateScore(this.score, event, this.gameOver.over);
     const result = checkBankruptcy(this.gameOver, event.current, this.time.now);
     this.gameOver = result.state;
     if (!result.triggered) {
       return;
     }
     this.tweens.pauseAll();
-    drawGameOver(this);
+    drawGameOver(this, this.score);
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
   }
 
