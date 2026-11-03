@@ -40,10 +40,15 @@ describe('subtractFunds', () => {
 describe('formatFunds', () => {
   it.each([
     [0, '資金: 0円'],
+    [1, '資金: 1円'],
     [999, '資金: 999円'],
     [1000, '資金: 1,000円'],
+    [999999, '資金: 999,999円'],
     [1000000, '資金: 1,000,000円'],
+    [Number.MAX_SAFE_INTEGER, '資金: 9,007,199,254,740,991円'],
     [-1, '資金: -1円'],
+    [-999, '資金: -999円'],
+    [-1000, '資金: -1,000円'],
     [-300000, '資金: -300,000円'],
   ])('formatFunds(%d) = %s', (funds, expected) => {
     expect(formatFunds(funds)).toBe(expected);
