@@ -104,7 +104,7 @@
 
 ## 10. UI
 - [x] 資金・累計売上を常に表示する
-- [ ] ゲームオーバー画面でスコアを表示する
+- [x] ゲームオーバー画面でスコアを表示する
 
 ## 11. X対応
 - [ ] Player Card用のメタタグ（`twitter:card`、`twitter:player`、`twitter:image`など）を付ける
