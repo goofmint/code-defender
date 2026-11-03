@@ -1,4 +1,12 @@
-import { ENGINEER_RANKS, ENGINEER_SPAWN_CELLS, INITIAL_ENGINEER_RANKS } from './config';
+import {
+  ENGINEER_INITIAL_PARAMETERS,
+  ENGINEER_PARAMETER_FALLBACK,
+  ENGINEER_PARAMETER_MAX,
+  ENGINEER_PARAMETER_MIN,
+  ENGINEER_RANKS,
+  ENGINEER_SPAWN_CELLS,
+  INITIAL_ENGINEER_RANKS,
+} from './config';
 import { createRoutes } from './route';
 import type { Route } from './route';
 
@@ -13,11 +21,23 @@ export { ENGINEER_RANKS };
 export const ENGINEER_HIRED_EVENT = 'engineer-hired';
 
 // routeId: 担当ルート。雇った直後はまだルートがないので null。ENGINEER_HIRED_EVENT を受けてルートを追加したあと assignEngineerRoute で付ける。
+// パラメータ(#28): 疲労度・集中力・技術力・愛着心。Engineer にフラットな readonly フィールドとして持たせる。
+// 値は ENGINEER_PARAMETER_MIN〜MAX の小数。値を動かすのは updateEngineerParameters / adjustEngineerParameter だけを使う
+// （#30 疲労・#31 集中力・#32 愛着心/退職・#39 技術力 など）。効果（不正コード率・出すペースなど）はそれぞれの issue で実装する。
+export type EngineerParameters = {
+  readonly fatigue: number;
+  readonly concentration: number;
+  readonly skill: number;
+  readonly attachment: number;
+};
+
+export type EngineerParameterKey = keyof EngineerParameters;
+
 export type Engineer = {
   readonly id: number;
   readonly rank: EngineerRank;
   readonly routeId: number | null;
-};
+} & EngineerParameters;
 
 export type EngineerHiredPayload = {
   readonly engineer: Engineer;
@@ -50,6 +70,54 @@ export type HireRules = {
 export const isEngineerRank = (value: string): value is EngineerRank =>
   ENGINEER_RANKS.some((rank) => rank.id === value);
 
+// ランクに応じた初期パラメータ。呼ぶたびに新しいオブジェクトを返す（エンジニア間で参照を共有しない）。
+export const createEngineerParameters = (rank: EngineerRank): EngineerParameters => ({
+  ...ENGINEER_INITIAL_PARAMETERS[rank],
+});
+
+const clampToRange = (value: number): number =>
+  Math.min(ENGINEER_PARAMETER_MAX, Math.max(ENGINEER_PARAMETER_MIN, value));
+
+// 値を [MIN, MAX] に収める。小数は丸めない。±Infinity は MAX/MIN。
+// NaN は fallback（現在値など）を返す。NaN を MIN 扱いにすると、愛着心が最低→自主退職(#32)を誤って起こすため。
+// fallback 自体が NaN のときは ENGINEER_PARAMETER_FALLBACK、範囲外のときは範囲内に収めた値。throw しない。
+export const clampEngineerParameter = (value: number, fallback: number): number => {
+  if (!Number.isNaN(value)) {
+    return clampToRange(value);
+  }
+  return Number.isNaN(fallback) ? ENGINEER_PARAMETER_FALLBACK : clampToRange(fallback);
+};
+
+// 指定したキーだけ丸めて設定した新しい Engineer を返す。NaN のキーは現在値のまま。入力は変更しない。
+export const updateEngineerParameters = (
+  engineer: Engineer,
+  patch: Partial<EngineerParameters>,
+): Engineer => {
+  const next: { -readonly [K in EngineerParameterKey]: number } = {
+    fatigue: engineer.fatigue,
+    concentration: engineer.concentration,
+    skill: engineer.skill,
+    attachment: engineer.attachment,
+  };
+  (Object.keys(next) as EngineerParameterKey[]).forEach((key) => {
+    const value = patch[key];
+    if (value !== undefined) {
+      next[key] = clampEngineerParameter(value, engineer[key]);
+    }
+  });
+  return { ...engineer, ...next };
+};
+
+// 現在値 + delta を丸めた新しい Engineer を返す。delta が NaN なら変化なし。入力は変更しない。
+export const adjustEngineerParameter = (
+  engineer: Engineer,
+  key: EngineerParameterKey,
+  delta: number,
+): Engineer =>
+  updateEngineerParameters(engineer, {
+    [key]: Number.isNaN(delta) ? engineer[key] : engineer[key] + delta,
+  });
+
 // 初期エンジニア。routes と ranks を同じ順序で対応させる（短い方に合わせる）。id は 0 からの連番。
 export const createInitialEngineers = (
   routes: readonly Route[],
@@ -59,6 +127,7 @@ export const createInitialEngineers = (
     id: index,
     rank: ranks[index],
     routeId: route.id,
+    ...createEngineerParameters(ranks[index]),
   }));
 
 // 対象のエンジニアだけ routeId を差し替えた新しい配列を返す。他のエンジニアは同じ参照のまま。入力は変更しない。
@@ -113,7 +182,12 @@ export const hireEngineer = (
   if (!isValidCost(cost) || !(state.funds >= cost)) {
     return { ok: false, reason: 'insufficientFunds' };
   }
-  const engineer: Engineer = { id: state.nextId, rank, routeId: null };
+  const engineer: Engineer = {
+    id: state.nextId,
+    rank,
+    routeId: null,
+    ...createEngineerParameters(rank),
+  };
   return {
     ok: true,
     engineer,
