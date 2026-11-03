@@ -117,7 +117,7 @@ export const getItemRange = (
 export const isWithinRange = (origin: Point, target: Point, rangePx: number): boolean =>
   Math.hypot(target.x - origin.x, target.y - origin.y) <= rangePx;
 
-// アイテムの範囲内に対象がいるか。対象の選択（最も近いもの・正常コードを除く）は #49 / 個別アイテムの担当。
+// アイテムの範囲内に対象がいるか（距離だけを見る）。対象の選択（最も近いもの・正常コードを除くか）は itemPlacement.ts の findItemTarget / findTargetFor（targetsNormalCode に従う）。
 export const isTargetInItemRange = (
   itemType: ItemType,
   itemPosition: Point,
