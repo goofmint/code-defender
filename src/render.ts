@@ -43,6 +43,13 @@ import {
   GAME_OVER_OVERLAY,
   GAME_OVER_RESTART_TEXT,
   GAME_OVER_TEXT,
+  HIRE_BUTTON_COLORS,
+  HIRE_BUTTON_FONT_SIZE,
+  HIRE_BUTTON_SIZE,
+  HIRE_COUNT_POSITION,
+  HIRE_MESSAGE_DURATION_MS,
+  HIRE_MESSAGE_POSITION,
+  HIRE_UI_POSITION,
   PENALTY_TEXT_COLOR,
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
@@ -51,6 +58,8 @@ import {
 import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
+import { formatEngineerCount, formatHireButton } from './engineer';
+import type { EngineerRank } from './engineer';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
 
 // 後続オブジェクトより常に下に描画する。
@@ -350,4 +359,67 @@ export const drawGameOver = (scene: Phaser.Scene): Phaser.GameObjects.Container 
     GAME_OVER_FONT_SIZES.restart,
   );
   return scene.add.container(0, 0, [overlay, title, restart]).setDepth(GAME_OVER_DEPTH);
+};
+
+// 雇う画面の文字スタイル。既存 HUD と同じ（サイズだけ指定可）。
+const hireTextStyle = (fontSize: string): Phaser.Types.GameObjects.Text.TextStyle => ({
+  fontSize,
+  fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+  color: ELAPSED_DAYS_STYLE.color,
+  stroke: ELAPSED_DAYS_STYLE.strokeColor,
+  strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+});
+
+// ランク別の「雇う」ボタン（HUD と同じ深さ）。クリックで onHire(rank) を呼ぶ。
+// ボタン上の pointerdown でフィールドの移動・攻撃が起きないようにする処理は main.ts 側（currentlyOver で判定）。
+export const drawHireButtons = (
+  scene: Phaser.Scene,
+  entries: readonly { readonly rank: EngineerRank; readonly cost: number }[],
+  onHire: (rank: EngineerRank) => void,
+): Phaser.GameObjects.Container[] =>
+  entries.map((entry, index) => {
+    const { width, height, gap } = HIRE_BUTTON_SIZE;
+    const x = HIRE_UI_POSITION.x + index * (width + gap);
+    const background = scene.add
+      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+      .setOrigin(0)
+      .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
+    const label = scene.add
+      .text(width / 2, height / 2, formatHireButton(index, entry.rank, entry.cost), {
+        fontSize: HIRE_BUTTON_FONT_SIZE,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: HIRE_BUTTON_COLORS.text,
+      })
+      .setOrigin(0.5);
+    const button = scene.add
+      .container(x, HIRE_UI_POSITION.y, [background, label])
+      .setSize(width, height)
+      .setDepth(ELAPSED_DAYS_DEPTH);
+    // コンテナの表示位置は左上、原点は中心。InputManager は判定時に local 座標へ displayOrigin（幅・高さの半分）を加算するため、
+    // 矩形を半分ずらして、表示範囲（左上 0,0〜width,height）と当たり判定を一致させる。
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
+    button.on('pointerdown', () => onHire(entry.rank));
+    return button;
+  });
+
+export const drawEngineerCount = (
+  scene: Phaser.Scene,
+  count: number,
+  max: number,
+): Phaser.GameObjects.Text =>
+  scene.add
+    .text(HIRE_COUNT_POSITION.x, HIRE_COUNT_POSITION.y, formatEngineerCount(count, max), hireTextStyle('20px'))
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
+// 雇った結果のメッセージ。一定時間後に消す。置き換えるときは前のものを破棄してから呼ぶ。
+export const drawHireMessage = (scene: Phaser.Scene, message: string): Phaser.GameObjects.Text => {
+  const text = scene.add
+    .text(HIRE_MESSAGE_POSITION.x, HIRE_MESSAGE_POSITION.y, message, hireTextStyle('20px'))
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  scene.time.delayedCall(HIRE_MESSAGE_DURATION_MS, () => text.destroy());
+  return text;
 };
