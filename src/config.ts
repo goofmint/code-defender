@@ -125,8 +125,17 @@ export const MS_PER_GAME_MONTH = 60000;
 export const DAYS_PER_GAME_MONTH = 30;
 // 仮: 経過日数の表示書式。「経過日数: N日」。接頭辞と接尾辞で挟む。企画書には表示書式の記載なし。
 export const ELAPSED_DAYS_FORMAT = { prefix: '経過日数: ', suffix: '日' } as const;
-// 仮: 経過日数の表示位置。ゲーム画面左上からの余白（ピクセル）。企画書には未記載。
-export const ELAPSED_DAYS_POSITION = { x: 12, y: 8 } as const;
+// 仮・要確認(#59追加対応): HUD（経過日数・資金・累計売上）の左端 x。企画書には未記載。
+// 出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右隣に余白12pxを置く。出現場所は列0の行0〜8のどこにでも出るため、列0の右に置いて重ならないようにする。
+// リリース地点（x=900〜960）よりはるかに左で、最長想定の「累計売上: 9,999,999,999円」(24px×21文字≒504px)でも x≈576 までに収まる。
+const HUD_LEFT_X = CELL_SIZE * (ENGINEER_SPAWN_COL + 1) + 12;
+// 仮・要確認(#59追加対応): HUD 1行目の上端 y。雇用UI（ボタン y=8〜36、エンジニア数・雇用メッセージ y=42〜約67）の下端より下に置く。
+// 3行は ELAPSED_DAYS_STYLE（24px、行高さ約30px）で 32px 間隔。上端 y=80 は雇用UI下端（約67）より下。
+const HUD_TOP_Y = 80;
+const HUD_ROW_HEIGHT = 32;
+// 仮・要確認(#59追加対応): 経過日数の表示位置（HUD 1行目）。
+// 重ならない根拠: 出現列 x<60 の右（x=72〜）、雇用UI y≦約67 の下（y=80〜）、リリース地点 x≥900 の左。
+export const ELAPSED_DAYS_POSITION = { x: HUD_LEFT_X, y: HUD_TOP_Y } as const;
 // 仮: 経過日数の文字スタイル。フォントサイズ・色・縁取りの色と太さ。フィールド上でも読めるよう縁取りを付ける。
 export const ELAPSED_DAYS_STYLE = {
   fontSize: '24px',
@@ -147,13 +156,14 @@ export const ENGINEER_MONTHLY_SALARY = 300000;
 export const REVENUE_PER_NORMAL_CODE = 20000;
 // 仮・要確認: 企画書に記載なし。資金の表示書式。「資金: 1,000,000円」。数値部分は3桁区切り。
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
-// 仮・要確認: 企画書に記載なし。資金の表示位置。経過日数表示のすぐ下。
-export const FUNDS_POSITION = { x: 12, y: 40 } as const;
+// 仮・要確認(#59追加対応): 企画書に記載なし。資金の表示位置（HUD 2行目）。経過日数表示の1行下。
+// 重ならない根拠: 出現列 x<60 の右、雇用UI y≦約67 の下、リリース地点 x≥900 の左。
+export const FUNDS_POSITION = { x: HUD_LEFT_X, y: HUD_TOP_Y + HUD_ROW_HEIGHT } as const;
 // 仮・要確認(#59): 企画書は「スコアは倒産までの累計売上」とだけで、プレイ中の表示書式は未記載。「累計売上: 20,000円」。数値部分は3桁区切り。
 export const CUMULATIVE_SALES_FORMAT = { prefix: '累計売上: ', suffix: '円' } as const;
-// 仮・要確認(#59): 累計売上の表示位置。資金表示（y=40）のすぐ下の左列。文字スタイルは資金表示と同じ ELAPSED_DAYS_STYLE（24px）。
-// 24px の行は y=72〜約100 に収まる。雇用ボタン（y=8〜36）・エンジニア数/雇用メッセージ（y=42〜約66）は x=300 以降かつ y<72 なので、縦で分離して重ならない。
-export const CUMULATIVE_SALES_POSITION = { x: 12, y: 72 } as const;
+// 仮・要確認(#59追加対応): 累計売上の表示位置（HUD 3行目）。資金表示の1行下。文字スタイルは資金表示と同じ ELAPSED_DAYS_STYLE（24px）。
+// 重ならない根拠: 出現列 x<60 の右、雇用UI y≦約67 の下（y=144〜約174）、リリース地点 x≥900 の左。
+export const CUMULATIVE_SALES_POSITION = { x: HUD_LEFT_X, y: HUD_TOP_Y + HUD_ROW_HEIGHT * 2 } as const;
 
 // 仮・要確認: 企画書に記載なし。「資金がなくなったら」を残高ちょうど 0 も倒産とするか。false なら 0 未満のみ倒産。
 export const BANKRUPT_INCLUDES_ZERO = true;
