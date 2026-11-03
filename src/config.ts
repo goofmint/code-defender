@@ -35,6 +35,18 @@ export const PLAYER_COLORS = {
   laptop: 0xc8d0e0,
 } as const;
 
+// 仮: 主人公の移動速度（ピクセル/秒）。240 = 4セル/秒。後続のアイテム効果（速度倍率）の基準値。企画書には数値の記載なし。
+export const PLAYER_SPEED = 240;
+// 仮: 移動に使うキー。Phaser の KeyCodes のキー名（矢印キー + WASD）。企画書にはキー割り当ての記載なし。
+export const PLAYER_MOVE_KEYS = {
+  left: ['LEFT', 'A'],
+  right: ['RIGHT', 'D'],
+  up: ['UP', 'W'],
+  down: ['DOWN', 'S'],
+} as const;
+// 仮: タッチ/マウス操作で、目標との距離がこの値（ピクセル）以内なら止まる（震え防止）。企画書には未記載。
+export const PLAYER_POINTER_DEAD_ZONE = 4;
+
 // 仮・要確認: 企画書(3-1)では不正なコードの種類ごとの見た目は未定。以下は正常/不正を見分けるための仮の見た目。
 // コードのサイズ比率（セルに対する割合）。主人公(0.7)より小さくする。
 export const CODE_SIZE_RATIO = 0.5;
