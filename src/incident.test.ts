@@ -53,7 +53,7 @@ describe('calculateDamage', () => {
 });
 
 describe('incidentDamage', () => {
-  it.each(MALICIOUS_CODE_TYPES.map((type) => [type, MALICIOUS_CODE_TYPE_DEFINITIONS[type].damage]))(
+  it.each(MALICIOUS_CODE_TYPES.map((type) => [type, MALICIOUS_CODE_TYPE_DEFINITIONS[type].damage] as const))(
     '種別 %s は損害ポイント %d × 単位円',
     (type, points) => {
       expect(incidentDamage(type)).toBe(points * INCIDENT_DAMAGE_UNIT_YEN);
