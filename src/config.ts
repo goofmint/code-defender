@@ -310,6 +310,8 @@ export const ITEM_ATTACK_LINE = { color: 0xffffff, width: 3, durationMs: 150 } a
 export const ITEM_UI_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 34 } as const;
 export const ITEM_BUTTON_SIZE = { width: 154, height: 28, gap: 4 } as const;
 export const ITEM_BUTTON_COLORS = { fill: 0x1e3a2a, stroke: 0x6cff9c, text: '#ffffff' } as const;
+// 仮・要確認(#48): 購入ボタンの背景の不透明度。下端の行を流れるコードがボタン越しに見えるよう半透明にする。
+export const ITEM_BUTTON_FILL_ALPHA = 0.7;
 export const ITEM_BUTTON_FONT_SIZE = '13px';
 // 仮・要確認(#48): 結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。雇うメッセージ(y=42)と重ならない下側、購入ボタンの上。
 export const ITEM_MESSAGE_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 70 } as const;

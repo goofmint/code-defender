@@ -67,6 +67,7 @@ import {
   ITEM_ATTACK_LINE,
   ITEM_BOX_RATIO,
   ITEM_BUTTON_COLORS,
+  ITEM_BUTTON_FILL_ALPHA,
   ITEM_BUTTON_FONT_SIZE,
   ITEM_BUTTON_SIZE,
   ITEM_COLORS,
@@ -489,6 +490,9 @@ export const drawItemAttackEffect = (scene: Phaser.Scene, from: Point, to: Point
   });
 };
 
+// 仮: 購入ボタンはコード(0.5)より下に描く。下端の行を流れるコードを隠さないため。コードは当たり判定を持たないのでクリックはボタンに届く。
+const ITEM_BUTTON_DEPTH = 0.45;
+
 // アイテム購入ボタン（画面下端）。クリックで onBuy(itemType) を呼ぶ。
 // ボタン上の pointerdown で移動・攻撃が起きないようにする処理は main.ts 側（currentlyOver で判定）。
 export const drawItemButtons = (
@@ -500,7 +504,7 @@ export const drawItemButtons = (
     const { width, height, gap } = ITEM_BUTTON_SIZE;
     const x = ITEM_UI_POSITION.x + index * (width + gap);
     const background = scene.add
-      .rectangle(0, 0, width, height, ITEM_BUTTON_COLORS.fill)
+      .rectangle(0, 0, width, height, ITEM_BUTTON_COLORS.fill, ITEM_BUTTON_FILL_ALPHA)
       .setOrigin(0)
       .setStrokeStyle(2, ITEM_BUTTON_COLORS.stroke);
     const label = scene.add
@@ -513,7 +517,7 @@ export const drawItemButtons = (
     const button = scene.add
       .container(x, ITEM_UI_POSITION.y, [background, label])
       .setSize(width, height)
-      .setDepth(ELAPSED_DAYS_DEPTH);
+      .setDepth(ITEM_BUTTON_DEPTH);
     // drawHireButtons と同じ。表示範囲と当たり判定を一致させるため矩形を半分ずらす。
     button.setInteractive(
       new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
