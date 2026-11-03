@@ -248,7 +248,7 @@ export const ENGINEER_PARAMETER_MAX = 100;
 export const ENGINEER_PARAMETER_FALLBACK = 50;
 // 仮・要確認(#28): ランク別の初期値。疲労度は 0（雇った直後は疲れていない）、他は中央値。
 // 企画書では技術力は「ランクとは別の個人差」なので、ランクでは変えない（仮）。変えたくなったらこの表の値を変えるだけでよい。
-// 性格(#26/#29)による差もここには入れない。
+// 性格(#26/#29)による差もここには入れない（性格の補正は ENGINEER_PERSONALITY_TENDENCIES / ENGINEER_TENDENCY_OFFSETS で後から足す）。
 export const ENGINEER_INITIAL_PARAMETERS: Readonly<
   Record<
     (typeof ENGINEER_RANKS)[number]['id'],
@@ -265,7 +265,7 @@ export const ENGINEER_INITIAL_PARAMETERS: Readonly<
   senior: { fatigue: 0, concentration: 50, skill: 50, attachment: 50 },
 };
 // 仮・要確認(#26): 企画書(6)の性格8種。順序は企画書の表どおり。雇ったときにランダムで1つ付く。
-// 性格ごとのパラメータの傾向（企画書の表の高い・普通・低い）は今回は入れない。#29 でこの表に列を足して使う。
+// 性格ごとのパラメータの傾向は、この表とは別に ENGINEER_PERSONALITY_TENDENCIES に持つ(#29)。
 // 性格は画面には出さない（仮）。#59 の表示と衝突するため。
 export const ENGINEER_PERSONALITIES = [
   { id: 'meticulous', label: '几帳面' },
@@ -289,6 +289,45 @@ export const ENGINEER_PERSONALITY_WEIGHTS: Readonly<
   calm: 1,
   cheerful: 1,
   gloomy: 1,
+};
+// 傾向の3段階（企画書(6)の「高い・普通・低い」）。
+export type EngineerTendency = 'high' | 'normal' | 'low';
+// 企画書(6)「性格」の表を写したもの（確定。値は企画書どおり）。
+// fatigue は「疲労の溜まりやすさ」＝疲労度の初期値ではなく溜まる速さ。→ ENGINEER_FATIGUE_RATE_MULTIPLIERS の係数として使う。
+// concentration / skill / attachment は初期値の補正。→ ENGINEER_TENDENCY_OFFSETS を足す。
+// 表にない項目（疲労度の初期値、集中力・技術力・愛着心の変化の速さ）は「普通」＝補正なし。
+// Record なので、性格の過不足は型エラーになる。
+export const ENGINEER_PERSONALITY_TENDENCIES: Readonly<
+  Record<
+    (typeof ENGINEER_PERSONALITIES)[number]['id'],
+    {
+      readonly fatigue: EngineerTendency;
+      readonly concentration: EngineerTendency;
+      readonly skill: EngineerTendency;
+      readonly attachment: EngineerTendency;
+    }
+  >
+> = {
+  meticulous: { fatigue: 'normal', concentration: 'normal', skill: 'high', attachment: 'normal' },
+  passive: { fatigue: 'normal', concentration: 'low', skill: 'normal', attachment: 'normal' },
+  careless: { fatigue: 'low', concentration: 'high', skill: 'low', attachment: 'normal' },
+  slacker: { fatigue: 'low', concentration: 'low', skill: 'normal', attachment: 'low' },
+  earnest: { fatigue: 'high', concentration: 'high', skill: 'normal', attachment: 'high' },
+  calm: { fatigue: 'low', concentration: 'normal', skill: 'high', attachment: 'normal' },
+  cheerful: { fatigue: 'low', concentration: 'normal', skill: 'normal', attachment: 'high' },
+  gloomy: { fatigue: 'high', concentration: 'high', skill: 'high', attachment: 'low' },
+};
+// 仮・要確認(#29): 傾向ごとの初期値への加算補正。企画書は3段階だけで具体的な数値は試作で調整するとしている。
+export const ENGINEER_TENDENCY_OFFSETS: Readonly<Record<EngineerTendency, number>> = {
+  high: 20,
+  normal: 0,
+  low: -20,
+};
+// 仮・要確認(#29): 傾向ごとの「疲労が溜まる量」に掛ける係数（疲労の溜まりやすさ）。
+export const ENGINEER_FATIGUE_RATE_MULTIPLIERS: Readonly<Record<EngineerTendency, number>> = {
+  high: 1.5,
+  normal: 1,
+  low: 0.5,
 };
 // 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
 export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
