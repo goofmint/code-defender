@@ -2,7 +2,9 @@ import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
-  CODE_SAMPLES,
+  CODE_MALICIOUS_RATE,
+  CODE_SPAWN_INTERVAL_MS,
+  CODE_SPEED,
   ENGINEER_SPAWN_CELLS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
@@ -15,8 +17,19 @@ import {
   movePlayerToward,
 } from './player';
 import { drawCode, drawField, drawPlayer, drawReleasePoint, drawRoutes } from './render';
-import { addRoute, cellCenter, createRoutes } from './route';
+import {
+  CODE_RELEASED_EVENT,
+  advanceCode,
+  initialSpawnElapsed,
+  pickCodeKind,
+  spawnCode,
+  stepSpawnTimer,
+} from './codeFlow';
+import type { CodeReleasedPayload, FlowingCode } from './codeFlow';
+import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
+
+type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics };
 
 type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[]>;
 
@@ -24,6 +37,9 @@ class MainScene extends Phaser.Scene {
   private routes: Route[] = [];
   private player?: Phaser.GameObjects.Graphics;
   private moveKeys?: MoveKeys;
+  private codes: ActiveCode[] = [];
+  private spawnElapsed = new Map<number, number>();
+  private nextCodeId = 0;
 
   constructor() {
     super('main');
@@ -32,10 +48,12 @@ class MainScene extends Phaser.Scene {
   create(): void {
     drawField(this);
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS);
+    this.codes = [];
+    this.spawnElapsed = new Map();
+    this.nextCodeId = 0;
     drawRoutes(this, this.routes);
     drawReleasePoint(this);
     this.player = drawPlayer(this);
-    CODE_SAMPLES.forEach(({ kind, cell }) => drawCode(this, kind, cellCenter(cell)));
     const keyboard = this.input.keyboard;
     if (keyboard) {
       const register = (names: readonly string[]): Phaser.Input.Keyboard.Key[] =>
@@ -50,6 +68,11 @@ class MainScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    this.updatePlayer(delta);
+    this.updateCodes(delta);
+  }
+
+  private updatePlayer(delta: number): void {
     const player = this.player;
     if (!player) {
       return;
@@ -90,6 +113,36 @@ class MainScene extends Phaser.Scene {
     }
     const next = clampToField(movePlayerToward(position, target, direction, delta));
     player.setPosition(next.x, next.y);
+  }
+
+  private updateCodes(delta: number): void {
+    for (const route of this.routes) {
+      const step = stepSpawnTimer(
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(CODE_SPAWN_INTERVAL_MS),
+        delta,
+        CODE_SPAWN_INTERVAL_MS,
+      );
+      this.spawnElapsed.set(route.id, step.elapsedMs);
+      if (step.spawn) {
+        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, CODE_MALICIOUS_RATE), route);
+        this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position) });
+      }
+    }
+
+    const distance = (CODE_SPEED * delta) / 1000;
+    const flowing: ActiveCode[] = [];
+    for (const active of this.codes) {
+      const next: ActiveCode = { ...advanceCode(active, distance), graphics: active.graphics };
+      if (next.released) {
+        next.graphics.destroy();
+        const payload: CodeReleasedPayload = { id: next.id, kind: next.kind, routeId: next.routeId };
+        this.events.emit(CODE_RELEASED_EVENT, payload);
+      } else {
+        next.graphics.setPosition(next.position.x, next.position.y);
+        flowing.push(next);
+      }
+    }
+    this.codes = flowing;
   }
 
   // エンジニアが増えたときに出現場所とルートを追加して描画する。上限などで追加できなければ undefined。
