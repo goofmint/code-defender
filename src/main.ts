@@ -12,6 +12,7 @@ import {
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
+  ITEM_BUY_KEYS,
   MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
@@ -45,6 +46,10 @@ import {
   drawGameOver,
   drawHireButtons,
   drawHireMessage,
+  drawItemAttackEffect,
+  drawItemButtons,
+  drawItemMessage,
+  drawPlacedItem,
   drawPenaltyText,
   drawPlayer,
   drawReleasePoint,
@@ -98,7 +103,19 @@ import {
   shouldAddRouteOnHire,
 } from './engineer';
 import type { Engineer, EngineerHiredPayload } from './engineer';
-import { addRoute } from './route';
+import { addRoute, cellCenter } from './route';
+import { getItemDamage, ITEM_TYPES } from './item';
+import type { ItemType } from './item';
+import {
+  canItemAttack,
+  createItemState,
+  findItemTarget,
+  formatItemMessage,
+  ITEM_PLACED_EVENT,
+  pointToCell,
+  purchaseItem,
+} from './itemPlacement';
+import type { ItemPlacedPayload, PlacedItem } from './itemPlacement';
 import type { Route } from './route';
 
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics };
@@ -130,6 +147,9 @@ class MainScene extends Phaser.Scene {
   private nextEngineerId = 0;
   private engineerCountText?: Phaser.GameObjects.Text;
   private hireMessageText?: Phaser.GameObjects.Text;
+  private placedItems: readonly PlacedItem[] = [];
+  private nextItemId = 0;
+  private itemMessageText?: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -177,6 +197,11 @@ class MainScene extends Phaser.Scene {
       ENGINEER_RANKS.map((entry) => ({ rank: entry.id, cost: ENGINEER_HIRE_COST[entry.id] })),
       (rank) => this.hire(rank),
     );
+    const itemState = createItemState();
+    this.placedItems = itemState.placedItems;
+    this.nextItemId = itemState.nextId;
+    this.itemMessageText = undefined;
+    drawItemButtons(this, ITEM_TYPES, (itemType) => this.buyItem(itemType));
     drawReleasePoint(this);
     this.player = drawPlayer(this);
     const keyboard = this.input.keyboard;
@@ -193,6 +218,9 @@ class MainScene extends Phaser.Scene {
       register(ATTACK_KEYS).forEach((key) => key.on('down', () => this.tryAttack()));
       HIRE_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.hire(ENGINEER_RANKS[index].id)),
+      );
+      ITEM_BUY_KEYS.forEach((name, index) =>
+        keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
       );
       register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
     }
@@ -262,6 +290,7 @@ class MainScene extends Phaser.Scene {
     }
     this.updatePlayer(delta);
     this.updateCodes(delta);
+    this.updateItems(this.time.now);
   }
 
   private updatePlayer(delta: number): void {
@@ -364,6 +393,51 @@ class MainScene extends Phaser.Scene {
     this.events.emit(ENGINEER_HIRED_EVENT, payload);
   }
 
+  // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  private buyItem(itemType: ItemType): void {
+    const player = this.player;
+    if (this.gameOver.over || !player) {
+      return;
+    }
+    const result = purchaseItem(
+      { funds: this.funds, placedItems: this.placedItems, nextId: this.nextItemId, gameOver: this.gameOver.over },
+      itemType,
+      pointToCell({ x: player.x, y: player.y }),
+      { routes: this.routes },
+    );
+    this.itemMessageText?.destroy();
+    this.itemMessageText = drawItemMessage(this, formatItemMessage(result, itemType));
+    if (!result.ok) {
+      return;
+    }
+    this.placedItems = result.placedItems;
+    this.nextItemId = result.item.id + 1;
+    drawPlacedItem(this, result.item);
+    this.changeFunds(result.fundsAfter, 'item');
+    const payload: ItemPlacedPayload = { item: result.item, price: result.price };
+    this.events.emit(ITEM_PLACED_EVENT, payload);
+  }
+
+  // 置いたアイテムが、範囲内で最も近い不正なコードを自動で攻撃する。ゲームオーバー中はしない。
+  private updateItems(now: number): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    this.placedItems = this.placedItems.map((item) => {
+      if (!canItemAttack(now, item.lastAttackTime)) {
+        return item;
+      }
+      const target = findItemTarget(item, this.codes);
+      if (!target) {
+        return item;
+      }
+      drawItemAttackEffect(this, cellCenter(item.cell), target.position);
+      flashCode(this, target.graphics);
+      this.damageMaliciousCode(target, getItemDamage(item.itemType, target.maliciousType));
+      return { ...item, lastAttackTime: now };
+    });
+  }
+
   // 雇ったらルートと出現場所を追加し、雇ったエンジニアに割り当てる。ゲームオーバー中・追加できないときは routeId を null のままにする。
   private onEngineerHired(payload: EngineerHiredPayload): void {
     if (!shouldAddRouteOnHire(this.gameOver.over)) {
@@ -448,11 +522,19 @@ class MainScene extends Phaser.Scene {
       }
       return;
     }
-    const hp = this.codeHp.get(event.code.id);
-    if (!target || target.kind !== 'malicious' || hp === undefined) {
+    if (!target) {
       return;
     }
-    const result = applyHit(hp, ATTACK_DAMAGE);
+    this.damageMaliciousCode(target, ATTACK_DAMAGE);
+  }
+
+  // 不正なコードの hp を減らし、0以下なら撃破する（主人公・アイテム共通）。正常なコードや hp を持たないコードは何もしない。
+  private damageMaliciousCode(target: ActiveCode, damage: number): void {
+    const hp = this.codeHp.get(target.id);
+    if (target.kind !== 'malicious' || hp === undefined) {
+      return;
+    }
+    const result = applyHit(hp, damage);
     this.codeHp.set(target.id, result.hp);
     if (!result.defeated) {
       return;
