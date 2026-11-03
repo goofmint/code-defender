@@ -143,12 +143,13 @@ describe('isPlaceableCell: 置ける場所', () => {
   it.each([
     [{ col: 0, row: 2 }, true], // 左端の列（ルートでない）
     [{ col: lastCol, row: 1 }, true], // 右端の列
-    [{ col: 3, row: 2 }, true],
-    [{ col: 5, row: 1 }, false], // HUD と重なるセルの右端
-    [{ col: 6, row: 1 }, true], // HUD の右隣
-    [{ col: 0, row: 1 }, false],
-    [{ col: 1, row: 2 }, true], // 行2は HUD と重ならない（col 0〜5）
-    [{ col: 5, row: 2 }, true],
+    [{ col: 8, row: 2 }, true],
+    [{ col: 6, row: 1 }, false], // HUD と重なるセルの右端（行1）
+    [{ col: 7, row: 1 }, true], // HUD の右隣（行1）
+    [{ col: 6, row: 2 }, false], // HUD と重なるセルの右端（行2）
+    [{ col: 7, row: 2 }, true], // HUD の右隣（行2）
+    [{ col: 1, row: 1 }, false], // HUD の左端
+    [{ col: 0, row: 1 }, true], // 出現列（ルートが無ければ置ける）
     [{ col: 3, row: lastRow - 1 }, true], // UI の行の1つ内側
     [{ col: 3, row: 0 }, false], // 上端 UI 行
     [{ col: 3, row: lastRow }, false], // 下端 UI 行
@@ -163,7 +164,7 @@ describe('isPlaceableCell: 置ける場所', () => {
 
   it('ルート上のセルは不可、その隣は可', () => {
     expect(isPlaceableCell({ col: 3, row: 3 }, ctx)).toBe(false);
-    expect(isPlaceableCell({ col: 3, row: 2 }, ctx)).toBe(true);
+    expect(isPlaceableCell({ col: 3, row: 2 }, ctx)).toBe(false); // 隣だが HUD と重なる
     expect(isPlaceableCell({ col: 3, row: 4 }, ctx)).toBe(true);
     expect(isPlaceableCell({ col: 5, row: 4 }, ctx)).toBe(false);
     expect(isPlaceableCell({ col: 6, row: 4 }, ctx)).toBe(true);
@@ -196,6 +197,12 @@ describe('isPlaceableCell: 置ける場所', () => {
     expect(isPlaceableCell({ col: 3, row: 0 }, { ...ctx, blockedRows: [] })).toBe(true);
     expect(isPlaceableCell({ col: 3, row: 1 }, { ...ctx, blockedCells: [] })).toBe(true);
     expect(isPlaceableCell({ col: 8, row: 1 }, { ...ctx, blockedCells: [{ col: 8, row: 1 }] })).toBe(false);
+  });
+});
+
+describe('isPlaceableCell: HUD の下', () => {
+  it('行3 col1 は（ルートが無ければ）置ける', () => {
+    expect(isPlaceableCell({ col: 1, row: 3 }, { routes: [], placedItems: [] })).toBe(true);
   });
 });
 
@@ -285,7 +292,7 @@ describe('purchaseItem: 成功時の結果', () => {
     let current = state();
     const ids: number[] = [];
     for (let col = 1; col <= 3; col++) {
-      const result = purchaseItem(current, 'linter', { col, row: 2 }, options);
+      const result = purchaseItem(current, 'linter', { col, row: 4 }, options);
       if (!result.ok) throw new Error('purchase failed');
       ids.push(result.item.id);
       current = { ...current, placedItems: result.placedItems, nextId: result.item.id + 1, funds: result.fundsAfter };

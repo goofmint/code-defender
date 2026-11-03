@@ -311,9 +311,23 @@ export const ITEM_PRICE_TIER_BY_TYPE = {
 } as const;
 // 仮・要確認(#48): アイテムを置けない行（UI と重なる行）。上端=雇うボタン・HUD、下端=アイテム購入ボタン。
 export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
-// 仮・要確認(#48): アイテムを置けないセル。左上の HUD（経過日数 y=8〜、資金 y=40〜64、累計売上 y=72〜・幅およそ300px）が
-// 行1(y=60〜120)の左側のセルと重なるため、行1の col 0〜5 を置けないセルにする。
-export const ITEM_BLOCKED_CELLS = [0, 1, 2, 3, 4, 5].map((col) => ({ col, row: 1 }));
+// 仮・要確認(#48): HUD（経過日数・資金・累計売上の3行）が占める範囲。幅は「資金: 1,000,000円」で約300px、
+// 高さは最下行（累計売上）の上端から文字の行高さ約30px（ELAPSED_DAYS_STYLE 24px）まで。
+const ITEM_HUD_WIDTH = 300;
+const ITEM_HUD_LINE_HEIGHT = 30;
+// 仮・要確認(#48): アイテムを置けないセル。HUD は x=ELAPSED_DAYS_POSITION.x（72）〜372、y=80〜約174 で、行1〜2 × col 1〜6 と重なる。
+// 範囲は ELAPSED_DAYS_POSITION / CUMULATIVE_SALES_POSITION / CELL_SIZE から計算する（右端・下端ちょうどがセル境界なら次のセルは含めない）。
+// col 0 は出現列（ルートがあれば元々置けない）なので含めない。
+const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
+const itemHudMaxCol = Math.ceil((ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH) / CELL_SIZE) - 1;
+const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
+const itemHudMaxRow = Math.ceil((CUMULATIVE_SALES_POSITION.y + ITEM_HUD_LINE_HEIGHT) / CELL_SIZE) - 1;
+export const ITEM_BLOCKED_CELLS = Array.from(
+  { length: itemHudMaxRow - itemHudMinRow + 1 },
+  (_, r) => itemHudMinRow + r,
+).flatMap((row) =>
+  Array.from({ length: itemHudMaxCol - itemHudMinCol + 1 }, (_, c) => ({ col: itemHudMinCol + c, row })),
+);
 // 仮・要確認(#48): アイテム購入キー（ITEM_TYPES の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・リスタートと重ならない。Phaser の KeyCodes のキー名。
 export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
