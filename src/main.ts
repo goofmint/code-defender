@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
+  ATTACK_KEYS,
   CODE_MALICIOUS_RATE,
   CODE_SPAWN_INTERVAL_MS,
   CODE_SPEED,
@@ -10,13 +11,30 @@ import {
   PLAYER_POINTER_DEAD_ZONE,
 } from './config';
 import {
+  ATTACK_COOLDOWN_MS,
+  ATTACK_RANGE,
+  canAttack,
+  CODE_HIT_EVENT,
+  findAttackTarget,
+  isInsideTapArea,
+} from './attack';
+import type { CodeHitEvent } from './attack';
+import {
   clampToField,
   getMoveDirection,
   getPointerDirection,
   movePlayer,
   movePlayerToward,
 } from './player';
-import { drawCode, drawField, drawPlayer, drawReleasePoint, drawRoutes } from './render';
+import {
+  drawAttackEffect,
+  drawCode,
+  drawField,
+  drawPlayer,
+  drawReleasePoint,
+  drawRoutes,
+  flashCode,
+} from './render';
 import {
   CODE_RELEASED_EVENT,
   advanceCode,
@@ -40,6 +58,9 @@ class MainScene extends Phaser.Scene {
   private codes: ActiveCode[] = [];
   private spawnElapsed = new Map<number, number>();
   private nextCodeId = 0;
+  private lastAttackTime: number | null = null;
+  // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
+  private attackPointerHeld = false;
 
   constructor() {
     super('main');
@@ -64,7 +85,50 @@ class MainScene extends Phaser.Scene {
         up: register(PLAYER_MOVE_KEYS.up),
         down: register(PLAYER_MOVE_KEYS.down),
       };
+      // 'down' イベントで発動する（短い押下の取りこぼし防止）。emitOnRepeat は既定 false なので押しっぱなしでは連発しない。
+      register(ATTACK_KEYS).forEach((key) => key.on('down', () => this.tryAttack()));
     }
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      const player = this.player;
+      if (!player) {
+        return;
+      }
+      // ゲーム座標（worldX/worldY）で判定する。DOM 座標は使わない。
+      const inside = isInsideTapArea(
+        { x: pointer.worldX, y: pointer.worldY },
+        { x: player.x, y: player.y },
+      );
+      if (inside) {
+        this.attackPointerHeld = true;
+        this.tryAttack();
+      }
+    });
+  }
+
+  // 現在の攻撃対象（フィールド上を流れているコードの一覧）を返す。
+  // 命中判定（findAttackTarget）は渡された一覧だけを見る。
+  private getAttackTargets(): readonly ActiveCode[] {
+    return this.codes;
+  }
+
+  // クールダウンが明けていれば攻撃する。射程内で最も近いコード1つに命中し、空振りでもクールダウンを消費する。
+  // 命中時は CODE_HIT_EVENT を発行する。後続タスクは `scene.events.on(CODE_HIT_EVENT, ...)` で接続する。
+  private tryAttack(): void {
+    const player = this.player;
+    const now = this.time.now;
+    if (!player || !canAttack(now, this.lastAttackTime, ATTACK_COOLDOWN_MS)) {
+      return;
+    }
+    this.lastAttackTime = now;
+    const playerPosition = { x: player.x, y: player.y };
+    drawAttackEffect(this, playerPosition, ATTACK_RANGE);
+    const hit = findAttackTarget(playerPosition, this.getAttackTargets(), ATTACK_RANGE);
+    if (!hit) {
+      return;
+    }
+    flashCode(this, hit.graphics);
+    const payload: CodeHitEvent<ActiveCode> = { code: hit, playerPosition, time: now };
+    this.events.emit(CODE_HIT_EVENT, payload);
   }
 
   update(_time: number, delta: number): void {
@@ -76,6 +140,9 @@ class MainScene extends Phaser.Scene {
     const player = this.player;
     if (!player) {
       return;
+    }
+    if (!this.input.activePointer.isDown) {
+      this.attackPointerHeld = false;
     }
     const keys = this.moveKeys;
     const isDown = (list: Phaser.Input.Keyboard.Key[]): boolean => list.some((key) => key.isDown);
@@ -104,6 +171,9 @@ class MainScene extends Phaser.Scene {
     // ポインター（タッチ・マウス）を押している間、ゲーム座標の押下位置へ向かう。
     const pointer = this.input.activePointer;
     if (!pointer.isDown) {
+      return;
+    }
+    if (this.attackPointerHeld) {
       return;
     }
     const target = { x: pointer.worldX, y: pointer.worldY };
