@@ -245,3 +245,14 @@ export const INCIDENT_DEFAULT_DAMAGE_POINTS = 10;
 // 仮・要確認(#18): 障害の演出（画面全体の短い点滅）の継続時間（ミリ秒）と色（0xRRGGBB）。企画書には演出の記載なし。
 export const INCIDENT_FLASH_DURATION_MS = 250;
 export const INCIDENT_FLASH_COLOR = 0xff0000;
+
+// 仮・要確認(#50): 企画書(8, 10)ではアイテムの範囲・攻撃力は「段階」だけで、具体的な数値は未定。以下はすべて仮の値。
+// 範囲(段階→距離): CELL_SIZE に対する比率。近距離=1.5(90px)、中距離=2.5(150px)、長距離=4(240px)。主人公の攻撃範囲(60px)より大きい。
+export const ITEM_RANGE_RATIOS = { short: 1.5, middle: 2.5, long: 4 } as const;
+// 仮・要確認(#50): 攻撃力(段階→1ヒットのダメージ)。主人公の ATTACK_DAMAGE=1 と整数の hp(#10) に合わせて整数にする。
+export const ITEM_POWER_DAMAGE = { weak: 1, medium: 2, strong: 3 } as const;
+// 仮・要確認(#50): 得意な種類の不正コードに対するダメージ倍率。
+// 得意でない種類にも等倍で効く（企画書「マイナー・インフォは CodeRabbit や Linter でも倒せる」より）。
+// 万能型(all)は得意ボーナスなしで全種類に等倍（「クリティカル・メジャーはスキャナーがないと苦戦」と矛盾させないため）。
+// 種類なしの不正コード(maliciousType undefined)は得意でない扱いで等倍。
+export const ITEM_STRONG_AGAINST_MULTIPLIER = 2;
