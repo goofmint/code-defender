@@ -397,18 +397,8 @@ export const drawHireButtons = (
       .setDepth(ELAPSED_DAYS_DEPTH);
     // コンテナの原点は左上ではなく中心。当たり判定を矩形（左上基準）で明示する。
     button.setInteractive(new Phaser.Geom.Rectangle(0, 0, width, height), Phaser.Geom.Rectangle.Contains);
-    button.on(
-      'pointerdown',
-      (
-        _pointer: Phaser.Input.Pointer,
-        _x: number,
-        _y: number,
-        event: Phaser.Types.Input.EventData,
-      ) => {
-        event.stopPropagation();
-        onHire(entry.rank);
-      },
-    );
+    // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
+    button.on('pointerdown', () => onHire(entry.rank));
     return button;
   });
 
