@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
-import { drawField } from './render';
+import { drawField, drawPlayer } from './render';
 
 class MainScene extends Phaser.Scene {
   constructor() {
@@ -10,6 +10,7 @@ class MainScene extends Phaser.Scene {
 
   create(): void {
     drawField(this);
+    drawPlayer(this);
   }
 }
 
