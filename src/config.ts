@@ -195,6 +195,12 @@ export const DEFEAT_EFFECT_DURATION_MS = 300;
 export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
 export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
 
+// 仮・要確認(#22): 企画書は「スコアは倒産までの累計売上」とだけで、表示の書式・位置は未記載。
+// ゲームオーバー画面のスコア表示書式。「スコア: 20,000円」。数値部分は3桁区切り。
+export const SCORE_FORMAT = { prefix: 'スコア: ', suffix: '円' } as const;
+// 仮・要確認(#22): ゲームオーバー画面のスコア行の文字サイズ。タイトルと案内の間に置く。
+export const GAME_OVER_SCORE_FONT_SIZE = '24px';
+
 // 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコア（累計売上 #22）が未実装のため、減点は資金から引く。
 export const NORMAL_CODE_PENALTY_TARGET = 'funds' as const;
 // 仮・要確認: 正常なコードを1回攻撃したときの減点額（円）。企画書には未記載。
@@ -207,6 +213,30 @@ export const PENALTY_TEXT_DURATION_MS = 800;
 export const PENALTY_TEXT_RISE_PX = 40;
 export const PENALTY_TEXT_FONT_SIZE = '20px';
 
+// 仮・要確認(#23): 企画書(6)は「ジュニア・ミドル・シニアの3ランクから雇える」とだけで、費用・人数・上限・操作は未記載。以下はすべて仮の値。
+// ランク表。表示名のほか、給料(#25/#33)・不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。
+export const ENGINEER_RANKS = [
+  { id: 'junior', label: 'ジュニア' },
+  { id: 'middle', label: 'ミドル' },
+  { id: 'senior', label: 'シニア' },
+] as const;
+// 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
+export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
+// 仮・要確認(#23): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。
+export const INITIAL_ENGINEER_RANKS = ['junior', 'junior', 'junior'] as const;
+// 仮・要確認(#23): エンジニアの上限人数。#27 で1人1ルートになるため、ルートの上限と揃える。
+export const MAX_ENGINEERS = MAX_ENGINEER_ROUTES;
+// 仮・要確認(#23): 雇うキー（ENGINEER_RANKS の順に対応）。移動・攻撃・リスタートのキーと重ならない。Phaser の KeyCodes のキー名。
+export const HIRE_KEYS = ['ONE', 'TWO', 'THREE'] as const;
+// 仮・要確認(#23): 雇う画面の配置。上端の行（出現セル列0・リリース地点と重ならない）。経過日数・資金表示の右。
+export const HIRE_UI_POSITION = { x: 300, y: 8 } as const;
+export const HIRE_BUTTON_SIZE = { width: 170, height: 28, gap: 10 } as const;
+export const HIRE_BUTTON_COLORS = { fill: 0x1e2a4a, stroke: 0x6c8cff, text: '#ffffff' } as const;
+export const HIRE_BUTTON_FONT_SIZE = '16px';
+// 仮・要確認(#23): 人数表示とメッセージの位置（ボタンの下）、メッセージの表示時間（ミリ秒）。
+export const HIRE_COUNT_POSITION = { x: 300, y: 42 } as const;
+export const HIRE_MESSAGE_POSITION = { x: 480, y: 42 } as const;
+export const HIRE_MESSAGE_DURATION_MS = 2000;
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;

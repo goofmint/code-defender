@@ -5,12 +5,16 @@ import {
   ATTACK_DAMAGE,
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MS,
+  ENGINEER_HIRE_COST,
   ENGINEER_MONTHLY_SALARY,
   ENGINEER_SPAWN_CELLS,
   GAME_OVER_RESTART_KEYS,
+  HIRE_KEYS,
+  INITIAL_ENGINEER_RANKS,
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
+  MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
 } from './config';
@@ -38,7 +42,10 @@ import {
   drawElapsedDays,
   drawField,
   drawFunds,
+  drawEngineerCount,
   drawGameOver,
+  drawHireButtons,
+  drawHireMessage,
   drawPenaltyText,
   drawPlayer,
   drawReleasePoint,
@@ -67,6 +74,7 @@ import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFat
 import type { CodeDefeatedPayload } from './defeat';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
+import { accumulateScore, INITIAL_SCORE } from './score';
 import {
   canRestart,
   checkBankruptcy,
@@ -80,6 +88,15 @@ import type { NormalCodePenalizedPayload } from './penalty';
 import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
+import {
+  createInitialEngineers,
+  ENGINEER_HIRED_EVENT,
+  ENGINEER_RANKS,
+  formatEngineerCount,
+  formatHireMessage,
+  hireEngineer,
+} from './engineer';
+import type { Engineer, EngineerHiredPayload } from './engineer';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
@@ -105,7 +122,12 @@ class MainScene extends Phaser.Scene {
   private displayedDays = 0;
   private funds = 0;
   private fundsText?: Phaser.GameObjects.Text;
+  private score = INITIAL_SCORE;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
+  private engineers: Engineer[] = [];
+  private nextEngineerId = 0;
+  private engineerCountText?: Phaser.GameObjects.Text;
+  private hireMessageText?: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -123,6 +145,7 @@ class MainScene extends Phaser.Scene {
     this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
     this.funds = INITIAL_FUNDS;
     this.fundsText = drawFunds(this, this.funds);
+    this.score = INITIAL_SCORE;
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
@@ -139,6 +162,15 @@ class MainScene extends Phaser.Scene {
     this.nextCodeId = 0;
     this.codeHp = new Map();
     drawRoutes(this, this.routes);
+    this.engineers = createInitialEngineers(this.routes, INITIAL_ENGINEER_RANKS);
+    this.nextEngineerId = this.engineers.length;
+    this.hireMessageText = undefined;
+    this.engineerCountText = drawEngineerCount(this, this.engineers.length, MAX_ENGINEERS);
+    drawHireButtons(
+      this,
+      ENGINEER_RANKS.map((entry) => ({ rank: entry.id, cost: ENGINEER_HIRE_COST[entry.id] })),
+      (rank) => this.hire(rank),
+    );
     drawReleasePoint(this);
     this.player = drawPlayer(this);
     const keyboard = this.input.keyboard;
@@ -153,11 +185,19 @@ class MainScene extends Phaser.Scene {
       };
       // 'down' イベントで発動する（短い押下の取りこぼし防止）。emitOnRepeat は既定 false なので押しっぱなしでは連発しない。
       register(ATTACK_KEYS).forEach((key) => key.on('down', () => this.tryAttack()));
+      HIRE_KEYS.forEach((name, index) =>
+        keyboard.addKey(name).on('down', () => this.hire(ENGINEER_RANKS[index].id)),
+      );
       register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
     }
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
       if (this.gameOver.over) {
         this.tryRestart();
+        return;
+      }
+      // 雇うボタン上の押下では、離すまで主人公の移動・攻撃をしない。
+      if (currentlyOver.length > 0) {
+        this.attackPointerHeld = true;
         return;
       }
       const player = this.player;
@@ -294,6 +334,30 @@ class MainScene extends Phaser.Scene {
     this.events.emit(FUNDS_CHANGED_EVENT, createFundsChangedEvent(previous, next, reason));
   }
 
+  // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  // 雇ってもルートは増やさない（#27 が ENGINEER_HIRED_EVENT を購読して追加する）。
+  private hire(rank: string): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const result = hireEngineer(
+      { engineers: this.engineers, funds: this.funds, nextId: this.nextEngineerId },
+      rank,
+      { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST },
+    );
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatHireMessage(result, rank));
+    if (!result.ok) {
+      return;
+    }
+    this.engineers = [...result.engineers];
+    this.nextEngineerId = result.engineer.id + 1;
+    this.engineerCountText?.setText(formatEngineerCount(this.engineers.length, MAX_ENGINEERS));
+    this.changeFunds(result.fundsAfter, 'hire');
+    const payload: EngineerHiredPayload = { engineer: result.engineer, cost: result.cost };
+    this.events.emit(ENGINEER_HIRED_EVENT, payload);
+  }
+
   // 月の境界ごとに給料を引く。エンジニア数は仮に現在のルート数とする（主人公の給料は含めない）。
   private onMonthElapsed(event: MonthElapsedEvent): void {
     const paid = settleMonthlySalary(
@@ -307,13 +371,14 @@ class MainScene extends Phaser.Scene {
 
   // 資金の変化ごとに倒産を判定する。倒産したら Tween を止めてゲームオーバー表示を出す。
   private onFundsChanged(event: FundsChangedEvent): void {
+    this.score = accumulateScore(this.score, event, this.gameOver.over);
     const result = checkBankruptcy(this.gameOver, event.current, this.time.now);
     this.gameOver = result.state;
     if (!result.triggered) {
       return;
     }
     this.tweens.pauseAll();
-    drawGameOver(this);
+    drawGameOver(this, this.score);
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
   }
 
