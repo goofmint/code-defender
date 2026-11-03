@@ -177,8 +177,15 @@ export const GAME_OVER_RESTART_KEYS = ['ENTER', 'SPACE'] as const;
 export const GAME_OVER_RESTART_DELAY_MS = 1000;
 // 仮・要確認: 企画書に記載なし。ゲームオーバー表示の全面オーバーレイ（半透明の黒）。
 export const GAME_OVER_OVERLAY = { color: 0x000000, alpha: 0.6 } as const;
-// 仮・要確認: 企画書に記載なし。ゲームオーバー表示の文字サイズ（タイトル・案内）。文字の色・縁取りは ELAPSED_DAYS_STYLE と同じ。
-export const GAME_OVER_FONT_SIZES = { title: '48px', restart: '24px' } as const;
+// 仮・要確認(#60): 企画書に記載なし。ゲームオーバー画面の各行の文字サイズ(px)と、画面中央から行の中心までの縦のずれ(px、下が正)。
+// 並びはタイトル→スコア→経過日数→案内。スコアを主役にするため文字を大きくする（最長の MAX_SAFE_INTEGER でも画面幅に収まる大きさ）。
+// 行の高さは文字サイズの約1.25倍。隣り合う行が重ならないよう間隔をあけている。文字の色・縁取りは ELAPSED_DAYS_STYLE と同じ。
+export const GAME_OVER_LAYOUT = {
+  title: { fontSize: 48, offsetY: -80 },
+  score: { fontSize: 32, offsetY: -20 },
+  elapsedDays: { fontSize: 24, offsetY: 30 },
+  restart: { fontSize: 24, offsetY: 80 },
+} as const;
 
 // 仮・要確認: 企画書(3-1)では不正なコードの種類ごとの見た目・強さ・損害額は未定。以下はすべて仮の値。
 // 見た目: 不正コード共通の赤い星形＋「!」に、星の右上へ付ける小円（バッジ）の色と大きさで種類を区別する。
@@ -213,10 +220,8 @@ export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
 // 仮・要確認(#22): 企画書は「スコアは倒産までの累計売上」とだけで、表示の書式・位置は未記載。
 // ゲームオーバー画面のスコア表示書式。「スコア: 20,000円」。数値部分は3桁区切り。
 export const SCORE_FORMAT = { prefix: 'スコア: ', suffix: '円' } as const;
-// 仮・要確認(#22): ゲームオーバー画面のスコア行の文字サイズ。タイトルと案内の間に置く。
-export const GAME_OVER_SCORE_FONT_SIZE = '24px';
 
-// 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコア（累計売上 #22）が未実装のため、減点は資金から引く。
+// 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコアは累計売上で減らさない方針のため、減点は資金から引く。
 export const NORMAL_CODE_PENALTY_TARGET = 'funds' as const;
 // 仮・要確認: 正常なコードを1回攻撃したときの減点額（円）。企画書には未記載。
 export const NORMAL_CODE_PENALTY = 50000;
