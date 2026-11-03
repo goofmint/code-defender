@@ -131,3 +131,18 @@ export const ENGINEER_MONTHLY_SALARY = 300000;
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
 // 仮・要確認: 企画書に記載なし。資金の表示位置。経過日数表示のすぐ下。
 export const FUNDS_POSITION = { x: 12, y: 40 } as const;
+
+// 仮・要確認: 企画書に記載なし。「資金がなくなったら」を残高ちょうど 0 も倒産とするか。false なら 0 未満のみ倒産。
+export const BANKRUPT_INCLUDES_ZERO = true;
+// 仮・要確認: 企画書に記載なし。ゲームオーバー画面の文言。案内はタッチ端末でも読める文言にしている。
+export const GAME_OVER_TEXT = '倒産しました';
+export const GAME_OVER_RESTART_TEXT = 'タップ / クリック / Enter でもう一度';
+// 仮・要確認: 企画書に記載なし。ゲームオーバー中のリスタートキー（Phaser の KeyCodes のキー名）。
+// Space は攻撃キーと同じだが、ゲームオーバー中は攻撃しないのでリスタートに使う。
+export const GAME_OVER_RESTART_KEYS = ['ENTER', 'SPACE'] as const;
+// 仮・要確認: 企画書に記載なし。ゲームオーバー直後の誤操作でリスタートしないための待ち時間（ミリ秒）。
+export const GAME_OVER_RESTART_DELAY_MS = 1000;
+// 仮・要確認: 企画書に記載なし。ゲームオーバー表示の全面オーバーレイ（半透明の黒）。
+export const GAME_OVER_OVERLAY = { color: 0x000000, alpha: 0.6 } as const;
+// 仮・要確認: 企画書に記載なし。ゲームオーバー表示の文字サイズ（タイトル・案内）。文字の色・縁取りは ELAPSED_DAYS_STYLE と同じ。
+export const GAME_OVER_FONT_SIZES = { title: '48px', restart: '24px' } as const;

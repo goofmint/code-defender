@@ -8,6 +8,7 @@ import {
   CODE_SPEED,
   ENGINEER_MONTHLY_SALARY,
   ENGINEER_SPAWN_CELLS,
+  GAME_OVER_RESTART_KEYS,
   INITIAL_FUNDS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
@@ -34,6 +35,7 @@ import {
   drawElapsedDays,
   drawField,
   drawFunds,
+  drawGameOver,
   drawPlayer,
   drawReleasePoint,
   drawRoutes,
@@ -58,7 +60,15 @@ import {
 } from './gameTime';
 import type { MonthElapsedEvent } from './gameTime';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
-import type { FundsChangeReason } from './funds';
+import type { FundsChangedEvent, FundsChangeReason } from './funds';
+import {
+  canRestart,
+  checkBankruptcy,
+  createGameOverEvent,
+  GAME_OVER_EVENT,
+  INITIAL_GAME_OVER_STATE,
+} from './gameOver';
+import type { GameOverState } from './gameOver';
 import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
@@ -83,19 +93,28 @@ class MainScene extends Phaser.Scene {
   private displayedDays = 0;
   private funds = 0;
   private fundsText?: Phaser.GameObjects.Text;
+  private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
 
   constructor() {
     super('main');
   }
 
   create(): void {
+    // scene.restart() は同じインスタンスで create() を再実行し、クラスフィールドの初期値は再設定されない。ここで初期化する。
+    this.elapsedMs = 0;
+    this.displayedDays = 0;
+    this.lastAttackTime = null;
+    this.attackPointerHeld = false;
+    this.gameOver = INITIAL_GAME_OVER_STATE;
     drawField(this);
     this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
     this.funds = INITIAL_FUNDS;
     this.fundsText = drawFunds(this, this.funds);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
+    this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
+      this.events.off(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     });
     this.routes = createRoutes(ENGINEER_SPAWN_CELLS, Math.random);
     this.codes = [];
@@ -116,8 +135,13 @@ class MainScene extends Phaser.Scene {
       };
       // 'down' イベントで発動する（短い押下の取りこぼし防止）。emitOnRepeat は既定 false なので押しっぱなしでは連発しない。
       register(ATTACK_KEYS).forEach((key) => key.on('down', () => this.tryAttack()));
+      register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
     }
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.gameOver.over) {
+        this.tryRestart();
+        return;
+      }
       const player = this.player;
       if (!player) {
         return;
@@ -143,6 +167,9 @@ class MainScene extends Phaser.Scene {
   // クールダウンが明けていれば攻撃する。射程内で最も近いコード1つに命中し、空振りでもクールダウンを消費する。
   // 命中時は CODE_HIT_EVENT を発行する。後続タスクは `scene.events.on(CODE_HIT_EVENT, ...)` で接続する。
   private tryAttack(): void {
+    if (this.gameOver.over) {
+      return;
+    }
     const player = this.player;
     const now = this.time.now;
     if (!player || !canAttack(now, this.lastAttackTime, ATTACK_COOLDOWN_MS)) {
@@ -161,7 +188,14 @@ class MainScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    if (this.gameOver.over) {
+      return;
+    }
     this.advanceClock(delta);
+    // 月の給料で倒産したら、同じフレームの移動・コードの更新はしない。
+    if (this.gameOver.over) {
+      return;
+    }
     this.updatePlayer(delta);
     this.updateCodes(delta);
   }
@@ -226,6 +260,10 @@ class MainScene extends Phaser.Scene {
       this.elapsedDaysText?.setText(formatElapsedDays(days));
     }
     for (const month of getCrossedMonths(prev, this.elapsedMs)) {
+      // 倒産したら残りの月は発行しない（倒産後に給料を引かない）。
+      if (this.gameOver.over) {
+        break;
+      }
       this.events.emit(MONTH_ELAPSED_EVENT, createMonthElapsedEvent(month));
     }
   }
@@ -247,6 +285,25 @@ class MainScene extends Phaser.Scene {
     );
     this.changeFunds(paid.fundsAfter, 'salary');
     this.events.emit(SALARY_PAID_EVENT, paid);
+  }
+
+  // 資金の変化ごとに倒産を判定する。倒産したら Tween を止めてゲームオーバー表示を出す。
+  private onFundsChanged(event: FundsChangedEvent): void {
+    const result = checkBankruptcy(this.gameOver, event.current, this.time.now);
+    this.gameOver = result.state;
+    if (!result.triggered) {
+      return;
+    }
+    this.tweens.pauseAll();
+    drawGameOver(this);
+    this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
+  }
+
+  // ゲームオーバー中で待ち時間を過ぎていれば、最初からやり直す。
+  private tryRestart(): void {
+    if (canRestart(this.gameOver, this.time.now)) {
+      this.scene.restart();
+    }
   }
 
   private updateCodes(delta: number): void {
