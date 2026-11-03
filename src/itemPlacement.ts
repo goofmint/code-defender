@@ -6,6 +6,7 @@ import {
   ITEM_ATTACK_COOLDOWN_MS,
   ITEM_BLOCKED_CELLS,
   ITEM_BLOCKED_ROWS,
+  ITEM_MONTHLY_FEE_RATIO,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_PRICE_TIERS,
   ITEM_SHORT_NAMES,
@@ -13,7 +14,7 @@ import {
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
 import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES } from './item';
-import type { ItemType } from './item';
+import type { ItemPayment, ItemType } from './item';
 import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
 
@@ -175,10 +176,31 @@ export const formatItemMessage = (result: PurchaseResult, itemType: string): str
 // ボタン表示の番号は 4 から（1〜3 は雇うキー）。
 const ITEM_BUY_KEY_OFFSET = 4;
 
+export const getItemPayment = (itemType: ItemType): ItemPayment => ITEM_DEFINITIONS[itemType].payment;
+
+export const isMonthlyItem = (itemType: ItemType): boolean => getItemPayment(itemType) === 'monthly';
+
+// 月額アイテム1個の月額。購入価格 × 倍率を四捨五入。1回払いは 0。
+// 倍率が負・NaN・Infinity のときは 0 として扱う。ボタン表示と月の精算（itemFee.ts）で同じ計算を使う。
+export const getItemMonthlyFee = (
+  itemType: ItemType,
+  ratio: number = ITEM_MONTHLY_FEE_RATIO,
+): number => {
+  if (!isMonthlyItem(itemType)) return 0;
+  const safeRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 0;
+  return Math.round(getItemPrice(itemType) * safeRatio);
+};
+
 // 購入ボタンの文言。「[5] Linter 5万円」。月額払いは「[4] CodeRabbit 20万/月」（ボタン幅 154px に収めるため「円」を省く）。
-export const formatItemButton = (index: number, itemType: ItemType): string => {
-  const unit = ITEM_DEFINITIONS[itemType].payment === 'monthly' ? '万/月' : '万円';
-  return `[${index + ITEM_BUY_KEY_OFFSET}] ${ITEM_SHORT_NAMES[itemType]} ${getItemPrice(itemType) / 10000}${unit}`;
+// 月額払いは精算と同じ月額（getItemMonthlyFee）を表示する。
+export const formatItemButton = (
+  index: number,
+  itemType: ItemType,
+  ratio: number = ITEM_MONTHLY_FEE_RATIO,
+): string => {
+  const head = `[${index + ITEM_BUY_KEY_OFFSET}] ${ITEM_SHORT_NAMES[itemType]}`;
+  if (isMonthlyItem(itemType)) return `${head} ${getItemMonthlyFee(itemType, ratio) / 10000}万/月`;
+  return `${head} ${getItemPrice(itemType) / 10000}万円`;
 };
 
 // アイテムの範囲内で最も近い不正なコード。正常なコードは近くても除く。境界ちょうどは範囲内。なければ null。

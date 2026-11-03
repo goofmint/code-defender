@@ -1,8 +1,6 @@
 import { ITEM_MONTHLY_FEE_RATIO } from './config';
 import { subtractFunds } from './funds';
-import { ITEM_DEFINITIONS } from './item';
-import type { ItemPayment, ItemType } from './item';
-import { getItemPrice } from './itemPlacement';
+import { getItemMonthlyFee, getItemPayment, isMonthlyItem } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 
 // 月額払いアイテムの費用。Phaser に依存しない純粋関数だけを置く。
@@ -21,20 +19,8 @@ export type ItemFeePaidEvent = {
   readonly fundsAfter: number;
 };
 
-export const getItemPayment = (itemType: ItemType): ItemPayment => ITEM_DEFINITIONS[itemType].payment;
-
-export const isMonthlyItem = (itemType: ItemType): boolean => getItemPayment(itemType) === 'monthly';
-
-// 月額アイテム1個の月額。購入価格 × 倍率を四捨五入。1回払いは 0。
-// 倍率が負・NaN・Infinity のときは 0 として扱う。
-export const getItemMonthlyFee = (
-  itemType: ItemType,
-  ratio: number = ITEM_MONTHLY_FEE_RATIO,
-): number => {
-  if (!isMonthlyItem(itemType)) return 0;
-  const safeRatio = Number.isFinite(ratio) && ratio > 0 ? ratio : 0;
-  return Math.round(getItemPrice(itemType) * safeRatio);
-};
+// 区分と1個の月額は、ボタン表示と同じ計算を使うため itemPlacement.ts に置き、ここから再エクスポートする。
+export { getItemMonthlyFee, getItemPayment, isMonthlyItem };
 
 // 置いてあるアイテムのうち、月額アイテムの月額の合計と個数。1回払いは数えない。
 export const getMonthlyItemFees = (
