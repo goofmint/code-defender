@@ -47,6 +47,9 @@ class MainScene extends Phaser.Scene {
     }
     const keys = this.moveKeys;
     const isDown = (list: Phaser.Input.Keyboard.Key[]): boolean => list.some((key) => key.isDown);
+    const anyKeyDown = keys
+      ? isDown(keys.left) || isDown(keys.right) || isDown(keys.up) || isDown(keys.down)
+      : false;
     const keyDirection = keys
       ? getMoveDirection({
           left: isDown(keys.left),
@@ -57,10 +60,12 @@ class MainScene extends Phaser.Scene {
       : { x: 0, y: 0 };
     const position = { x: player.x, y: player.y };
 
-    // キーボード入力を優先する。
-    if (keyDirection.x !== 0 || keyDirection.y !== 0) {
-      const next = clampToField(movePlayer(position, keyDirection, delta));
-      player.setPosition(next.x, next.y);
+    // いずれかの移動キーが押されていればキーボード優先。方向が相殺されてゼロでもポインターには切り替えない。
+    if (anyKeyDown) {
+      if (keyDirection.x !== 0 || keyDirection.y !== 0) {
+        const next = clampToField(movePlayer(position, keyDirection, delta));
+        player.setPosition(next.x, next.y);
+      }
       return;
     }
 
