@@ -404,3 +404,5 @@ export const ITEM_BUTTON_FONT_SIZE = '13px';
 export const ITEM_MESSAGE_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 70 } as const;
 export const ITEM_MESSAGE_COLOR = '#b9f6ca';
 export const ITEM_MESSAGE_DURATION_MS = 2000;
+// 仮・要確認(#51): 月額 = Math.round(購入価格 × この倍率)。企画書の月額アイテムの「価格」を月額の価格と読み、購入時と同じ額（倍率 1）にした。数値の調整口。
+export const ITEM_MONTHLY_FEE_RATIO = 1;
