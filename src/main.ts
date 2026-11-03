@@ -33,7 +33,8 @@ import {
   drawRoutes,
   flashCode,
 } from './render';
-import { cellCenter, createRoutes } from './route';
+import { addRoute, cellCenter, createRoutes } from './route';
+import type { Route } from './route';
 
 type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[]>;
 
@@ -41,6 +42,7 @@ type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[
 type CodeObject = AttackTarget & { readonly graphics: Phaser.GameObjects.Graphics };
 
 class MainScene extends Phaser.Scene {
+  private routes: Route[] = [];
   private player?: Phaser.GameObjects.Graphics;
   private moveKeys?: MoveKeys;
   private codes: CodeObject[] = [];
@@ -54,7 +56,8 @@ class MainScene extends Phaser.Scene {
 
   create(): void {
     drawField(this);
-    drawRoutes(this, createRoutes(ENGINEER_SPAWN_CELLS));
+    this.routes = createRoutes(ENGINEER_SPAWN_CELLS);
+    drawRoutes(this, this.routes);
     drawReleasePoint(this);
     this.player = drawPlayer(this);
     this.codes = CODE_SAMPLES.map(({ kind, cell }) => {
@@ -165,6 +168,15 @@ class MainScene extends Phaser.Scene {
     }
     const next = clampToField(movePlayerToward(position, target, direction, delta));
     player.setPosition(next.x, next.y);
+  }
+
+  // エンジニアが増えたときに出現場所とルートを追加して描画する。上限などで追加できなければ undefined。
+  addEngineerRoute(): Route | undefined {
+    const route = addRoute(this.routes);
+    if (route === undefined) return undefined;
+    this.routes.push(route);
+    drawRoutes(this, [route]);
+    return route;
   }
 }
 
