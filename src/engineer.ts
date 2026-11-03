@@ -3,6 +3,8 @@ import {
   ENGINEER_PARAMETER_FALLBACK,
   ENGINEER_PARAMETER_MAX,
   ENGINEER_PARAMETER_MIN,
+  ENGINEER_PERSONALITIES,
+  ENGINEER_PERSONALITY_WEIGHTS,
   ENGINEER_RANKS,
   ENGINEER_SPAWN_CELLS,
   INITIAL_ENGINEER_RANKS,
@@ -11,9 +13,12 @@ import { createRoutes } from './route';
 import type { Route } from './route';
 
 // エンジニア（雇用）の純粋ロジック。Phaser に依存しない。
-// ランクごとの給料(#25/#33)・不正コード率(#12/#24)・性格(#26)は、ランク表（ENGINEER_RANKS）に列を足して扱う想定。
+// ランクごとの給料(#25/#33)・不正コード率(#12/#24)は、ランク表（ENGINEER_RANKS）に列を足して扱う想定。
+// 性格(#26)は Engineer の personality フィールドに持たせる（ランクとは独立）。性格ごとのパラメータの差(#29)は、性格表（ENGINEER_PERSONALITIES）に列を足して扱う想定。
 
 export type EngineerRank = (typeof ENGINEER_RANKS)[number]['id'];
+
+export type EngineerPersonalityId = (typeof ENGINEER_PERSONALITIES)[number]['id'];
 
 export { ENGINEER_RANKS };
 
@@ -37,6 +42,8 @@ export type Engineer = {
   readonly id: number;
   readonly rank: EngineerRank;
   readonly routeId: number | null;
+  // 雇ったときにランダムで付く性格(#26)。id/rank/routeId/パラメータとは独立。今回はどこにも効かせない（#29 で使う）。
+  readonly personality: EngineerPersonalityId;
 } & EngineerParameters;
 
 export type EngineerHiredPayload = {
@@ -69,6 +76,51 @@ export type HireRules = {
 
 export const isEngineerRank = (value: string): value is EngineerRank =>
   ENGINEER_RANKS.some((rank) => rank.id === value);
+
+const isUsableWeight = (weight: number): boolean => Number.isFinite(weight) && weight > 0;
+
+// 累積の重みで target が [累積前, 累積後) に入る性格。重み 0 の性格は区間が空なので選ばれない。
+const pickByTarget = (
+  entries: readonly { readonly id: EngineerPersonalityId; readonly weight: number }[],
+  target: number,
+): EngineerPersonalityId | undefined => {
+  let cumulative = 0;
+  for (const entry of entries) {
+    cumulative += entry.weight;
+    if (target < cumulative) {
+      return entry.id;
+    }
+  }
+  return undefined;
+};
+
+// 仮・要確認(#26): 重みに応じて性格を1つ選ぶ。random() は1回だけ呼ぶ。区間は [累積前, 累積後)（左閉右開）。
+// random が NaN・負・-Infinity なら 0（先頭）、1 以上・+Infinity なら 1 未満の最大（重み>0 の最後の性格）として扱う。
+// 重みが不正（負・NaN・Infinity）なら 0 扱い。重みの合計が 0 以下なら先頭の性格。throw しない。
+export const pickRandomPersonality = (
+  random: () => number,
+  weights: Readonly<Record<EngineerPersonalityId, number>> = ENGINEER_PERSONALITY_WEIGHTS,
+): EngineerPersonalityId => {
+  const raw = random();
+  const effective = ENGINEER_PERSONALITIES.map((entry) => ({
+    id: entry.id,
+    weight: isUsableWeight(weights[entry.id]) ? weights[entry.id] : 0,
+  }));
+  const total = effective.reduce((sum, entry) => sum + entry.weight, 0);
+  const candidates = effective.filter((entry) => entry.weight > 0);
+  if (!(total > 0) || candidates.length === 0) {
+    return ENGINEER_PERSONALITIES[0].id;
+  }
+  const last = candidates[candidates.length - 1].id;
+  if (raw >= 1) {
+    return last;
+  }
+  const target = Number.isNaN(raw) || raw < 0 ? 0 : raw * total;
+  return pickByTarget(effective, target) ?? last;
+};
+
+export const getPersonalityLabel = (personality: EngineerPersonalityId): string =>
+  ENGINEER_PERSONALITIES.find((entry) => entry.id === personality)?.label ?? personality;
 
 // ランクに応じた初期パラメータ。呼ぶたびに新しいオブジェクトを返す（エンジニア間で参照を共有しない）。
 export const createEngineerParameters = (rank: EngineerRank): EngineerParameters => ({
@@ -118,15 +170,17 @@ export const adjustEngineerParameter = (
     [key]: Number.isNaN(delta) ? engineer[key] : engineer[key] + delta,
   });
 
-// 初期エンジニア。routes と ranks を同じ順序で対応させる（短い方に合わせる）。id は 0 からの連番。
+// 初期エンジニア。性格はランダム（random を注入できる）。パラメータは性格で変えない（#29 で createEngineerParameters に性格を足せば効く）。routes と ranks を同じ順序で対応させる（短い方に合わせる）。id は 0 からの連番。
 export const createInitialEngineers = (
   routes: readonly Route[],
   ranks: readonly EngineerRank[],
+  random: () => number = Math.random,
 ): Engineer[] =>
   routes.slice(0, ranks.length).map((route, index) => ({
     id: index,
     rank: ranks[index],
     routeId: route.id,
+    personality: pickRandomPersonality(random),
     ...createEngineerParameters(ranks[index]),
   }));
 
@@ -159,7 +213,7 @@ export const createInitialFleet = (
   random: () => number,
 ): { readonly routes: Route[]; readonly engineers: Engineer[]; readonly nextEngineerId: number } => {
   const routes = createRoutes(ENGINEER_SPAWN_CELLS, random);
-  const engineers = createInitialEngineers(routes, INITIAL_ENGINEER_RANKS);
+  const engineers = createInitialEngineers(routes, INITIAL_ENGINEER_RANKS, random);
   return { routes, engineers, nextEngineerId: engineers.length };
 };
 
@@ -171,6 +225,7 @@ export const hireEngineer = (
   state: HireState,
   rank: string,
   rules: HireRules,
+  random: () => number = Math.random,
 ): HireResult => {
   if (!isEngineerRank(rank)) {
     return { ok: false, reason: 'unknownRank' };
@@ -186,6 +241,7 @@ export const hireEngineer = (
     id: state.nextId,
     rank,
     routeId: null,
+    personality: pickRandomPersonality(random),
     ...createEngineerParameters(rank),
   };
   return {

@@ -5,6 +5,8 @@ import {
   ENGINEER_PARAMETER_FALLBACK,
   ENGINEER_PARAMETER_MAX,
   ENGINEER_PARAMETER_MIN,
+  ENGINEER_PERSONALITIES,
+  ENGINEER_PERSONALITY_WEIGHTS,
   ENGINEER_RANKS,
   ENGINEER_SPAWN_CELLS,
   INITIAL_ENGINEER_RANKS,
@@ -20,15 +22,23 @@ import {
   createInitialFleet,
   findEngineerByRoute,
   findRouteIdOfEngineer,
+  getPersonalityLabel,
   shouldAddRouteOnHire,
   formatEngineerCount,
   formatHireButton,
   formatHireMessage,
   hireEngineer,
   isEngineerRank,
+  pickRandomPersonality,
   updateEngineerParameters,
 } from './engineer';
-import type { Engineer, EngineerParameterKey, EngineerRank, HireRules } from './engineer';
+import type {
+  Engineer,
+  EngineerParameterKey,
+  EngineerPersonalityId,
+  EngineerRank,
+  HireRules,
+} from './engineer';
 import { addRoute, createRoutes, nextSpawnCell } from './route';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
 import { getEngineerSalaries } from './salary';
@@ -39,6 +49,7 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): E
   id,
   rank,
   routeId,
+  personality: 'meticulous',
   ...createEngineerParameters(rank),
 });
 const makeEngineers = (count: number): Engineer[] =>
@@ -51,7 +62,7 @@ describe('hireEngineer: ランクごとに雇える', () => {
     ['middle', 200000],
     ['senior', 300000],
   ])('%s を雇うと費用 %i 円が引かれる', (rank, cost) => {
-    const result = hireEngineer({ engineers: makeEngineers(3), funds: 1000000, nextId: 3 }, rank, rules);
+    const result = hireEngineer({ engineers: makeEngineers(3), funds: 1000000, nextId: 3 }, rank, rules, () => 0);
     expect(result).toEqual({
       ok: true,
       engineer: makeEngineer(3, rank, null),
@@ -616,5 +627,216 @@ describe('adjustEngineerParameter', () => {
     expect(result).toEqual({ ...base, skill: base.skill + 5 });
     expect(base).toEqual(snapshot);
     expect(result).not.toBe(base);
+  });
+});
+
+const PERSONALITY_IDS = ENGINEER_PERSONALITIES.map((entry) => entry.id);
+const COUNT = PERSONALITY_IDS.length;
+const EPS = 1e-9;
+const weightsOf = (values: readonly number[]): Record<EngineerPersonalityId, number> =>
+  Object.fromEntries(PERSONALITY_IDS.map((id, i) => [id, values[i]])) as Record<
+    EngineerPersonalityId,
+    number
+  >;
+const sequence = (values: readonly number[]): (() => number) => {
+  let index = 0;
+  return () => values[index++ % values.length];
+};
+const counting = (value: number) => {
+  let calls = 0;
+  return { random: () => (calls++, value), calls: () => calls };
+};
+
+describe('性格の設定表', () => {
+  it('8種で順序と表示名は企画書どおり', () => {
+    expect(ENGINEER_PERSONALITIES.map((p) => p.id)).toEqual([
+      'meticulous',
+      'passive',
+      'careless',
+      'slacker',
+      'earnest',
+      'calm',
+      'cheerful',
+      'gloomy',
+    ]);
+    expect(ENGINEER_PERSONALITIES.map((p) => p.label)).toEqual([
+      '几帳面',
+      '消極的',
+      '適当',
+      'サボりがち',
+      '真面目',
+      '冷静沈着',
+      '陽気',
+      '根暗',
+    ]);
+  });
+  it('id・表示名に重複がない', () => {
+    expect(new Set(PERSONALITY_IDS).size).toBe(COUNT);
+    expect(new Set(ENGINEER_PERSONALITIES.map((p) => p.label)).size).toBe(COUNT);
+  });
+  it('重みが全性格にあり、均等で正の有限値', () => {
+    expect(Object.keys(ENGINEER_PERSONALITY_WEIGHTS).sort()).toEqual([...PERSONALITY_IDS].sort());
+    const values = PERSONALITY_IDS.map((id) => ENGINEER_PERSONALITY_WEIGHTS[id]);
+    expect(values.every((w) => Number.isFinite(w) && w > 0)).toBe(true);
+    expect(new Set(values).size).toBe(1);
+  });
+  it('表示名を取得できる', () => {
+    expect(getPersonalityLabel('gloomy')).toBe('根暗');
+  });
+});
+
+describe('pickRandomPersonality: 均等な重み', () => {
+  it('random 0 は先頭、0.999999 は最後', () => {
+    expect(pickRandomPersonality(() => 0)).toBe('meticulous');
+    expect(pickRandomPersonality(() => 0.999999)).toBe('gloomy');
+  });
+  it.each([1, 2, 3, 4, 5, 6, 7])('切れ目 %i/8: ちょうどは次の性格、少し前は前の性格、少し後は次の性格', (k) => {
+    expect(pickRandomPersonality(() => k / COUNT)).toBe(PERSONALITY_IDS[k]);
+    expect(pickRandomPersonality(() => k / COUNT - EPS)).toBe(PERSONALITY_IDS[k - 1]);
+    expect(pickRandomPersonality(() => k / COUNT + EPS)).toBe(PERSONALITY_IDS[k]);
+  });
+  it.each([
+    ['-0.1', -0.1],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['NaN', Number.NaN],
+  ])('%s は先頭', (_name, value) => {
+    expect(pickRandomPersonality(() => value)).toBe('meticulous');
+  });
+  it.each([
+    ['1', 1],
+    ['1.5', 1.5],
+    ['+Infinity', Number.POSITIVE_INFINITY],
+  ])('%s は最後', (_name, value) => {
+    expect(pickRandomPersonality(() => value)).toBe('gloomy');
+  });
+  it('不正な値でも throw しない', () => {
+    for (const value of [Number.NaN, -1, 2, Infinity, -Infinity]) {
+      expect(() => pickRandomPersonality(() => value)).not.toThrow();
+    }
+  });
+  it('random を1回だけ呼ぶ', () => {
+    const counter = counting(0.5);
+    pickRandomPersonality(counter.random);
+    expect(counter.calls()).toBe(1);
+  });
+  it('同じ乱数列なら同じ結果', () => {
+    const values = [0.1, 0.5, 0.99, 0.3, 0.7];
+    const run = () => {
+      const random = sequence(values);
+      return values.map(() => pickRandomPersonality(random));
+    };
+    expect(run()).toEqual(run());
+  });
+});
+
+describe('pickRandomPersonality: 重みを渡す', () => {
+  it('不均等な重み [3,1,1,1,1,1,1,1]（合計10）の切れ目', () => {
+    const w = weightsOf([3, 1, 1, 1, 1, 1, 1, 1]);
+    expect(pickRandomPersonality(() => 0.2999, w)).toBe('meticulous');
+    expect(pickRandomPersonality(() => 0.3, w)).toBe('passive');
+    expect(pickRandomPersonality(() => 0.4, w)).toBe('careless');
+    expect(pickRandomPersonality(() => 0.9999, w)).toBe('gloomy');
+  });
+  it('重み 0 の性格は選ばれない（切れ目ちょうども）', () => {
+    const w = weightsOf([1, 0, 1, 0, 0, 0, 0, 1]);
+    // 区間: meticulous [0,1/3) careless [1/3,2/3) gloomy [2/3,1)
+    expect(pickRandomPersonality(() => 1 / 3, w)).toBe('careless');
+    expect(pickRandomPersonality(() => 1 / 3 - EPS, w)).toBe('meticulous');
+    expect(pickRandomPersonality(() => 2 / 3 + EPS, w)).toBe('gloomy');
+    for (let i = 0; i < 100; i++) {
+      expect(['meticulous', 'careless', 'gloomy']).toContain(pickRandomPersonality(() => i / 100, w));
+    }
+  });
+  it('先頭の重みが 0 なら random 0 や不正値でも重み>0 の先頭、1 以上は重み>0 の最後', () => {
+    const w = weightsOf([0, 0, 1, 1, 0, 0, 0, 0]);
+    expect(pickRandomPersonality(() => 0, w)).toBe('careless');
+    expect(pickRandomPersonality(() => Number.NaN, w)).toBe('careless');
+    expect(pickRandomPersonality(() => 1, w)).toBe('slacker');
+    expect(pickRandomPersonality(() => Number.POSITIVE_INFINITY, w)).toBe('slacker');
+  });
+  it('合計 0 は先頭', () => {
+    expect(pickRandomPersonality(() => 0.9, weightsOf([0, 0, 0, 0, 0, 0, 0, 0]))).toBe('meticulous');
+  });
+  it('負・NaN・Infinity の重みは 0 扱い', () => {
+    const w = weightsOf([-1, Number.NaN, Number.POSITIVE_INFINITY, 1, Number.NEGATIVE_INFINITY, 0, 0, 0]);
+    for (const value of [0, 0.5, 0.999, 1, Number.NaN]) {
+      expect(pickRandomPersonality(() => value, w)).toBe('slacker');
+    }
+  });
+  it('不正な重みだけなら合計 0 として先頭', () => {
+    expect(pickRandomPersonality(() => 0.5, weightsOf([-1, -1, Number.NaN, 0, 0, 0, 0, 0]))).toBe(
+      'meticulous',
+    );
+  });
+});
+
+describe('性格の付与', () => {
+  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+  it('初期の3人に、渡した random どおりの性格が付く', () => {
+    const engineers = createInitialEngineers(routes, INITIAL_ENGINEER_RANKS, sequence([0, 0.5, 0.999]));
+    expect(engineers.map((e) => e.personality)).toEqual(['meticulous', 'earnest', 'gloomy']);
+  });
+  it('createInitialFleet も同じ乱数列で同じルートと性格', () => {
+    const values = [0.1, 0.9, 0.4, 0.6, 0.2, 0.8, 0.3, 0.7, 0.05, 0.95, 0.5, 0.15, 0.85, 0.25, 0.75];
+    const a = createInitialFleet(sequence(values));
+    const b = createInitialFleet(sequence(values));
+    expect(a).toEqual(b);
+    expect(a.routes).toEqual(createRoutes(ENGINEER_SPAWN_CELLS, sequence(values)));
+  });
+  it('createInitialFleet はルート生成の後に同じ random を使う（ルートは性格追加前と同じ）', () => {
+    const fleet = createInitialFleet(() => 0);
+    expect(fleet.routes).toEqual(createRoutes(ENGINEER_SPAWN_CELLS, () => 0));
+    expect(fleet.engineers.every((e) => e.personality === 'meticulous')).toBe(true);
+  });
+  it('random を渡さなくても有効な性格が付く', () => {
+    for (const engineer of createInitialEngineers(routes, INITIAL_ENGINEER_RANKS)) {
+      expect(PERSONALITY_IDS).toContain(engineer.personality);
+    }
+    const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, 'junior', rules);
+    expect(hired.ok && PERSONALITY_IDS.includes(hired.engineer.personality)).toBe(true);
+  });
+  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を雇った人に渡した random どおりの性格が付く', (rank) => {
+    const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, rank, rules, () => 0.999);
+    expect(hired.ok && hired.engineer.personality).toBe('gloomy');
+  });
+  it.each<[string, { engineers: Engineer[]; funds: number }, string]>([
+    ['unknownRank', { engineers: [], funds: RICH }, 'lead'],
+    ['limit', { engineers: makeEngineers(MAX_ENGINEERS), funds: RICH }, 'junior'],
+    ['insufficientFunds', { engineers: [], funds: 0 }, 'junior'],
+  ])('雇うのに失敗（%s）したら random を呼ばない', (_name, base, rank) => {
+    const counter = counting(0.5);
+    const result = hireEngineer({ ...base, nextId: 0 }, rank, rules, counter.random);
+    expect(result.ok).toBe(false);
+    expect(counter.calls()).toBe(0);
+  });
+  it('雇えたときは random を1回だけ呼ぶ', () => {
+    const counter = counting(0.5);
+    hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, 'junior', rules, counter.random);
+    expect(counter.calls()).toBe(1);
+  });
+  it('性格が違っても初期パラメータは設定表どおり', () => {
+    for (const [i, id] of PERSONALITY_IDS.entries()) {
+      const hired = hireEngineer(
+        { engineers: [], funds: RICH, nextId: 0 },
+        'middle',
+        rules,
+        () => (i + 0.5) / COUNT,
+      );
+      if (!hired.ok) throw new Error('雇えるはず');
+      expect(hired.engineer.personality).toBe(id);
+      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, ...parameters } = hired.engineer;
+      expect(parameters).toEqual(ENGINEER_INITIAL_PARAMETERS.middle);
+    }
+  });
+  it('パラメータは4キーだけで、性格を含まない', () => {
+    expect(Object.keys(createEngineerParameters('junior')).sort()).toEqual(
+      ['attachment', 'concentration', 'fatigue', 'skill'],
+    );
+  });
+  it('ルート割り当て・パラメータ更新・調整で性格が保たれる', () => {
+    const base: Engineer = { ...makeEngineer(0, 'senior', null), personality: 'calm' };
+    expect(assignEngineerRoute([base], 0, 2)[0].personality).toBe('calm');
+    expect(updateEngineerParameters(base, { fatigue: 70 }).personality).toBe('calm');
+    expect(adjustEngineerParameter(base, 'skill', 5).personality).toBe('calm');
   });
 });
