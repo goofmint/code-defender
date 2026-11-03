@@ -6,9 +6,9 @@ import { FUNDS_FORMAT } from './config';
 // 資金が変化したときに scene.events で発行するイベント名。
 export const FUNDS_CHANGED_EVENT = 'funds-changed';
 
-// 資金が変化した理由。今は給料だけ。
+// 資金が変化した理由。給料と、正常なコードを攻撃した減点。
 // #17（売上）で 'sales'、#18（損害）で 'damage' を足す想定。
-export type FundsChangeReason = 'salary';
+export type FundsChangeReason = 'salary' | 'penalty';
 
 export type FundsChangedEvent = {
   readonly previous: number;
