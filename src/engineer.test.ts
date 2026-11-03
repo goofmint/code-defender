@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   ENGINEER_HIRE_COST,
+  ENGINEER_INITIAL_PARAMETERS,
+  ENGINEER_PARAMETER_FALLBACK,
+  ENGINEER_PARAMETER_MAX,
+  ENGINEER_PARAMETER_MIN,
   ENGINEER_RANKS,
   ENGINEER_SPAWN_CELLS,
   INITIAL_ENGINEER_RANKS,
@@ -8,7 +12,10 @@ import {
   MAX_ENGINEERS,
 } from './config';
 import {
+  adjustEngineerParameter,
   assignEngineerRoute,
+  clampEngineerParameter,
+  createEngineerParameters,
   createInitialEngineers,
   createInitialFleet,
   findEngineerByRoute,
@@ -19,16 +26,23 @@ import {
   formatHireMessage,
   hireEngineer,
   isEngineerRank,
+  updateEngineerParameters,
 } from './engineer';
-import type { Engineer, EngineerRank, HireRules } from './engineer';
+import type { Engineer, EngineerParameterKey, EngineerRank, HireRules } from './engineer';
 import { addRoute, createRoutes, nextSpawnCell } from './route';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
 import { getEngineerSalaries } from './salary';
 import { ENGINEER_MONTHLY_SALARY } from './config';
 
 const rules: HireRules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
+const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): Engineer => ({
+  id,
+  rank,
+  routeId,
+  ...createEngineerParameters(rank),
+});
 const makeEngineers = (count: number): Engineer[] =>
-  Array.from({ length: count }, (_, id) => ({ id, rank: 'junior', routeId: id }));
+  Array.from({ length: count }, (_, id) => makeEngineer(id, 'junior', id));
 const RICH = 100_000_000;
 
 describe('hireEngineer: ランクごとに雇える', () => {
@@ -40,8 +54,8 @@ describe('hireEngineer: ランクごとに雇える', () => {
     const result = hireEngineer({ engineers: makeEngineers(3), funds: 1000000, nextId: 3 }, rank, rules);
     expect(result).toEqual({
       ok: true,
-      engineer: { id: 3, rank, routeId: null },
-      engineers: [...makeEngineers(3), { id: 3, rank, routeId: null }],
+      engineer: makeEngineer(3, rank, null),
+      engineers: [...makeEngineers(3), makeEngineer(3, rank, null)],
       fundsAfter: 1000000 - cost,
       cost,
     });
@@ -246,9 +260,9 @@ describe('表示用の文字列', () => {
 
 describe('assignEngineerRoute', () => {
   it('該当 id のエンジニアだけ routeId が変わり、他は同じ参照のまま', () => {
-    const engineers: Engineer[] = [...makeEngineers(3), { id: 3, rank: 'senior', routeId: null }];
+    const engineers: Engineer[] = [...makeEngineers(3), makeEngineer(3, 'senior', null)];
     const result = assignEngineerRoute(engineers, 3, 7);
-    expect(result[3]).toEqual({ id: 3, rank: 'senior', routeId: 7 });
+    expect(result[3]).toEqual(makeEngineer(3, 'senior', 7));
     expect(result.slice(0, 3).every((e, i) => e === engineers[i])).toBe(true);
   });
   it('該当 id がなければ同じ内容の配列', () => {
@@ -256,7 +270,7 @@ describe('assignEngineerRoute', () => {
     expect(assignEngineerRoute(engineers, 99, 5)).toEqual(engineers);
   });
   it('入力の配列とエンジニアを変更しない', () => {
-    const engineers: Engineer[] = [{ id: 0, rank: 'junior', routeId: null }];
+    const engineers: Engineer[] = [makeEngineer(0, 'junior', null)];
     const snapshot = structuredClone(engineers);
     const result = assignEngineerRoute(engineers, 0, 4);
     expect(engineers).toEqual(snapshot);
@@ -264,8 +278,27 @@ describe('assignEngineerRoute', () => {
   });
 });
 
+describe('assignEngineerRoute: パラメータの保持', () => {
+  const edge: Engineer = {
+    ...makeEngineer(0, 'middle', null),
+    fatigue: ENGINEER_PARAMETER_MAX,
+    concentration: ENGINEER_PARAMETER_MIN,
+    skill: ENGINEER_PARAMETER_MAX,
+    attachment: ENGINEER_PARAMETER_MIN,
+  };
+  it('ルートを割り当ててもパラメータ（MIN/MAX の境界値）が保たれる', () => {
+    const [assigned] = assignEngineerRoute([edge], 0, 3);
+    expect(assigned).toEqual({ ...edge, routeId: 3 });
+  });
+  it('routeId を null に戻してもパラメータが保たれる', () => {
+    const [assigned] = assignEngineerRoute([edge], 0, 3);
+    const [cleared] = assignEngineerRoute([assigned], 0, null);
+    expect(cleared).toEqual(edge);
+  });
+});
+
 describe('findEngineerByRoute / findRouteIdOfEngineer', () => {
-  const engineers: Engineer[] = [...makeEngineers(2), { id: 2, rank: 'middle', routeId: null }];
+  const engineers: Engineer[] = [...makeEngineers(2), makeEngineer(2, 'middle', null)];
   it.each<[number, number | undefined]>([
     [0, 0],
     [1, 1],
@@ -409,5 +442,179 @@ describe('雇う→ルート追加→routeId 割当（8・9・10人目）', () =
       expect(step.route?.spawn).toEqual(expected);
       fleet = step.next;
     }
+  });
+});
+
+describe('パラメータの設定表', () => {
+  const keys: EngineerParameterKey[] = ['fatigue', 'concentration', 'skill', 'attachment'];
+  it('範囲は min < max で、既定値は範囲内', () => {
+    expect(ENGINEER_PARAMETER_MIN).toBeLessThan(ENGINEER_PARAMETER_MAX);
+    expect(ENGINEER_PARAMETER_FALLBACK).toBeGreaterThanOrEqual(ENGINEER_PARAMETER_MIN);
+    expect(ENGINEER_PARAMETER_FALLBACK).toBeLessThanOrEqual(ENGINEER_PARAMETER_MAX);
+  });
+  it('初期値の表は全ランクを持つ', () => {
+    expect(Object.keys(ENGINEER_INITIAL_PARAMETERS).sort()).toEqual(ENGINEER_RANKS.map((r) => r.id).sort());
+  });
+  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s は4キーすべてが範囲内の有限値', (rank) => {
+    expect(Object.keys(ENGINEER_INITIAL_PARAMETERS[rank]).sort()).toEqual([...keys].sort());
+    for (const key of keys) {
+      const value = ENGINEER_INITIAL_PARAMETERS[rank][key];
+      expect(Number.isFinite(value)).toBe(true);
+      expect(value).toBeGreaterThanOrEqual(ENGINEER_PARAMETER_MIN);
+      expect(value).toBeLessThanOrEqual(ENGINEER_PARAMETER_MAX);
+    }
+  });
+});
+
+describe('createEngineerParameters / 初期値', () => {
+  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s は設定表どおり', (rank) => {
+    expect(createEngineerParameters(rank)).toEqual(ENGINEER_INITIAL_PARAMETERS[rank]);
+  });
+  it('呼ぶたびに別オブジェクトで、設定表とも共有しない', () => {
+    const a = createEngineerParameters('junior');
+    const b = createEngineerParameters('junior');
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(ENGINEER_INITIAL_PARAMETERS.junior);
+  });
+  it('初期エンジニアは設定表どおりで、人ごとに別オブジェクト（変更しても他に影響しない）', () => {
+    const fleet = createInitialFleet(() => 0);
+    for (const engineer of fleet.engineers) {
+      expect(engineer).toMatchObject(ENGINEER_INITIAL_PARAMETERS[engineer.rank]);
+    }
+    const changed = updateEngineerParameters(fleet.engineers[0], { fatigue: 80 });
+    expect(changed.fatigue).toBe(80);
+    expect(fleet.engineers[0].fatigue).toBe(ENGINEER_INITIAL_PARAMETERS.junior.fatigue);
+    expect(fleet.engineers[1].fatigue).toBe(ENGINEER_INITIAL_PARAMETERS.junior.fatigue);
+  });
+  it('createInitialEngineers はランク指定どおりの初期値', () => {
+    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+    const engineers = createInitialEngineers(routes, ['senior', 'middle', 'junior']);
+    expect(engineers.map((e) => e.skill)).toEqual(
+      (['senior', 'middle', 'junior'] as const).map((r) => ENGINEER_INITIAL_PARAMETERS[r].skill),
+    );
+  });
+  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を雇った人は設定表どおりで、毎回別オブジェクト', (rank) => {
+    const state = { engineers: makeEngineers(3), funds: RICH, nextId: 3 };
+    const first = hireEngineer(state, rank, rules);
+    const second = hireEngineer(state, rank, rules);
+    if (!first.ok || !second.ok) throw new Error('雇えるはず');
+    expect(first.engineer).toMatchObject(ENGINEER_INITIAL_PARAMETERS[rank]);
+    expect(first.engineer).not.toBe(second.engineer);
+    expect(first.engineers[3]).toBe(first.engineer);
+  });
+});
+
+describe('clampEngineerParameter', () => {
+  const { MIN, MAX } = { MIN: ENGINEER_PARAMETER_MIN, MAX: ENGINEER_PARAMETER_MAX };
+  it.each<[string, number, number]>([
+    ['最小', MIN, MIN],
+    ['最小-1', MIN - 1, MIN],
+    ['最小+1', MIN + 1, MIN + 1],
+    ['最大', MAX, MAX],
+    ['最大+1', MAX + 1, MAX],
+    ['最大-1', MAX - 1, MAX - 1],
+    ['範囲の外側（負）', -1000, MIN],
+    ['範囲の外側（正）', 1000, MAX],
+    ['+Infinity', Number.POSITIVE_INFINITY, MAX],
+    ['-Infinity', Number.NEGATIVE_INFINITY, MIN],
+    ['小数 0.5 は保持', 0.5, 0.5],
+    ['小数 99.5 は保持', 99.5, 99.5],
+    ['-0.5 は最小', -0.5, MIN],
+    ['100.5 は最大', 100.5, MAX],
+  ])('%s: %s → %s', (_name, value, expected) => {
+    expect(clampEngineerParameter(value, 30)).toBe(expected);
+  });
+  it('NaN は fallback を返す（最小にしない）', () => {
+    expect(clampEngineerParameter(Number.NaN, 30)).toBe(30);
+    expect(clampEngineerParameter(Number.NaN, 0.5)).toBe(0.5);
+  });
+  it.each<[string, number, number]>([
+    ['fallback が NaN', Number.NaN, ENGINEER_PARAMETER_FALLBACK],
+    ['fallback が範囲外（大）', 1000, MAX],
+    ['fallback が範囲外（小）', -1, MIN],
+    ['fallback が +Infinity', Number.POSITIVE_INFINITY, MAX],
+    ['fallback が -Infinity', Number.NEGATIVE_INFINITY, MIN],
+  ])('NaN で %s のとき %s → %s', (_name, fallback, expected) => {
+    expect(clampEngineerParameter(Number.NaN, fallback)).toBe(expected);
+  });
+  it('throw しない', () => {
+    expect(() => clampEngineerParameter(Number.NaN, Number.NaN)).not.toThrow();
+  });
+});
+
+describe('updateEngineerParameters', () => {
+  const base: Engineer = {
+    ...makeEngineer(5, 'senior', 2),
+    fatigue: 10,
+    concentration: 20,
+    skill: 30,
+    attachment: 40,
+  };
+  it.each<[number, number]>([
+    [ENGINEER_PARAMETER_MIN, ENGINEER_PARAMETER_MIN],
+    [ENGINEER_PARAMETER_MIN - 1, ENGINEER_PARAMETER_MIN],
+    [ENGINEER_PARAMETER_MAX, ENGINEER_PARAMETER_MAX],
+    [ENGINEER_PARAMETER_MAX + 1, ENGINEER_PARAMETER_MAX],
+    [Number.POSITIVE_INFINITY, ENGINEER_PARAMETER_MAX],
+    [Number.NEGATIVE_INFINITY, ENGINEER_PARAMETER_MIN],
+    [0.5, 0.5],
+    [99.5, 99.5],
+    [-0.5, ENGINEER_PARAMETER_MIN],
+    [100.5, ENGINEER_PARAMETER_MAX],
+  ])('値 %s は %s になる', (value, expected) => {
+    expect(updateEngineerParameters(base, { attachment: value }).attachment).toBe(expected);
+  });
+  it('NaN のキーは現在値のまま', () => {
+    expect(updateEngineerParameters(base, { attachment: Number.NaN })).toEqual(base);
+  });
+  it('指定外のキーと id/rank/routeId は変わらない', () => {
+    const result = updateEngineerParameters(base, { fatigue: 99 });
+    expect(result).toEqual({ ...base, fatigue: 99 });
+  });
+  it('複数キーを同時に設定でき、空の patch は同じ内容', () => {
+    expect(updateEngineerParameters(base, { skill: 1 })).toMatchObject({ skill: 1 });
+    expect(updateEngineerParameters(base, { concentration: 5, skill: 6 })).toEqual({
+      ...base,
+      concentration: 5,
+      skill: 6,
+    });
+    expect(updateEngineerParameters(base, {})).toEqual(base);
+  });
+  it('入力を変更しない', () => {
+    const frozen = Object.freeze({ ...base });
+    const result = updateEngineerParameters(frozen, { fatigue: 50 });
+    expect(frozen).toEqual(base);
+    expect(result).not.toBe(frozen);
+  });
+});
+
+describe('adjustEngineerParameter', () => {
+  const base: Engineer = { ...makeEngineer(1, 'middle', null), fatigue: 50, attachment: 100 };
+  it.each<[number, number]>([
+    [10, 60],
+    [-10, 40],
+    [0, 50],
+    [0.25, 50.25],
+    [-50, ENGINEER_PARAMETER_MIN],
+    [-51, ENGINEER_PARAMETER_MIN],
+    [50, ENGINEER_PARAMETER_MAX],
+    [51, ENGINEER_PARAMETER_MAX],
+    [Number.POSITIVE_INFINITY, ENGINEER_PARAMETER_MAX],
+    [Number.NEGATIVE_INFINITY, ENGINEER_PARAMETER_MIN],
+    [Number.NaN, 50],
+  ])('疲労度 50 に %s を足すと %s', (delta, expected) => {
+    expect(adjustEngineerParameter(base, 'fatigue', delta).fatigue).toBe(expected);
+  });
+  it('最大の愛着心に正の値を足しても最大、最小に負の値でも最小', () => {
+    expect(adjustEngineerParameter(base, 'attachment', 1).attachment).toBe(ENGINEER_PARAMETER_MAX);
+    const low = { ...base, attachment: ENGINEER_PARAMETER_MIN };
+    expect(adjustEngineerParameter(low, 'attachment', -1).attachment).toBe(ENGINEER_PARAMETER_MIN);
+  });
+  it('指定外のキーと id/rank/routeId は変わらず、入力も変更しない', () => {
+    const snapshot = structuredClone(base);
+    const result = adjustEngineerParameter(base, 'skill', 5);
+    expect(result).toEqual({ ...base, skill: base.skill + 5 });
+    expect(base).toEqual(snapshot);
+    expect(result).not.toBe(base);
   });
 });
