@@ -8,7 +8,12 @@ import {
   MAX_ENGINEERS,
 } from './config';
 import {
+  assignEngineerRoute,
   createInitialEngineers,
+  createInitialFleet,
+  findEngineerByRoute,
+  findRouteIdOfEngineer,
+  shouldAddRouteOnHire,
   formatEngineerCount,
   formatHireButton,
   formatHireMessage,
@@ -16,7 +21,10 @@ import {
   isEngineerRank,
 } from './engineer';
 import type { Engineer, EngineerRank, HireRules } from './engineer';
-import { createRoutes } from './route';
+import { addRoute, createRoutes, nextSpawnCell } from './route';
+import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
+import { getEngineerSalaries } from './salary';
+import { ENGINEER_MONTHLY_SALARY } from './config';
 
 const rules: HireRules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
 const makeEngineers = (count: number): Engineer[] =>
@@ -233,5 +241,173 @@ describe('表示用の文字列', () => {
     expect(formatHireMessage(hireEngineer({ ...state, funds: 0 }, 'junior', rules), 'junior')).toBe(
       '資金が足りません',
     );
+  });
+});
+
+describe('assignEngineerRoute', () => {
+  it('該当 id のエンジニアだけ routeId が変わり、他は同じ参照のまま', () => {
+    const engineers: Engineer[] = [...makeEngineers(3), { id: 3, rank: 'senior', routeId: null }];
+    const result = assignEngineerRoute(engineers, 3, 7);
+    expect(result[3]).toEqual({ id: 3, rank: 'senior', routeId: 7 });
+    expect(result.slice(0, 3).every((e, i) => e === engineers[i])).toBe(true);
+  });
+  it('該当 id がなければ同じ内容の配列', () => {
+    const engineers = makeEngineers(3);
+    expect(assignEngineerRoute(engineers, 99, 5)).toEqual(engineers);
+  });
+  it('入力の配列とエンジニアを変更しない', () => {
+    const engineers: Engineer[] = [{ id: 0, rank: 'junior', routeId: null }];
+    const snapshot = structuredClone(engineers);
+    const result = assignEngineerRoute(engineers, 0, 4);
+    expect(engineers).toEqual(snapshot);
+    expect(result).not.toBe(engineers);
+  });
+});
+
+describe('findEngineerByRoute / findRouteIdOfEngineer', () => {
+  const engineers: Engineer[] = [...makeEngineers(2), { id: 2, rank: 'middle', routeId: null }];
+  it.each<[number, number | undefined]>([
+    [0, 0],
+    [1, 1],
+    [2, undefined],
+    [-1, undefined],
+  ])('ルート%i の担当は id %s', (routeId, expected) => {
+    expect(findEngineerByRoute(engineers, routeId)?.id).toBe(expected);
+  });
+  it.each<[number, number | null]>([
+    [0, 0],
+    [1, 1],
+    [2, null],
+    [99, null],
+  ])('エンジニア%i のルートは %s', (engineerId, expected) => {
+    expect(findRouteIdOfEngineer(engineers, engineerId)).toBe(expected);
+  });
+});
+
+describe('shouldAddRouteOnHire', () => {
+  it.each([
+    [false, true],
+    [true, false],
+  ])('gameOver=%s のとき追加する: %s', (gameOver, expected) => {
+    expect(shouldAddRouteOnHire(gameOver)).toBe(expected);
+  });
+  it('倒産後は雇うことも既存どおり不可（雇ってもルートは増えない判定）', () => {
+    // 資金ちょうどで雇うと倒産する（BANKRUPT_INCLUDES_ZERO）。
+    const fleet = createInitialFleet(() => 0);
+    const hired = hireEngineer(
+      { engineers: fleet.engineers, funds: ENGINEER_HIRE_COST.junior, nextId: fleet.nextEngineerId },
+      'junior',
+      rules,
+    );
+    expect(hired.ok).toBe(true);
+    if (!hired.ok) return;
+    const bankrupt = checkBankruptcy(INITIAL_GAME_OVER_STATE, hired.fundsAfter, 0);
+    expect(shouldAddRouteOnHire(bankrupt.state.over)).toBe(!bankrupt.triggered);
+    expect(bankrupt.triggered).toBe(true);
+    // 雇った人は人数に入り、routeId は null のまま。
+    expect(hired.engineers).toHaveLength(fleet.engineers.length + 1);
+    expect(hired.engineer.routeId).toBeNull();
+  });
+});
+
+describe('createInitialFleet（初期化・やり直し）', () => {
+  it('エンジニア3人・ルート3本・routeId 0..2・ランク junior・ルート id と一致', () => {
+    const fleet = createInitialFleet(() => 0);
+    expect(fleet.engineers).toHaveLength(ENGINEER_SPAWN_CELLS.length);
+    expect(fleet.routes).toHaveLength(ENGINEER_SPAWN_CELLS.length);
+    expect(fleet.engineers.map((e) => e.routeId)).toEqual([0, 1, 2]);
+    expect(fleet.engineers.map((e) => e.routeId)).toEqual(fleet.routes.map((r) => r.id));
+    expect(fleet.engineers.every((e) => e.rank === 'junior')).toBe(true);
+    expect(fleet.nextEngineerId).toBe(3);
+  });
+  it('雇ったあとに作り直しても前回の状態は残らず、2回呼んでも同じ形', () => {
+    const first = createInitialFleet(() => 0);
+    const hired = hireEngineer(
+      { engineers: first.engineers, funds: RICH, nextId: first.nextEngineerId },
+      'senior',
+      rules,
+    );
+    expect(hired.ok).toBe(true);
+    const again = createInitialFleet(() => 0);
+    expect(again).toEqual(first);
+    expect(again.engineers).toHaveLength(3);
+  });
+});
+
+describe('雇う→ルート追加→routeId 割当（8・9・10人目）', () => {
+  // 雇う → addRoute → assignEngineerRoute を main.ts と同じ順に組み合わせる。
+  const hireAndRoute = (
+    fleet: { routes: ReturnType<typeof createRoutes>; engineers: Engineer[]; nextEngineerId: number },
+  ) => {
+    const hired = hireEngineer(
+      { engineers: fleet.engineers, funds: RICH, nextId: fleet.nextEngineerId },
+      'junior',
+      rules,
+    );
+    if (!hired.ok) return undefined;
+    const route = addRoute(fleet.routes, () => 0);
+    const engineers = route
+      ? assignEngineerRoute([...hired.engineers], hired.engineer.id, route.id)
+      : [...hired.engineers];
+    return {
+      route,
+      engineer: engineers.find((e) => e.id === hired.engineer.id),
+      next: {
+        routes: route ? [...fleet.routes, route] : fleet.routes,
+        engineers,
+        nextEngineerId: hired.engineer.id + 1,
+      },
+    };
+  };
+
+  it('3人から9人まで順に雇うとルートが増え、routeId がそのルートの id になる', () => {
+    let fleet = createInitialFleet(() => 0);
+    for (let n = fleet.engineers.length + 1; n <= MAX_ENGINEERS; n++) {
+      const step = hireAndRoute(fleet);
+      expect(step?.route).toBeDefined();
+      expect(step?.engineer?.routeId).toBe(step?.route?.id);
+      if (!step) return;
+      fleet = step.next;
+      expect(fleet.routes).toHaveLength(n);
+    }
+    expect(fleet.engineers).toHaveLength(MAX_ENGINEERS);
+  });
+
+  it('10人目は雇えず、ルートも増えない', () => {
+    let fleet = createInitialFleet(() => 0);
+    while (fleet.engineers.length < MAX_ENGINEERS) {
+      const step = hireAndRoute(fleet);
+      if (!step) return;
+      fleet = step.next;
+    }
+    expect(hireAndRoute(fleet)).toBeUndefined();
+  });
+
+  it('addRoute が undefined なら routeId は null のまま（人数だけ増えた状態）', () => {
+    const fleet = createInitialFleet(() => 0);
+    const full = { ...fleet, routes: createRoutes(Array.from({ length: MAX_ENGINEER_ROUTES }, (_, row) => ({ col: 0, row })), () => 0) };
+    const step = hireAndRoute(full);
+    expect(step?.route).toBeUndefined();
+    expect(step?.engineer?.routeId).toBeNull();
+  });
+
+  it.each([
+    [3, 900000],
+    [4, 1200000],
+    [9, 2700000],
+  ])('ルート%i本の月給の合計は %i 円', (count, total) => {
+    const sum = getEngineerSalaries(count, ENGINEER_MONTHLY_SALARY).reduce((a, b) => a + b, 0);
+    expect(sum).toBe(total);
+  });
+
+  it('追加したルートの出現セルは左の列を上から埋める順（nextSpawnCell と一致）', () => {
+    let fleet = createInitialFleet(() => 0);
+    while (fleet.engineers.length < MAX_ENGINEERS) {
+      const expected = nextSpawnCell(fleet.routes.map((r) => r.spawn));
+      const step = hireAndRoute(fleet);
+      if (!step) return;
+      expect(step.route?.spawn).toEqual(expected);
+      fleet = step.next;
+    }
   });
 });

@@ -7,10 +7,8 @@ import {
   CODE_SPAWN_INTERVAL_MS,
   ENGINEER_HIRE_COST,
   ENGINEER_MONTHLY_SALARY,
-  ENGINEER_SPAWN_CELLS,
   GAME_OVER_RESTART_KEYS,
   HIRE_KEYS,
-  INITIAL_ENGINEER_RANKS,
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
@@ -89,15 +87,17 @@ import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './s
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
-  createInitialEngineers,
+  assignEngineerRoute,
+  createInitialFleet,
   ENGINEER_HIRED_EVENT,
   ENGINEER_RANKS,
   formatEngineerCount,
   formatHireMessage,
   hireEngineer,
+  shouldAddRouteOnHire,
 } from './engineer';
 import type { Engineer, EngineerHiredPayload } from './engineer';
-import { addRoute, createRoutes } from './route';
+import { addRoute } from './route';
 import type { Route } from './route';
 
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics };
@@ -150,20 +150,23 @@ class MainScene extends Phaser.Scene {
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
     this.events.on(CODE_RELEASED_EVENT, this.onCodeReleased, this);
+    this.events.on(ENGINEER_HIRED_EVENT, this.onEngineerHired, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
       this.events.off(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
       this.events.off(CODE_HIT_EVENT, this.onCodeHit, this);
       this.events.off(CODE_RELEASED_EVENT, this.onCodeReleased, this);
+      this.events.off(ENGINEER_HIRED_EVENT, this.onEngineerHired, this);
     });
-    this.routes = createRoutes(ENGINEER_SPAWN_CELLS, Math.random);
+    const fleet = createInitialFleet(Math.random);
+    this.routes = fleet.routes;
     this.codes = [];
     this.spawnElapsed = new Map();
     this.nextCodeId = 0;
     this.codeHp = new Map();
     drawRoutes(this, this.routes);
-    this.engineers = createInitialEngineers(this.routes, INITIAL_ENGINEER_RANKS);
-    this.nextEngineerId = this.engineers.length;
+    this.engineers = fleet.engineers;
+    this.nextEngineerId = fleet.nextEngineerId;
     this.hireMessageText = undefined;
     this.engineerCountText = drawEngineerCount(this, this.engineers.length, MAX_ENGINEERS);
     drawHireButtons(
@@ -335,7 +338,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
-  // 雇ってもルートは増やさない（#27 が ENGINEER_HIRED_EVENT を購読して追加する）。
+  // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う。
   private hire(rank: string): void {
     if (this.gameOver.over) {
       return;
@@ -356,6 +359,18 @@ class MainScene extends Phaser.Scene {
     this.changeFunds(result.fundsAfter, 'hire');
     const payload: EngineerHiredPayload = { engineer: result.engineer, cost: result.cost };
     this.events.emit(ENGINEER_HIRED_EVENT, payload);
+  }
+
+  // 雇ったらルートと出現場所を追加し、雇ったエンジニアに割り当てる。ゲームオーバー中・追加できないときは routeId を null のままにする。
+  private onEngineerHired(payload: EngineerHiredPayload): void {
+    if (!shouldAddRouteOnHire(this.gameOver.over)) {
+      return;
+    }
+    const route = this.addEngineerRoute();
+    if (route === undefined) {
+      return;
+    }
+    this.engineers = assignEngineerRoute(this.engineers, payload.engineer.id, route.id);
   }
 
   // 月の境界ごとに給料を引く。エンジニア数は仮に現在のルート数とする（主人公の給料は含めない）。

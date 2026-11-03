@@ -5,6 +5,7 @@ import {
   FIELD_COLS,
   FIELD_ROWS,
   MAX_ENGINEER_ROUTES,
+  MAX_ENGINEERS,
   PLAYER_START_COL,
   PLAYER_START_ROW,
   RELEASE_POINT_CELL,
@@ -344,5 +345,31 @@ describe('addRoute', () => {
     expect(addRoute(initial(), seededRandom(4))).toEqual(
       addRoute(initial(), seededRandom(4)),
     );
+  });
+
+  it('最大エンジニア数まで addRoute で増やせて、出現セル・id が重ならず、その次は undefined', () => {
+    for (const seed of seeds) {
+      const random = seededRandom(seed);
+      const routes = initial();
+      for (let i = 0; i < MAX_ENGINEERS - ENGINEER_SPAWN_CELLS.length; i++) {
+        const route = addRoute(routes, random);
+        expect(route).toBeDefined();
+        if (route === undefined) return;
+        routes.push(route);
+      }
+      expect(routes).toHaveLength(MAX_ENGINEERS);
+      expect(new Set(routes.map((r) => spawnKey(r.spawn))).size).toBe(MAX_ENGINEERS);
+      expect(new Set(routes.map((r) => r.id)).size).toBe(MAX_ENGINEERS);
+      expect(addRoute(routes, random)).toBeUndefined();
+    }
+  });
+
+  it.each([
+    [7, true],
+    [8, true],
+    [9, false],
+  ])('ルートが%i本のとき追加できるか: %s（8人目・9人目・10人目）', (count, canAdd) => {
+    const routes = routesAtRows(allRows.slice(0, count), alwaysMin);
+    expect(addRoute(routes, alwaysMin) !== undefined).toBe(canAdd);
   });
 });
