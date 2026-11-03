@@ -3,9 +3,7 @@ import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
   ATTACK_KEYS,
-  CODE_MALICIOUS_RATE,
   CODE_SPAWN_INTERVAL_MS,
-  CODE_SPEED,
   ENGINEER_SPAWN_CELLS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
@@ -19,6 +17,7 @@ import {
   isInsideTapArea,
 } from './attack';
 import type { CodeHitEvent } from './attack';
+import { codeSpeedAt, maliciousRateAt } from './difficulty';
 import {
   clampToField,
   getMoveDirection,
@@ -224,12 +223,12 @@ class MainScene extends Phaser.Scene {
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
-        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, CODE_MALICIOUS_RATE), route);
+        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, maliciousRateAt(this.elapsedMs)), route);
         this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position) });
       }
     }
 
-    const distance = (CODE_SPEED * delta) / 1000;
+    const distance = (codeSpeedAt(this.elapsedMs) * delta) / 1000;
     const flowing: ActiveCode[] = [];
     for (const active of this.codes) {
       const next: ActiveCode = { ...advanceCode(active, distance), graphics: active.graphics };
