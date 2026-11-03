@@ -487,19 +487,15 @@ export const drawPlacedItem = (scene: Phaser.Scene, item: PlacedItem): void => {
     .setDepth(ITEM_DEPTH);
 };
 
-// アイテムの攻撃演出（アイテムから対象への線）。一定時間で消す。
+// アイテムの攻撃演出（アイテムから対象への線）。一定時間表示して消す。
 export const drawItemAttackEffect = (scene: Phaser.Scene, from: Point, to: Point): void => {
   const line = scene.add
     .line(0, 0, from.x, from.y, to.x, to.y, ITEM_ATTACK_LINE.color)
     .setOrigin(0)
     .setLineWidth(ITEM_ATTACK_LINE.width)
     .setDepth(ATTACK_EFFECT_DEPTH);
-  scene.tweens.add({
-    targets: line,
-    alpha: 0,
-    duration: ITEM_ATTACK_LINE.durationMs,
-    onComplete: () => line.destroy(),
-  });
+  // 倒産すると tweens.pauseAll() で Tween が止まるため、破棄は Tween の onComplete ではなく delayedCall で行う（drawItemMessage と同じ）。
+  scene.time.delayedCall(ITEM_ATTACK_LINE.durationMs, () => line.destroy());
 };
 
 // 仮: 購入ボタンはコード(0.5)より下に描く。下端の行を流れるコードを隠さないため。コードは当たり判定を持たないのでクリックはボタンに届く。
