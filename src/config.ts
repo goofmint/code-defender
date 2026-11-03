@@ -177,3 +177,15 @@ export const MALICIOUS_CODE_PARAMS = {
   lowPerformance: { badgeColor: 0x9e9e9e, badgeRadiusRatio: 0.18, hp: 3, damage: 12 },
   typo: { badgeColor: 0xec407a, badgeRadiusRatio: 0.18, hp: 1, damage: 3 },
 } as const;
+
+// 仮: 種類（#10）が未割り当ての不正なコードの hp。種類のランダム割り当ては未決定のため、当面は全員これを使う。企画書には未記載。
+export const DEFAULT_MALICIOUS_CODE_HP = 3;
+// 仮: 攻撃1回（1ヒット）あたりのダメージ。企画書には未記載。
+export const ATTACK_DAMAGE = 1;
+// 仮: 撃破エフェクト（コード位置に広がって消える輪）の色（0xRRGGBB）。企画書には未記載。
+export const DEFEAT_EFFECT_COLOR = 0x69f0ae;
+// 仮: 撃破エフェクトの表示時間（ミリ秒）。企画書には未記載。
+export const DEFEAT_EFFECT_DURATION_MS = 300;
+// 仮: 撃破エフェクトの輪の開始半径と終了半径（コードの大きさに対する比率）。企画書には未記載。
+export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
+export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
