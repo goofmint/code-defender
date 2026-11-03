@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CODE_SAMPLES, ENGINEER_SPAWN_CELLS } from './config';
+import {
+  CODE_SAMPLES,
+  ENGINEER_SPAWN_CELLS,
+  PLAYER_START_COL,
+  PLAYER_START_ROW,
+  RELEASE_POINT_CELL,
+} from './config';
 import { CODE_SIZE, CODE_STAR_INNER_RATIO, CODE_STAR_SPIKES, CODE_STYLES, starPoints } from './code';
 import type { CodeKind } from './code';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
@@ -64,6 +70,13 @@ describe('コードの見た目', () => {
       expect(cell.row).toBeGreaterThanOrEqual(0);
       expect(cell.row).toBeLessThan(FIELD_ROWS);
       expect(isOnRoute(cell)).toBe(true);
+    }
+  });
+
+  it('見本配置は主人公の初期セルとリリース地点のセルに重ならない', () => {
+    for (const { cell } of CODE_SAMPLES) {
+      expect(cell).not.toEqual({ col: PLAYER_START_COL, row: PLAYER_START_ROW });
+      expect(cell).not.toEqual(RELEASE_POINT_CELL);
     }
   });
 });

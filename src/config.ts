@@ -56,12 +56,12 @@ export const CODE_STAR_INNER_RATIO = 0.6;
 export const CODE_CORNER_RADIUS_RATIO = 0.2;
 export const CODE_STROKE_WIDTH = 2;
 
-// 仮: コード生成タスクで置き換える仮の表示。見た目確認用に既存ルート上のセルへ正常/不正を交互に置く。
+// 仮: コード生成タスクで置き換える仮の表示。見た目確認用に既存ルート上のセルへ正常/不正を交互に置く（主人公・リリース地点のセルは避ける）。
 export const CODE_SAMPLES = [
   { kind: 'normal', cell: { col: 3, row: 1 } },
   { kind: 'malicious', cell: { col: 7, row: 1 } },
   { kind: 'normal', cell: { col: 4, row: 4 } },
-  { kind: 'malicious', cell: { col: 8, row: 4 } },
+  { kind: 'malicious', cell: { col: 10, row: 4 } },
   { kind: 'normal', cell: { col: 4, row: 7 } },
   { kind: 'malicious', cell: { col: 9, row: 7 } },
 ] as const;
