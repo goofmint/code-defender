@@ -231,3 +231,11 @@ export const HIRE_BUTTON_FONT_SIZE = '16px';
 export const HIRE_COUNT_POSITION = { x: 300, y: 42 } as const;
 export const HIRE_MESSAGE_POSITION = { x: 480, y: 42 } as const;
 export const HIRE_MESSAGE_DURATION_MS = 2000;
+// 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
+// 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
+export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
+// 仮・要確認(#18): 種別を持たない不正コード（種別の抽選が未実装）がリリースされたときの損害ポイント。
+export const INCIDENT_DEFAULT_DAMAGE_POINTS = 10;
+// 仮・要確認(#18): 障害の演出（画面全体の短い点滅）の継続時間（ミリ秒）と色（0xRRGGBB）。企画書には演出の記載なし。
+export const INCIDENT_FLASH_DURATION_MS = 250;
+export const INCIDENT_FLASH_COLOR = 0xff0000;

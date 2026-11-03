@@ -1,5 +1,6 @@
 // コードの流れの純粋ロジック。Phaser には依存しない（テスト可能にするため）。
 import type { CodeKind } from './code';
+import type { MaliciousCodeType } from './maliciousCode';
 import type { Point, Route } from './route';
 import { routePixelPoints } from './route';
 
@@ -12,6 +13,8 @@ export type FlowingCode = {
   readonly segmentIndex: number;
   readonly position: Point;
   readonly released: boolean;
+  // 不正コードの種別。種別の抽選が入るまでは持たない。
+  readonly maliciousType?: MaliciousCodeType;
 };
 
 // リリース地点へ到達したときにシーンが発行するイベント名。
@@ -21,6 +24,7 @@ export type CodeReleasedPayload = {
   readonly id: number;
   readonly kind: CodeKind;
   readonly routeId: number;
+  readonly maliciousType?: MaliciousCodeType;
 };
 
 export const spawnCode = (id: number, kind: CodeKind, route: Route): FlowingCode => {
