@@ -42,6 +42,9 @@ type ItemDefinition = {
   readonly strongAgainst: StrongAgainst;
   readonly range: ItemRange;
   readonly power: ItemPower;
+  // このアイテムが正常なコードも攻撃対象にするか。
+  // true にしてよいのは猫だけ（企画書 8 の例外）。猫は #57 で追加する。それ以外は false（正常なコードは攻撃しない）。
+  readonly targetsNormalCode: boolean;
 };
 
 export const ITEM_DEFINITIONS = {
@@ -51,6 +54,7 @@ export const ITEM_DEFINITIONS = {
     strongAgainst: { kind: 'all' },
     range: 'long',
     power: 'medium',
+    targetsNormalCode: false,
   },
   linter: {
     label: '静的解析ツール（Linter）',
@@ -58,6 +62,7 @@ export const ITEM_DEFINITIONS = {
     strongAgainst: { kind: 'types', types: ['typo', 'duplication'] },
     range: 'short',
     power: 'weak',
+    targetsNormalCode: false,
   },
   testTool: {
     label: 'テストツール',
@@ -65,6 +70,7 @@ export const ITEM_DEFINITIONS = {
     strongAgainst: { kind: 'types', types: ['bug'] },
     range: 'middle',
     power: 'weak',
+    targetsNormalCode: false,
   },
   ci: {
     label: 'CI',
@@ -72,6 +78,7 @@ export const ITEM_DEFINITIONS = {
     strongAgainst: { kind: 'types', types: ['bug', 'lowPerformance'] },
     range: 'short',
     power: 'medium',
+    targetsNormalCode: false,
   },
   securityScanner: {
     label: 'セキュリティスキャナー',
@@ -82,6 +89,7 @@ export const ITEM_DEFINITIONS = {
     },
     range: 'middle',
     power: 'strong',
+    targetsNormalCode: false,
   },
   pairProgrammer: {
     label: 'ペアプロ相棒',
@@ -89,8 +97,13 @@ export const ITEM_DEFINITIONS = {
     strongAgainst: { kind: 'types', types: ['spaghetti'] },
     range: 'short',
     power: 'medium',
+    targetsNormalCode: false,
   },
 } as const satisfies Record<ItemType, ItemDefinition>;
+
+// このアイテムが正常なコードも攻撃対象にするか（企画書 8。猫だけが true になる予定）。
+export const itemTargetsNormalCode = (itemType: ItemType): boolean =>
+  ITEM_DEFINITIONS[itemType].targetsNormalCode;
 
 // 範囲の段階をピクセルに変換する。設定値は引数で差し替えられる（既定値は config.ts）。
 export const getItemRange = (
