@@ -77,3 +77,20 @@ export const CODE_SAMPLES = [
   { kind: 'normal', cell: { col: 4, row: 7 } },
   { kind: 'malicious', cell: { col: 9, row: 7 } },
 ] as const;
+
+// 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
+// 移動キーではないので、移動のキーボード優先判定には含めない。
+export const ATTACK_KEYS = ['SPACE'] as const;
+// 仮: 攻撃の射程（セルに対する比率）。射程 = CELL_SIZE × 比率（1.0 = 60px）。主人公の中心からコードの中心までの距離で判定する。企画書には未記載。
+export const ATTACK_RANGE_RATIO = 1.0;
+// 仮: 攻撃のクールダウン（ミリ秒）。企画書には未記載。
+export const ATTACK_COOLDOWN_MS = 400;
+// 仮: タッチ/マウスで攻撃するときの主人公のタップ判定領域（セルに対する比率）。主人公中心の正方形。
+// 主人公(PLAYER_SIZE 42px)のままだと縮小表示時に小さすぎるため、少し大きめにする。企画書には未記載。
+export const ATTACK_TAP_SIZE_RATIO = 1.0;
+// 仮: 攻撃エフェクトの色（0xRRGGBB）。企画書には未記載。
+export const ATTACK_EFFECT_COLOR = 0xffd54f;
+// 仮: 攻撃エフェクト（射程の輪）の表示時間（ミリ秒）。命中・空振りで共通。企画書には未記載。
+export const ATTACK_EFFECT_DURATION_MS = 200;
+// 仮: 命中したコードの点滅時間（ミリ秒）。企画書には未記載。
+export const ATTACK_HIT_FLASH_DURATION_MS = 300;

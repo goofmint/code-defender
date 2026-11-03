@@ -26,6 +26,11 @@ import {
   starPoints,
 } from './code';
 import type { CodeKind } from './code';
+import {
+  ATTACK_EFFECT_COLOR,
+  ATTACK_EFFECT_DURATION_MS,
+  ATTACK_HIT_FLASH_DURATION_MS,
+} from './config';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
 
 // 後続オブジェクトより常に下に描画する。
@@ -186,4 +191,36 @@ export const drawCode = (
   g.setPosition(position.x, position.y);
   g.setDepth(CODE_DEPTH);
   return g;
+};
+
+// 仮: 主人公(PLAYER_DEPTH=1)より上。
+const ATTACK_EFFECT_DEPTH = 1.5;
+// 仮: 射程の輪の線幅（ピクセル）。企画書には未記載。
+const ATTACK_EFFECT_STROKE_WIDTH = 2;
+
+// 攻撃エフェクト（射程の輪）を表示して、一定時間で消す。命中・空振りで共通。
+export const drawAttackEffect = (scene: Phaser.Scene, position: Point, range: number): void => {
+  const ring = scene.add
+    .circle(position.x, position.y, range, ATTACK_EFFECT_COLOR, 0.2)
+    .setStrokeStyle(ATTACK_EFFECT_STROKE_WIDTH, ATTACK_EFFECT_COLOR)
+    .setDepth(ATTACK_EFFECT_DEPTH);
+  scene.tweens.add({
+    targets: ring,
+    alpha: 0,
+    duration: ATTACK_EFFECT_DURATION_MS,
+    onComplete: () => ring.destroy(),
+  });
+};
+
+// 命中したコードを点滅させる（表示は消さない）。
+export const flashCode = (scene: Phaser.Scene, code: Phaser.GameObjects.Graphics): void => {
+  scene.tweens.killTweensOf(code);
+  code.setAlpha(1);
+  scene.tweens.add({
+    targets: code,
+    alpha: 0.2,
+    duration: ATTACK_HIT_FLASH_DURATION_MS / 4,
+    yoyo: true,
+    repeat: 1,
+  });
 };
