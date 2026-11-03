@@ -1,11 +1,17 @@
 // ルートの純粋ロジック。Phaser には依存しない（テスト可能にするため）。
-import { RELEASE_POINT_CELL, ROUTE_TURN_COL } from './config';
+import {
+  ENGINEER_SPAWN_COL,
+  FIELD_ROWS,
+  MAX_ENGINEER_ROUTES,
+  RELEASE_POINT_CELL,
+  ROUTE_TURN_COL,
+} from './config';
 import { CELL_SIZE } from './field';
 
 export type GridCell = { readonly col: number; readonly row: number };
 export type Point = { readonly x: number; readonly y: number };
 
-// id はエンジニア（出現場所）との対応に使う。現時点では出現セル配列のインデックス。
+// id はエンジニア（出現場所）との対応に使う。初期は出現セル配列のインデックス、追加分は既存の最大 id + 1。
 export type Route = {
   readonly id: number;
   readonly spawn: GridCell;
@@ -46,6 +52,28 @@ export const createRoute = (
 
 export const createRoutes = (spawns: readonly GridCell[]): Route[] =>
   spawns.map((spawn, i) => createRoute(i, spawn, RELEASE_POINT_CELL));
+
+// 追加する出現セルを決める。ENGINEER_SPAWN_COL 列を上の行から調べ、使用中でもリリース地点でもない最初のセルを返す。
+export const nextSpawnCell = (
+  usedSpawns: readonly GridCell[],
+): GridCell | undefined => {
+  for (let row = 0; row < FIELD_ROWS; row++) {
+    const cell: GridCell = { col: ENGINEER_SPAWN_COL, row };
+    const used = usedSpawns.some((spawn) => isSameCell(spawn, cell));
+    if (!used && !isSameCell(cell, RELEASE_POINT_CELL)) return cell;
+  }
+  return undefined;
+};
+
+// エンジニアが増えたときの新しいルートを返す。入力は変更しない。上限または空きなしなら undefined。
+// id は既存の最大 id + 1（空なら 0）。将来ルートが消えても id が重複しない。
+export const addRoute = (routes: readonly Route[]): Route | undefined => {
+  if (routes.length >= MAX_ENGINEER_ROUTES) return undefined;
+  const spawn = nextSpawnCell(routes.map((route) => route.spawn));
+  if (spawn === undefined) return undefined;
+  const id = routes.reduce((max, route) => Math.max(max, route.id), -1) + 1;
+  return createRoute(id, spawn, RELEASE_POINT_CELL);
+};
 
 export const cellCenter = (cell: GridCell): Point => ({
   x: (cell.col + 0.5) * CELL_SIZE,

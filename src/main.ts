@@ -3,17 +3,30 @@ import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import { ENGINEER_SPAWN_CELLS } from './config';
 import { drawField, drawReleasePoint, drawRoutes } from './render';
-import { createRoutes } from './route';
+import { addRoute, createRoutes } from './route';
+import type { Route } from './route';
 
 class MainScene extends Phaser.Scene {
+  private routes: Route[] = [];
+
   constructor() {
     super('main');
   }
 
   create(): void {
     drawField(this);
-    drawRoutes(this, createRoutes(ENGINEER_SPAWN_CELLS));
+    this.routes = createRoutes(ENGINEER_SPAWN_CELLS);
+    drawRoutes(this, this.routes);
     drawReleasePoint(this);
+  }
+
+  // エンジニアが増えたときに出現場所とルートを追加して描画する。上限などで追加できなければ undefined。
+  addEngineerRoute(): Route | undefined {
+    const route = addRoute(this.routes);
+    if (route === undefined) return undefined;
+    this.routes.push(route);
+    drawRoutes(this, [route]);
+    return route;
   }
 }
 
