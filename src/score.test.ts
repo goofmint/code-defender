@@ -10,9 +10,11 @@ const event = (delta: number, reason: FundsChangeReason): FundsChangedEvent => (
   reason,
 });
 
-// FundsChangeReason の全値。理由が増えたらここに足すと、下のテストが自動で対象にする。
-const ALL_REASONS: readonly FundsChangeReason[] = ['salary', 'sales'];
-const NON_SALES_REASONS = ALL_REASONS.filter((reason) => reason !== 'sales');
+// FundsChangeReason の全値。Record にしているので、理由が増えるとここで型エラーになり、足し忘れない。
+const REASONS: Record<FundsChangeReason, true> = { salary: true, sales: true, penalty: true };
+const NON_SALES_REASONS = (Object.keys(REASONS) as FundsChangeReason[]).filter(
+  (reason) => reason !== 'sales',
+);
 
 describe('accumulateScore: 売上の件数', () => {
   it('売上 0 件ならスコアは初期値 0', () => {
@@ -52,17 +54,26 @@ describe('accumulateScore: delta の境界値', () => {
 });
 
 describe('accumulateScore: 理由', () => {
-  it('salary は加算しない', () => {
-    expect(accumulateScore(100, event(300000, 'salary'), false)).toBe(100);
-  });
-
   it.each(NON_SALES_REASONS)('sales 以外の理由 %s は加算しない', (reason) => {
     expect(accumulateScore(100, event(20000, reason), false)).toBe(100);
   });
 
-  it('資金が減るイベント（負の delta）はスコアを減らさない', () => {
-    expect(accumulateScore(100, event(-300000, 'salary'), false)).toBe(100);
-  });
+  // 'penalty'（正常なコードへの攻撃）と 'salary'（給料）は資金を減らす。スコアは変えない。
+  // 資金が正→負になる（倒産する）イベントも含める。
+  it.each([
+    ['penalty', 0, -50000, 1000000, 950000],
+    ['penalty', 100, -50000, 1000000, 950000],
+    ['penalty', 100, -50000, 30000, -20000],
+    ['salary', 0, -300000, 1000000, 700000],
+    ['salary', 100, -300000, 1000000, 700000],
+    ['salary', 100, -300000, 100000, -200000],
+  ] as const)(
+    '%s（スコア %d, delta %d, 資金 %d→%d）はスコアを変えない',
+    (reason, score, delta, previous, current) => {
+      const input: FundsChangedEvent = { previous, current, delta, reason };
+      expect(accumulateScore(score, input, false)).toBe(score);
+    },
+  );
 });
 
 describe('accumulateScore: 倒産フレームとリトライ', () => {
