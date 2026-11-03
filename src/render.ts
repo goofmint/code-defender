@@ -26,14 +26,18 @@ import {
   starPoints,
 } from './code';
 import type { CodeKind } from './code';
+import { getMaliciousCodeAppearance } from './maliciousCode';
+import type { MaliciousCodeType } from './maliciousCode';
 import {
   ATTACK_EFFECT_COLOR,
   ATTACK_EFFECT_DURATION_MS,
   ATTACK_HIT_FLASH_DURATION_MS,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
+  FUNDS_POSITION,
 } from './config';
 import { formatElapsedDays } from './gameTime';
+import { formatFunds } from './funds';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
 
 // 後続オブジェクトより常に下に描画する。
@@ -140,6 +144,7 @@ export const drawCode = (
   scene: Phaser.Scene,
   kind: CodeKind,
   position: Point,
+  maliciousType?: MaliciousCodeType,
 ): Phaser.GameObjects.Graphics => {
   const g = scene.add.graphics();
   const style = CODE_STYLES[kind];
@@ -191,6 +196,14 @@ export const drawCode = (
       throw new Error(`未対応の模様: ${String(unreachable)}`);
     }
   }
+  if (kind === 'malicious' && maliciousType !== undefined) {
+    // 種類ごとの差分: 星の右上の小円（バッジ）。
+    const badge = getMaliciousCodeAppearance(maliciousType);
+    g.fillStyle(badge.badgeColor, 1);
+    g.lineStyle(badge.badgeBorderWidth, badge.badgeBorderColor, 1);
+    g.fillCircle(s * 0.35, -s * 0.35, badge.badgeRadius);
+    g.strokeCircle(s * 0.35, -s * 0.35, badge.badgeRadius);
+  }
   g.setPosition(position.x, position.y);
   g.setDepth(CODE_DEPTH);
   return g;
@@ -235,6 +248,17 @@ const ELAPSED_DAYS_DEPTH = 2;
 export const drawElapsedDays = (scene: Phaser.Scene, days: number): Phaser.GameObjects.Text =>
   scene.add
     .text(ELAPSED_DAYS_POSITION.x, ELAPSED_DAYS_POSITION.y, formatElapsedDays(days), {
+      fontSize: ELAPSED_DAYS_STYLE.fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ELAPSED_DAYS_STYLE.color,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
+export const drawFunds = (scene: Phaser.Scene, funds: number): Phaser.GameObjects.Text =>
+  scene.add
+    .text(FUNDS_POSITION.x, FUNDS_POSITION.y, formatFunds(funds), {
       fontSize: ELAPSED_DAYS_STYLE.fontSize,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: ELAPSED_DAYS_STYLE.color,
