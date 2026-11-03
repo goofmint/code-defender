@@ -338,9 +338,11 @@ class MainScene extends Phaser.Scene {
         gameOver: this.gameOver.over,
       });
       if (penalty.applied) {
-        // 倒産で Tween が止まる前に描画する（ゲームオーバー画面に文字が残らないよう、止まった時点の表示になる）。
-        drawPenaltyText(this, target.position, penalty.amount);
         this.changeFunds(penalty.fundsAfter, 'penalty');
+        // 倒産すると tweens.pauseAll() で Tween が止まり、文字の破棄が走らず画面に残るため、倒産時は描画しない。
+        if (!this.gameOver.over) {
+          drawPenaltyText(this, target.position, penalty.amount);
+        }
         const payload: NormalCodePenalizedPayload = {
           id: target.id,
           routeId: target.routeId,
