@@ -194,3 +194,15 @@ export const DEFEAT_EFFECT_DURATION_MS = 300;
 // 仮: 撃破エフェクトの輪の開始半径と終了半径（コードの大きさに対する比率）。企画書には未記載。
 export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
 export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
+
+// 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコア（累計売上 #22）が未実装のため、減点は資金から引く。
+export const NORMAL_CODE_PENALTY_TARGET = 'funds' as const;
+// 仮・要確認: 正常なコードを1回攻撃したときの減点額（円）。企画書には未記載。
+export const NORMAL_CODE_PENALTY = 50000;
+// 仮・要確認: 正常なコードは攻撃されても消えず、そのまま流れる。
+export const NORMAL_CODE_REMOVED_ON_HIT = false;
+// 仮: 減点表示（コード位置に浮かんで消える赤い文字）。色・表示時間（ミリ秒）・上への移動量（ピクセル）・文字サイズ。
+export const PENALTY_TEXT_COLOR = '#ff1744';
+export const PENALTY_TEXT_DURATION_MS = 800;
+export const PENALTY_TEXT_RISE_PX = 40;
+export const PENALTY_TEXT_FONT_SIZE = '20px';
