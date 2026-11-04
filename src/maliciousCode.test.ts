@@ -4,7 +4,11 @@ import {
   getMaliciousCodeAppearance,
   MALICIOUS_CODE_TYPE_DEFINITIONS,
   MALICIOUS_CODE_TYPES,
+  pickMaliciousCodeType,
 } from './maliciousCode';
+import { advanceCode, spawnCode } from './codeFlow';
+import { createRoutes } from './route';
+import { ENGINEER_SPAWN_CELLS } from './config';
 
 const SPEC_LABELS = [
   '脆弱性：クリティカル',
@@ -73,4 +77,20 @@ describe('不正なコードの種類', () => {
     damages.slice(1).forEach((d, i) => expect(d).toBeLessThanOrEqual(damages[i]));
   });
 
+  it('pickMaliciousCodeType は random の値に応じて9種類すべてを選べる', () => {
+    const n = MALICIOUS_CODE_TYPES.length;
+    const picked = MALICIOUS_CODE_TYPES.map((_, i) => pickMaliciousCodeType(() => (i + 0.5) / n));
+    expect(picked).toEqual([...MALICIOUS_CODE_TYPES]);
+    expect(pickMaliciousCodeType(() => 0)).toBe(MALICIOUS_CODE_TYPES[0]);
+    expect(pickMaliciousCodeType(() => 0.999999)).toBe(MALICIOUS_CODE_TYPES[n - 1]);
+  });
+
+  it('spawnCode は不正コードにだけ種類を持たせ、移動後も保つ', () => {
+    const [route] = createRoutes(ENGINEER_SPAWN_CELLS, () => 0);
+    const malicious = spawnCode(1, 'malicious', route, 'bug');
+    expect(malicious.maliciousType).toBe('bug');
+    expect(advanceCode(malicious, 10).maliciousType).toBe('bug');
+    expect(spawnCode(2, 'normal', route, 'bug').maliciousType).toBeUndefined();
+    expect(spawnCode(3, 'normal', route)).not.toHaveProperty('maliciousType');
+  });
 });

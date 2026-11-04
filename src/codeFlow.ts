@@ -1,11 +1,14 @@
 // コードの流れの純粋ロジック。Phaser には依存しない（テスト可能にするため）。
 import type { CodeKind } from './code';
+import type { MaliciousCodeType } from './maliciousCode';
 import type { Point, Route } from './route';
 import { routePixelPoints } from './route';
 
 export type FlowingCode = {
   readonly id: number;
   readonly kind: CodeKind;
+  // 不正コードのときだけ持つ種類。正常コードには付けない。
+  readonly maliciousType?: MaliciousCodeType;
   readonly routeId: number;
   readonly path: readonly Point[];
   // 現在の区間の始点の添字。目標は path[segmentIndex + 1]。
@@ -23,11 +26,17 @@ export type CodeReleasedPayload = {
   readonly routeId: number;
 };
 
-export const spawnCode = (id: number, kind: CodeKind, route: Route): FlowingCode => {
+export const spawnCode = (
+  id: number,
+  kind: CodeKind,
+  route: Route,
+  maliciousType?: MaliciousCodeType,
+): FlowingCode => {
   const path = routePixelPoints(route);
   return {
     id,
     kind,
+    ...(kind === 'malicious' && maliciousType !== undefined ? { maliciousType } : {}),
     routeId: route.id,
     path,
     segmentIndex: 0,

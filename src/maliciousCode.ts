@@ -92,3 +92,9 @@ export const getMaliciousCodeAppearance = (type: MaliciousCodeType): MaliciousCo
     badgeRadius: CODE_SIZE * badgeRadiusRatio,
   };
 };
+
+// random(0以上1未満)から種類を均等に選ぶ。仮・要確認: 企画書に種類ごとの出現割合の記載はないため均等。
+export const pickMaliciousCodeType = (random: () => number): MaliciousCodeType =>
+  MALICIOUS_CODE_TYPES[
+    Math.min(Math.floor(random() * MALICIOUS_CODE_TYPES.length), MALICIOUS_CODE_TYPES.length - 1)
+  ];

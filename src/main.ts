@@ -60,6 +60,7 @@ import type { MonthElapsedEvent } from './gameTime';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangeReason } from './funds';
 import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
+import { pickMaliciousCodeType } from './maliciousCode';
 import { addRoute, createRoutes } from './route';
 import type { Route } from './route';
 
@@ -258,8 +259,13 @@ class MainScene extends Phaser.Scene {
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
-        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, CODE_MALICIOUS_RATE), route);
-        this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position) });
+        const kind = pickCodeKind(Math.random, CODE_MALICIOUS_RATE);
+        const maliciousType = kind === 'malicious' ? pickMaliciousCodeType(Math.random) : undefined;
+        const code = spawnCode(this.nextCodeId++, kind, route, maliciousType);
+        this.codes.push({
+          ...code,
+          graphics: drawCode(this, code.kind, code.position, code.maliciousType),
+        });
       }
     }
 
