@@ -3,6 +3,7 @@ import {
   ENGINEER_HIRE_COST,
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
+  ENGINEER_MONTHLY_SALARY_BY_RANK,
   ENGINEER_PARAMETER_FALLBACK,
   ENGINEER_PARAMETER_MAX,
   ENGINEER_PARAMETER_MIN,
@@ -32,6 +33,7 @@ import {
   formatEngineerCount,
   formatHireButton,
   formatHireMessage,
+  getInitialSalary,
   hireEngineer,
   isEngineerRank,
   pickRandomPersonality,
@@ -53,6 +55,7 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): E
   rank,
   routeId,
   personality: 'meticulous',
+  salary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
   ...createEngineerParameters(rank, 'meticulous'),
 });
 const makeEngineers = (count: number): Engineer[] =>
@@ -818,7 +821,7 @@ describe('性格の付与', () => {
       );
       if (!hired.ok) throw new Error('雇えるはず');
       expect(hired.engineer.personality).toBe(id);
-      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, ...parameters } = hired.engineer;
+      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, salary: _salary, ...parameters } = hired.engineer;
       expect(parameters).toEqual(createEngineerParameters('middle', id));
     }
   });
@@ -1032,5 +1035,111 @@ describe('性格の初期値と乱数', () => {
     const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, rank, rules, () => 0.999);
     if (!hired.ok) throw new Error('雇えるはず');
     expect(hired.engineer).toMatchObject({ personality: 'gloomy', fatigue: 0, concentration: 70, skill: 70, attachment: 30 });
+  });
+});
+
+describe('給料の初期額をランクで決める(#33)', () => {
+  // 仮・要確認(#25): 金額は ENGINEER_MONTHLY_SALARY_BY_RANK の仮値。
+  it.each<[EngineerRank, number]>([
+    ['junior', 300000],
+    ['middle', 400000],
+    ['senior', 500000],
+  ])('getInitialSalary(%s) = %i 円（設定表どおり）', (rank, salary) => {
+    expect(getInitialSalary(rank)).toBe(salary);
+    expect(getInitialSalary(rank)).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+  });
+
+  it.each(ENGINEER_RANKS.map((r) => r.id))('%s を雇うと salary はランクの初期額', (rank) => {
+    const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, rank, rules, () => 0);
+    if (!hired.ok) throw new Error('雇えるはず');
+    expect(hired.engineer.salary).toBe(getInitialSalary(rank));
+    expect(hired.engineers.at(-1)?.salary).toBe(getInitialSalary(rank));
+  });
+
+  describe('資金の境界（雇用費とは別に月給が入る）', () => {
+    const cost = ENGINEER_HIRE_COST.senior;
+    const hire = (funds: number) =>
+      hireEngineer({ engineers: makeEngineers(3), funds, nextId: 3 }, 'senior', rules);
+
+    it('cost-1 はエンジニアを作らない', () => {
+      expect(hire(cost - 1)).toEqual({ ok: false, reason: 'insufficientFunds' });
+    });
+    it.each([
+      ['ちょうど cost', cost, 0],
+      ['cost+1', cost + 1, 1],
+    ])('%s は salary 付きで雇え、資金 %i → %i', (_name, funds, fundsAfter) => {
+      const result = hire(funds);
+      if (!result.ok) throw new Error('雇えるはず');
+      expect(result.fundsAfter).toBe(fundsAfter);
+      expect(result.engineer.salary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK.senior);
+      // 雇用費（一時費用）と月給は別の値。
+      expect(result.cost).toBe(cost);
+    });
+  });
+
+  it.each(['', 'Junior', 'lead', '__proto__', 'toString'])('不正なランク %j ではエンジニアを作らない', (rank) => {
+    const result = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, rank, rules);
+    expect(result).toEqual({ ok: false, reason: 'unknownRank' });
+  });
+
+  it(`上限の境界: ${MAX_ENGINEERS - 1}人なら salary 付きで雇え、${MAX_ENGINEERS}人なら limit`, () => {
+    const below = hireEngineer(
+      { engineers: makeEngineers(MAX_ENGINEERS - 1), funds: RICH, nextId: MAX_ENGINEERS - 1 },
+      'middle',
+      rules,
+    );
+    if (!below.ok) throw new Error('雇えるはず');
+    expect(below.engineer.salary).toBe(getInitialSalary('middle'));
+    expect(
+      hireEngineer({ engineers: makeEngineers(MAX_ENGINEERS), funds: RICH, nextId: MAX_ENGINEERS }, 'middle', rules),
+    ).toEqual({ ok: false, reason: 'limit' });
+  });
+
+  it.each([0, 1, ENGINEER_HIRE_COST.junior, ENGINEER_HIRE_COST.senior])(
+    'ジュニアの雇用費が %i 円でも salary はジュニアの初期額',
+    (juniorCost) => {
+      const hired = hireEngineer(
+        { engineers: [], funds: RICH, nextId: 0 },
+        'junior',
+        { max: MAX_ENGINEERS, costs: { ...ENGINEER_HIRE_COST, junior: juniorCost } },
+      );
+      if (!hired.ok) throw new Error('雇えるはず');
+      expect(hired.cost).toBe(juniorCost);
+      expect(hired.engineer.salary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK.junior);
+    },
+  );
+
+  it('createInitialEngineers: 各エンジニアの salary は指定したランクの初期額', () => {
+    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+    const engineers = createInitialEngineers(routes, ['senior', 'middle', 'junior'], () => 0);
+    expect(engineers.map((e) => e.salary)).toEqual([
+      ENGINEER_MONTHLY_SALARY_BY_RANK.senior,
+      ENGINEER_MONTHLY_SALARY_BY_RANK.middle,
+      ENGINEER_MONTHLY_SALARY_BY_RANK.junior,
+    ]);
+  });
+
+  it('createInitialEngineers: ルートが0件なら空配列', () => {
+    expect(createInitialEngineers([], INITIAL_ENGINEER_RANKS, () => 0)).toEqual([]);
+  });
+
+  it('createInitialFleet: 初期の全員が初期ランクの初期額を持つ', () => {
+    const fleet = createInitialFleet(() => 0);
+    expect(fleet.engineers.map((e) => e.salary)).toEqual(INITIAL_ENGINEER_RANKS.map((rank) => getInitialSalary(rank)));
+  });
+
+  it('月給の設定で random を余分に呼ばない（雇用1回・初期編成は人数ぶん）', () => {
+    const hireCounter = counting(0.5);
+    hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, 'senior', rules, hireCounter.random);
+    expect(hireCounter.calls()).toBe(1);
+    const initialCounter = counting(0.5);
+    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+    createInitialEngineers(routes, ['junior', 'middle', 'senior'], initialCounter.random);
+    expect(initialCounter.calls()).toBe(3);
+  });
+
+  it('assignEngineerRoute のあとも salary は変わらない', () => {
+    const engineers: Engineer[] = [{ ...makeEngineer(0, 'junior', null), salary: 350000 }];
+    expect(assignEngineerRoute(engineers, 0, 4)[0].salary).toBe(350000);
   });
 });
