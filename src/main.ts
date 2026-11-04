@@ -103,7 +103,13 @@ import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
-import { createTechDebtChangedEvent, formatTechDebt, resolveWorkTechDebt, TECH_DEBT_CHANGED_EVENT } from './techDebt';
+import {
+  createTechDebtChangedEvent,
+  formatTechDebt,
+  resolveWorkTechDebt,
+  TECH_DEBT_CHANGED_EVENT,
+  techDebtSpawnIntervalMs,
+} from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
 import {
   adjustEngineerSalary,
@@ -667,14 +673,19 @@ class MainScene extends Phaser.Scene {
   }
 
   private updateCodes(delta: number): void {
+    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートに同じ間隔を使う。
+    // フレーム内（リリース精算など）で負債が変わっても、反映は次のフレームから。
+    // 新規ルートの初期値にも同じ間隔を渡し、負債があっても最初の更新ですぐ1個生成されるようにする（既存の挙動を維持）。
+    const spawnIntervalMs = techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS);
     for (const route of this.routes) {
       // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
       const engineer = findEngineerByRoute(this.engineers, route.id);
       // 担当者の休暇中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
+      // 生成間隔は技術的負債で延びた実効間隔(#44)を使う。
       const step = stepSpawnTimerUnlessPaused(
-        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(CODE_SPAWN_INTERVAL_MS),
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(spawnIntervalMs),
         delta,
-        CODE_SPAWN_INTERVAL_MS,
+        spawnIntervalMs,
         isAssigneeOnVacation(engineer),
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
