@@ -9,8 +9,12 @@ import {
   ENGINEER_PERSONALITY_TENDENCIES,
   ENGINEER_PERSONALITY_WEIGHTS,
   ENGINEER_RANKS,
+  ENGINEER_SALARY_MAX,
+  ENGINEER_SALARY_MIN,
+  ENGINEER_SALARY_STEP,
   ENGINEER_SPAWN_CELLS,
   ENGINEER_TENDENCY_OFFSETS,
+  FUNDS_FORMAT,
   INITIAL_ENGINEER_RANKS,
   VACATION_MALICIOUS_RATE_REDUCTION,
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
@@ -20,7 +24,7 @@ import { createRoutes } from './route';
 import type { Route } from './route';
 
 // エンジニア（雇用）の純粋ロジック。Phaser に依存しない。
-// 給料(#33)は Engineer の salary フィールドに個人ごとに持たせる。初期額はランク表（ENGINEER_MONTHLY_SALARY_BY_RANK）で決まる。昇給・減給は #34。
+// 給料(#33)は Engineer の salary フィールドに個人ごとに持たせる。初期額はランク表（ENGINEER_MONTHLY_SALARY_BY_RANK）で決まる。昇給・減給(#34)は adjustEngineerSalary。
 // ランクごとの不正コード率(#12)はランク表の maliciousRate / maliciousRateMax 列で持ち、difficulty.ts の maliciousRateForRank で求める。
 // 性格(#26)は Engineer の personality フィールドに持たせる（ランクとは独立）。性格ごとのパラメータの差(#29)は ENGINEER_PERSONALITY_TENDENCIES（傾向表）で持つ。
 
@@ -63,7 +67,7 @@ export type Engineer = {
   // 率への反映は difficulty.ts の vacationMaliciousRateModifiers → effectiveMaliciousRate。
   readonly vacationRateReduction: number;
   // 月給（円）(#33)。雇ったとき・初期編成のときにランクの初期額(getInitialSalary)が入る。ゲーム内1か月ごとにこの額を引く。
-  // パラメータ（疲労度・集中力・技術力・愛着心）とは別。昇給・減給(#34)はこの値を変える想定。
+  // パラメータ（疲労度・集中力・技術力・愛着心）とは別。昇給・減給(#34)は adjustEngineerSalary でこの値を置き換える。
   readonly salary: number;
 } & EngineerParameters;
 
@@ -320,6 +324,14 @@ export const findEngineerByRoute = (
   routeId: number,
 ): Engineer | undefined => engineers.find((engineer) => engineer.routeId === routeId);
 
+// 担当者が休暇中か(#36)。担当者がいない（undefined）なら false。検索済みの担当者を使い回すときに使う。
+export const isAssigneeOnVacation = (engineer: Engineer | undefined): boolean =>
+  engineer !== undefined && isEngineerOnVacation(engineer);
+
+// そのルートの担当者が休暇中か(#36)。担当者がいないルートは止めないので false。新しい状態は持たず、onVacation から求める。
+export const isRouteOnVacation = (engineers: readonly Engineer[], routeId: number): boolean =>
+  isAssigneeOnVacation(findEngineerByRoute(engineers, routeId));
+
 // そのエンジニアの担当ルート id。エンジニアがいない、またはルートなしなら null。
 export const findRouteIdOfEngineer = (
   engineers: readonly Engineer[],
@@ -405,3 +417,109 @@ export const formatHireMessage = (
   }
   return `不明なランクです: ${rank}`;
 };
+
+// 仮・要確認(#34): 昇給・減給。企画書(6)は「プレイヤーはいつでも昇給・減給できる」とだけで、刻み・範囲・反映時期は未記載。
+// 変えた額はすぐ Engineer.salary に入り、次の月次精算（getEngineerSalaries）から支払う。手数料はかけない。愛着心への影響は #31 で扱う。
+export type SalaryDirection = 'raise' | 'cut';
+
+export type SalaryAdjustFailureReason = 'not-found' | 'invalid-salary' | 'at-max' | 'at-min';
+
+export type SalaryAdjustResult =
+  | {
+      readonly ok: true;
+      readonly direction: SalaryDirection;
+      readonly engineer: Engineer;
+      readonly engineers: readonly Engineer[];
+      readonly salaryBefore: number;
+      readonly salaryAfter: number;
+    }
+  | {
+      readonly ok: false;
+      readonly direction: SalaryDirection;
+      readonly engineerId: number | null;
+      readonly reason: SalaryAdjustFailureReason;
+    };
+
+// 対象のエンジニアの月給を「現在額 ± ENGINEER_SALARY_STEP」を [ENGINEER_SALARY_MIN, ENGINEER_SALARY_MAX] に収めた額にした結果を返す。
+// engineerId が null（選択なし）または名簿にない id なら not-found。判定順は not-found → invalid-salary（現在額が NaN・±Infinity）→ at-max / at-min（その方向に額が動かない）。
+// 成功時は対象だけ { ...engineer, salary } で置き換えた新しい配列（他のエンジニアは同じ参照）。失敗時は名簿を返さない。入力は変更しない。
+export const adjustEngineerSalary = (
+  engineers: readonly Engineer[],
+  engineerId: number | null,
+  direction: SalaryDirection,
+): SalaryAdjustResult => {
+  const target = engineers.find((engineer) => engineer.id === engineerId);
+  if (target === undefined) {
+    return { ok: false, direction, engineerId, reason: 'not-found' };
+  }
+  const salaryBefore = target.salary;
+  if (!Number.isFinite(salaryBefore)) {
+    return { ok: false, direction, engineerId, reason: 'invalid-salary' };
+  }
+  const delta = direction === 'raise' ? ENGINEER_SALARY_STEP : -ENGINEER_SALARY_STEP;
+  const salaryAfter = Math.min(ENGINEER_SALARY_MAX, Math.max(ENGINEER_SALARY_MIN, salaryBefore + delta));
+  if (direction === 'raise' && salaryAfter <= salaryBefore) {
+    return { ok: false, direction, engineerId, reason: 'at-max' };
+  }
+  if (direction === 'cut' && salaryAfter >= salaryBefore) {
+    return { ok: false, direction, engineerId, reason: 'at-min' };
+  }
+  const engineer: Engineer = { ...target, salary: salaryAfter };
+  return {
+    ok: true,
+    direction,
+    engineer,
+    engineers: engineers.map((entry) => (entry.id === engineerId ? engineer : entry)),
+    salaryBefore,
+    salaryAfter,
+  };
+};
+
+// 金額の表示（資金表示と同じ3桁区切り + 円）。
+const formatYen = (amount: number): string => `${amount.toLocaleString('ja-JP')}${FUNDS_FORMAT.suffix}`;
+
+export const formatSalaryMessage = (result: SalaryAdjustResult): string => {
+  if (result.ok) {
+    const action = result.direction === 'raise' ? '昇給' : '減給';
+    return `#${result.engineer.id} ${action}: ${formatYen(result.salaryBefore)}→${formatYen(result.salaryAfter)}`;
+  }
+  if (result.reason === 'at-max') {
+    return `これ以上昇給できません（上限 ${formatYen(ENGINEER_SALARY_MAX)}）`;
+  }
+  if (result.reason === 'at-min') {
+    return `これ以上減給できません（下限 ${formatYen(ENGINEER_SALARY_MIN)}）`;
+  }
+  if (result.reason === 'invalid-salary') {
+    return `#${result.engineerId} の月給が不正です`;
+  }
+  return '対象のエンジニアがいません';
+};
+
+export type EngineerSelectDirection = 'previous' | 'next';
+
+// 仮・要確認(#34): 選択中のエンジニアの前・次の id（名簿の並び順で、端では反対側へ回る）。
+// 名簿が空なら null。currentId が null または名簿にない（退職などでいなくなった）なら先頭の id。入力は変更しない。
+export const selectAdjacentEngineerId = (
+  engineers: readonly Engineer[],
+  currentId: number | null,
+  direction: EngineerSelectDirection,
+): number | null => {
+  if (engineers.length === 0) {
+    return null;
+  }
+  const index = engineers.findIndex((engineer) => engineer.id === currentId);
+  if (index === -1) {
+    return engineers[0].id;
+  }
+  const offset = direction === 'next' ? 1 : -1;
+  return engineers[(index + offset + engineers.length) % engineers.length].id;
+};
+
+// 選択中のエンジニアの情報行。「選択: #id ランク 月給 300,000円」。対象がいなければ「選択: 対象なし」。
+export const formatSelectedEngineer = (engineer: Engineer | null): string =>
+  engineer === null
+    ? '選択: 対象なし'
+    : `選択: #${engineer.id} ${getRankLabel(engineer.rank)} 月給 ${formatYen(engineer.salary)}`;
+
+// 昇給・減給の操作ボタンのラベル。「[Q] 前へ」。
+export const formatSalaryButton = (key: string, label: string): string => `[${key}] ${label}`;
