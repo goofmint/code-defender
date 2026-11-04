@@ -16,6 +16,7 @@ import {
   MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  REVENUE_PER_NORMAL_CODE,
   SALARY_ADJUST_KEYS,
   SALARY_SELECT_KEYS,
   TECH_DEBT_INITIAL,
@@ -585,12 +586,16 @@ class MainScene extends Phaser.Scene {
   // 正常なコードがリリースされたら売上を加算する。不正コード（売上 0）では売上は変えない。
   // 不正コードのリリースは障害として扱い、損害ぶん資金を減らす。倒産判定は FUNDS_CHANGED_EVENT 経由（onFundsChanged）。
   private onCodeReleased(payload: CodeReleasedPayload): void {
-    if (getReleaseRevenue(payload.kind) > 0) {
-      this.changeFunds(sellReleasedCode(this.funds, payload.kind), 'sales');
-      // 正常なコードのリリース1件を作業1単位として技術的負債を精算する。ゲームオーバー中は精算しない。
-      if (!this.gameOver.over) {
-        this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
-      }
+    // 売上は現在の配分（機能開発の割合）に比例する。リファクタリング100%では売上 0 なので資金は変えない。
+    if (getReleaseRevenue(payload.kind, REVENUE_PER_NORMAL_CODE, this.refactoringRatio) > 0) {
+      this.changeFunds(
+        sellReleasedCode(this.funds, payload.kind, REVENUE_PER_NORMAL_CODE, this.refactoringRatio),
+        'sales',
+      );
+    }
+    // 正常なコードのリリース1件を作業1単位として技術的負債を精算する（売上が 0 でも精算する）。ゲームオーバー中は精算しない。
+    if (payload.kind === 'normal' && !this.gameOver.over) {
+      this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
     }
     const incident = settleIncident(this.funds, payload, this.gameOver);
     if (incident === null) {

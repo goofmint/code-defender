@@ -162,6 +162,8 @@ export const INITIAL_FUNDS = 1000000;
 // 根拠: 1ルートは2秒に1件=ゲーム内1か月(60秒)に30件出る。正常率は70%→50%（#14）なので月21〜15件。
 // 20000円なら正常コードを全部通したとき月420000〜300000円で、ジュニア1人の給料(300000円/月、ENGINEER_MONTHLY_SALARY_BY_RANK)を上回る〜同等になる。
 // 10000円だと全部通しても給料に届かず常に赤字になる。ミドル・シニアは月給が上がるぶん、正常率が高い間でないと黒字にならない（仮）。
+// 仮・要確認(#42): この値は既定の配分（DEFAULT_REFACTORING_RATIO）のときの単価。実際の売上は機能開発の割合 (1 − r) に比例する
+// （getFeatureRevenueMultiplier）。リファクタリング 0%（r=0）で 25000円、100%（r=1）で 0円。
 export const REVENUE_PER_NORMAL_CODE = 20000;
 // 仮・要確認: 企画書に記載なし。資金の表示書式。「資金: 1,000,000円」。数値部分は3桁区切り。
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
@@ -186,6 +188,7 @@ export const TECH_DEBT_PER_FEATURE_WORK = 10;
 export const TECH_DEBT_REPAY_PER_REFACTORING_WORK = 20;
 // 仮・要確認(#43): リファクタリングの割合（0〜1）の初期値。割合を指定するUIは別タスク（docs/tasks.md 8）。
 // 0.2 なら作業1単位で 0.8×10 溜まり 0.2×20 返すので、正味 +4。リファクタリング 1/3 で増減 0 になる。
+// 売上の基準配分でもある（#42）。この割合のとき正常コード1件の売上は REVENUE_PER_NORMAL_CODE ちょうど（倍率 1）。
 export const DEFAULT_REFACTORING_RATIO = 0.2;
 // 仮・要確認(#43): 技術的負債の表示書式。「技術的負債: 40」。数値は四捨五入した整数。
 export const TECH_DEBT_FORMAT = { prefix: '技術的負債: ', suffix: '' } as const;
