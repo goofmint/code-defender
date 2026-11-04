@@ -39,6 +39,7 @@ import {
   findRouteIdOfEngineer,
   getFatigueRateMultiplier,
   getPersonalityLabel,
+  getRankLabel,
   shouldAddRouteOnHire,
   formatEngineerCount,
   formatHireButton,
@@ -52,9 +53,12 @@ import {
   isEngineerOnVacation,
   isEngineerRank,
   isRouteOnVacation,
+  partitionResignedEngineers,
   pickRandomPersonality,
   selectAdjacentEngineerId,
   setEngineerVacation,
+  shouldResign,
+  formatResignedMessage,
   toggleEngineerVacation,
   updateEngineerParameters,
 } from './engineer';
@@ -1953,5 +1957,147 @@ describe('月給の初期額 initialSalary(#31)', () => {
     if (!result.ok) throw new Error(result.reason);
     expect(result.engineer.salary).not.toBe(engineer.salary);
     expect(result.engineer.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK.middle);
+  });
+});
+
+// 愛着心だけを差し替えたエンジニア（退職 #32 の判定用）。clamp を通さずに範囲外・NaN も作れる。
+const withAttachment = (engineer: Engineer, attachment: number): Engineer => ({ ...engineer, attachment });
+
+describe('自主退職(#32): shouldResign（境界値）', () => {
+  it.each([ENGINEER_PARAMETER_MIN, -0.0001, -1, -Infinity])('愛着心 %d なら退職する', (attachment) => {
+    expect(shouldResign(withAttachment(makeEngineer(0, 'junior', 0), attachment))).toBe(true);
+  });
+
+  it.each([Number.MIN_VALUE, 0.0001, 1, 50, ENGINEER_PARAMETER_MAX, NaN])('愛着心 %d なら退職しない', (attachment) => {
+    expect(shouldResign(withAttachment(makeEngineer(0, 'junior', 0), attachment))).toBe(false);
+  });
+
+  it('最低値は 0（新しいしきい値は作らず ENGINEER_PARAMETER_MIN を使う）', () => {
+    expect(ENGINEER_PARAMETER_MIN).toBe(0);
+  });
+
+  it('adjustEngineerParameter で正の値からちょうど 0 に下げると退職する', () => {
+    const engineer = adjustEngineerParameter(withAttachment(makeEngineer(0, 'junior', 0), 10), 'attachment', -10);
+    expect(engineer.attachment).toBe(ENGINEER_PARAMETER_MIN);
+    expect(shouldResign(engineer)).toBe(true);
+  });
+
+  it('adjustEngineerParameter で 0 未満まで下げても 0 に止まり、退職する', () => {
+    const engineer = adjustEngineerParameter(withAttachment(makeEngineer(0, 'junior', 0), 10), 'attachment', -11);
+    expect(engineer.attachment).toBe(ENGINEER_PARAMETER_MIN);
+    expect(shouldResign(engineer)).toBe(true);
+  });
+
+  it('adjustEngineerParameter で最低値の直前（0.0001）までなら退職しない', () => {
+    const engineer = adjustEngineerParameter(withAttachment(makeEngineer(0, 'junior', 0), 10), 'attachment', -9.9999);
+    expect(engineer.attachment).toBeGreaterThan(ENGINEER_PARAMETER_MIN);
+    expect(shouldResign(engineer)).toBe(false);
+  });
+
+  it('入力を変更しない', () => {
+    const engineer = withAttachment(makeEngineer(0, 'junior', 0), 0);
+    const snapshot = structuredClone(engineer);
+    shouldResign(engineer);
+    expect(engineer).toEqual(snapshot);
+  });
+});
+
+describe('自主退職(#32): partitionResignedEngineers', () => {
+  const resigning = (id: number, routeId: number | null = id): Engineer =>
+    withAttachment(makeEngineer(id, 'junior', routeId), ENGINEER_PARAMETER_MIN);
+
+  it('空配列なら両方とも空', () => {
+    expect(partitionResignedEngineers([])).toEqual({ remaining: [], resigned: [] });
+  });
+
+  it('退職者がいなければ全員が残り、参照と順序を保つ', () => {
+    const engineers = makeEngineers(3);
+    const result = partitionResignedEngineers(engineers);
+    expect(result.resigned).toEqual([]);
+    expect(result.remaining).toHaveLength(3);
+    result.remaining.forEach((engineer, i) => expect(engineer).toBe(engineers[i]));
+    expect(result.remaining).not.toBe(engineers);
+  });
+
+  it.each([
+    ['先頭', 0],
+    ['中間', 1],
+    ['末尾', 2],
+  ])('%sの1人だけ退職する', (_label, index) => {
+    const engineers = makeEngineers(3).map((engineer, i) => (i === index ? resigning(engineer.id) : engineer));
+    const result = partitionResignedEngineers(engineers);
+    expect(result.resigned).toEqual([engineers[index]]);
+    expect(result.resigned[0]).toBe(engineers[index]);
+    const expected = engineers.filter((_, i) => i !== index);
+    expect(result.remaining).toHaveLength(2);
+    result.remaining.forEach((engineer, i) => expect(engineer).toBe(expected[i]));
+  });
+
+  it('複数人が退職すると、どちらも元の順序を保つ', () => {
+    const engineers = [makeEngineer(0, 'junior', 0), resigning(1), makeEngineer(2, 'middle', 2), resigning(3), resigning(4)];
+    const result = partitionResignedEngineers(engineers);
+    expect(result.resigned.map((engineer) => engineer.id)).toEqual([1, 3, 4]);
+    expect(result.remaining.map((engineer) => engineer.id)).toEqual([0, 2]);
+  });
+
+  it('全員が退職すると残りは空', () => {
+    const engineers = [resigning(0), resigning(1), resigning(2)];
+    const result = partitionResignedEngineers(engineers);
+    expect(result.remaining).toEqual([]);
+    expect(result.resigned.map((engineer) => engineer.id)).toEqual([0, 1, 2]);
+  });
+
+  it('最後の1人が退職すると残りは空', () => {
+    const result = partitionResignedEngineers([resigning(5)]);
+    expect(result.remaining).toEqual([]);
+    expect(result.resigned.map((engineer) => engineer.id)).toEqual([5]);
+  });
+
+  it('ルートを持たない（routeId: null）エンジニアも退職し、routeId は null のまま', () => {
+    const result = partitionResignedEngineers([makeEngineer(0, 'junior', 0), resigning(1, null)]);
+    expect(result.resigned).toHaveLength(1);
+    expect(result.resigned[0]?.routeId).toBeNull();
+    expect(result.remaining.map((engineer) => engineer.id)).toEqual([0]);
+  });
+
+  it('入力の配列とエンジニアを変更しない', () => {
+    const engineers = [makeEngineer(0, 'junior', 0), resigning(1), makeEngineer(2, 'senior', 2)];
+    const snapshot = structuredClone(engineers);
+    const before = [...engineers];
+    partitionResignedEngineers(engineers);
+    expect(engineers).toEqual(snapshot);
+    engineers.forEach((engineer, i) => expect(engineer).toBe(before[i]));
+  });
+
+  it(`上限（${MAX_ENGINEERS}人）から1人退職すると、また雇える`, () => {
+    const engineers = makeEngineers(MAX_ENGINEERS).map((engineer, i) => (i === 0 ? resigning(engineer.id) : engineer));
+    expect(hireEngineer({ engineers, funds: RICH, nextId: MAX_ENGINEERS }, 'junior', rules)).toEqual({
+      ok: false,
+      reason: 'limit',
+    });
+    const { remaining } = partitionResignedEngineers(engineers);
+    expect(remaining).toHaveLength(MAX_ENGINEERS - 1);
+    const result = hireEngineer({ engineers: remaining, funds: RICH, nextId: MAX_ENGINEERS }, 'junior', rules);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.engineers).toHaveLength(MAX_ENGINEERS);
+      expect(result.engineer.id).toBe(MAX_ENGINEERS);
+    }
+  });
+
+  it('全員が退職して0人になっても雇える', () => {
+    const { remaining } = partitionResignedEngineers([resigning(0), resigning(1)]);
+    const result = hireEngineer({ engineers: remaining, funds: RICH, nextId: 2 }, 'senior', rules);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.engineers).toHaveLength(1);
+      expect(result.engineer.id).toBe(2);
+    }
+  });
+});
+
+describe('自主退職(#32): formatResignedMessage', () => {
+  it('id とランク名を出す', () => {
+    expect(formatResignedMessage(makeEngineer(3, 'senior', 3))).toBe(`#3 ${getRankLabel('senior')}が退職しました`);
   });
 });

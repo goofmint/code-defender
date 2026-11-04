@@ -39,6 +39,9 @@ export { ENGINEER_RANKS };
 // 雇ったときに scene.events で発行するイベント名。#27（出現場所とルートを増やす）などが購読する。
 export const ENGINEER_HIRED_EVENT = 'engineer-hired';
 
+// 愛着心が最低になって自主退職したときに scene.events で発行するイベント名(#32)。退職者1人につき1回。
+export const ENGINEER_RESIGNED_EVENT = 'engineer-resigned';
+
 // routeId: 担当ルート。雇った直後はまだルートがないので null。ENGINEER_HIRED_EVENT を受けてルートを追加したあと assignEngineerRoute で付ける。
 // パラメータ(#28): 疲労度・集中力・技術力・愛着心。Engineer にフラットな readonly フィールドとして持たせる。
 // 値は ENGINEER_PARAMETER_MIN〜MAX の小数。値を動かすのは updateEngineerParameters / adjustEngineerParameter だけを使う
@@ -79,6 +82,12 @@ export type Engineer = {
 export type EngineerHiredPayload = {
   readonly engineer: Engineer;
   readonly cost: number;
+};
+
+// routeId は退職者の担当ルート（ルートなしなら null）。engineer.routeId と同じ値。
+export type EngineerResignedPayload = {
+  readonly engineer: Engineer;
+  readonly routeId: number | null;
 };
 
 export type HireFailureReason = 'unknownRank' | 'limit' | 'insufficientFunds';
@@ -357,7 +366,8 @@ export const toggleEngineerVacation = (engineers: readonly Engineer[], engineerI
 // 休暇中か。#36（休暇中はコードを止める）などの後続でも使う。
 export const isEngineerOnVacation = (engineer: Engineer): boolean => engineer.onVacation;
 
-// そのルートを担当するエンジニア。いなければ undefined。退職(#32)・休暇(#36)でルートを外す・止めるときに使う。
+// そのルートを担当するエンジニア。いなければ undefined。休暇(#36)でルートを止めるときに使う。
+// 退職(#32)ではルートからではなく退職者の routeId から片付ける（partitionResignedEngineers・main.ts の onEngineerResigned）。
 export const findEngineerByRoute = (
   engineers: readonly Engineer[],
   routeId: number,
@@ -376,6 +386,17 @@ export const findRouteIdOfEngineer = (
   engineers: readonly Engineer[],
   engineerId: number,
 ): number | null => engineers.find((engineer) => engineer.id === engineerId)?.routeId ?? null;
+
+// 愛着心が最低(ENGINEER_PARAMETER_MIN)以下なら自主退職する(#32)。最低値未満（-Infinity を含む）も退職。NaN は退職しない（比較が false）。
+export const shouldResign = (engineer: Engineer): boolean => engineer.attachment <= ENGINEER_PARAMETER_MIN;
+
+// 退職する人(resigned)と残る人(remaining)に分ける(#32)。どちらも元の並び順で、要素は入力と同じ参照。入力は変更しない。
+export const partitionResignedEngineers = (
+  engineers: readonly Engineer[],
+): { readonly remaining: Engineer[]; readonly resigned: Engineer[] } => ({
+  remaining: engineers.filter((engineer) => !shouldResign(engineer)),
+  resigned: engineers.filter(shouldResign),
+});
 
 // 仮・要確認(#27): ゲームオーバー中に雇用イベントを受けたらルートを追加しない（雇ったエンジニア自体は人数に入る）。
 export const shouldAddRouteOnHire = (gameOver: boolean): boolean => !gameOver;
@@ -438,6 +459,10 @@ export const getInitialSalary = (rank: EngineerRank): number => ENGINEER_MONTHLY
 
 export const formatEngineerCount = (count: number, max: number): string =>
   `エンジニア: ${count}/${max}`;
+
+// 自主退職(#32)のメッセージ。雇用メッセージと同じ場所に出す。
+export const formatResignedMessage = (engineer: Engineer): string =>
+  `#${engineer.id} ${getRankLabel(engineer.rank)}が退職しました`;
 
 export const formatHireButton = (index: number, rank: EngineerRank, cost: number): string =>
   `[${index + 1}] ${getRankLabel(rank)} ${cost / 10000}万円`;

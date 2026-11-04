@@ -69,12 +69,13 @@ import {
   drawVacationMarker,
   flashCode,
 } from './render';
-import type { VacationMarker } from './render';
+import type { RouteDrawing, VacationMarker } from './render';
 import {
   CODE_RELEASED_EVENT,
   advanceCode,
   initialSpawnElapsed,
   moveDistanceUnlessPaused,
+  partitionCodesByRoute,
   pickCodeKind,
   spawnCode,
   stepSpawnTimerUnlessPaused,
@@ -128,9 +129,11 @@ import {
   createInitialFleet,
   ENGINEER_HIRED_EVENT,
   ENGINEER_RANKS,
+  ENGINEER_RESIGNED_EVENT,
   findEngineerByRoute,
   formatEngineerCount,
   formatHireMessage,
+  formatResignedMessage,
   formatSalaryMessage,
   formatSelectedEngineer,
   hireEngineer,
@@ -138,11 +141,18 @@ import {
   selectAdjacentEngineerId,
   isEngineerOnVacation,
   isRouteOnVacation,
+  partitionResignedEngineers,
   shouldAddRouteOnHire,
   toggleEngineerVacation,
 } from './engineer';
-import type { Engineer, EngineerHiredPayload, EngineerSelectDirection, SalaryDirection } from './engineer';
-import { addRoute, cellCenter } from './route';
+import type {
+  Engineer,
+  EngineerHiredPayload,
+  EngineerResignedPayload,
+  EngineerSelectDirection,
+  SalaryDirection,
+} from './engineer';
+import { addRoute, cellCenter, removeRoute } from './route';
 import { getItemDamage, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import {
@@ -203,6 +213,8 @@ class MainScene extends Phaser.Scene {
   private itemMessageText?: Phaser.GameObjects.Text;
   // 休暇の切り替えマーカー（routeId がキー）(#35)。
   private vacationMarkers = new Map<number, VacationMarker>();
+  // ルートの線と出現場所の円（routeId がキー）(#32)。退職でルートが消えるときに destroy() する。
+  private routeDrawings = new Map<number, RouteDrawing>();
 
   constructor() {
     super('main');
@@ -236,12 +248,14 @@ class MainScene extends Phaser.Scene {
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
     this.events.on(CODE_RELEASED_EVENT, this.onCodeReleased, this);
     this.events.on(ENGINEER_HIRED_EVENT, this.onEngineerHired, this);
+    this.events.on(ENGINEER_RESIGNED_EVENT, this.onEngineerResigned, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
       this.events.off(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
       this.events.off(CODE_HIT_EVENT, this.onCodeHit, this);
       this.events.off(CODE_RELEASED_EVENT, this.onCodeReleased, this);
       this.events.off(ENGINEER_HIRED_EVENT, this.onEngineerHired, this);
+      this.events.off(ENGINEER_RESIGNED_EVENT, this.onEngineerResigned, this);
     });
     const fleet = createInitialFleet(Math.random);
     this.routes = fleet.routes;
@@ -249,7 +263,7 @@ class MainScene extends Phaser.Scene {
     this.spawnElapsed = new Map();
     this.nextCodeId = 0;
     this.codeHp = new Map();
-    drawRoutes(this, this.routes);
+    this.routeDrawings = drawRoutes(this, this.routes);
     this.vacationMarkers = new Map();
     this.routes.forEach((route) => this.addVacationMarker(route));
     this.engineers = fleet.engineers;
@@ -361,6 +375,8 @@ class MainScene extends Phaser.Scene {
     if (this.gameOver.over) {
       return;
     }
+    // 愛着心が最低になったエンジニアは毎フレーム判定して退職させる(#32)。月次処理（advanceClock）より前に置き、退職者に給料を払わない。
+    this.resignEngineers();
     const prevElapsedMs = this.elapsedMs;
     this.advanceClock(delta);
     // 月の給料で倒産したら、同じフレームの移動・コードの更新はしない。
@@ -603,6 +619,59 @@ class MainScene extends Phaser.Scene {
     this.engineers = assignEngineerRoute(this.engineers, payload.engineer.id, route.id);
   }
 
+  // 愛着心が最低のエンジニアを名簿から外し、1人ずつ ENGINEER_RESIGNED_EVENT を発行する(#32)。
+  // 二重に退職させないよう、発行より前に this.engineers を残る人の配列に置き換える。
+  private resignEngineers(): void {
+    const { remaining, resigned } = partitionResignedEngineers(this.engineers);
+    if (resigned.length === 0) {
+      return;
+    }
+    this.engineers = remaining;
+    for (const engineer of resigned) {
+      const payload: EngineerResignedPayload = { engineer, routeId: engineer.routeId };
+      this.events.emit(ENGINEER_RESIGNED_EVENT, payload);
+    }
+  }
+
+  // 退職者のルートと関連状態（線・出現場所・休暇マーカー・生成タイマー・流れているコード）を片付ける(#32)。
+  // 流れているコードは精算せずに消す（撃破エフェクト・資金・売上・技術的負債・障害・CODE_DEFEATED/CODE_RELEASED イベントなし）。
+  // 全員が退職してもゲームは続ける（0人から雇い直せる）。
+  private onEngineerResigned(payload: EngineerResignedPayload): void {
+    this.engineerCountText?.setText(formatEngineerCount(this.engineers.length, MAX_ENGINEERS));
+    // 昇給・減給の選択中の人が退職したら、残る先頭の人を選ぶ（いなければ null）。
+    if (this.findSelectedEngineer() === null) {
+      this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, null, 'next');
+    }
+    this.refreshSelectedEngineer();
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatResignedMessage(payload.engineer));
+    const { routeId } = payload;
+    if (routeId === null) {
+      return;
+    }
+    this.routes = removeRoute(this.routes, routeId);
+    const drawing = this.routeDrawings.get(routeId);
+    if (drawing !== undefined) {
+      drawing.line.destroy();
+      drawing.spawnMarker.destroy();
+      this.routeDrawings.delete(routeId);
+    }
+    // マーカーを destroy() すると入力も外れ、toggleVacation のコールバックは呼ばれなくなる。
+    this.vacationMarkers.get(routeId)?.container.destroy();
+    this.vacationMarkers.delete(routeId);
+    this.spawnElapsed.delete(routeId);
+    const { remaining, removed } = partitionCodesByRoute(this.codes, routeId);
+    removed.forEach((code) => this.discardCode(code));
+    this.codes = remaining;
+  }
+
+  // 流れているコードを精算せずに消す(#32)。codes 配列からの削除は呼び出し側で行う。
+  private discardCode(code: ActiveCode): void {
+    this.codeHp.delete(code.id);
+    this.tweens.killTweensOf(code.graphics);
+    code.graphics.destroy();
+  }
+
   // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
   // 給料の対象は this.engineers の全員（ルート未割当・休暇中も含む）(#37)。休暇などの状態で this.engineers を絞ってから渡さない。
   private onMonthElapsed(event: MonthElapsedEvent): void {
@@ -818,7 +887,7 @@ class MainScene extends Phaser.Scene {
     const route = addRoute(this.routes, Math.random);
     if (route === undefined) return undefined;
     this.routes.push(route);
-    drawRoutes(this, [route]);
+    drawRoutes(this, [route]).forEach((drawing, routeId) => this.routeDrawings.set(routeId, drawing));
     this.addVacationMarker(route);
     return route;
   }
