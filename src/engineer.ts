@@ -1,6 +1,7 @@
 import {
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
+  ENGINEER_MONTHLY_SALARY_BY_RANK,
   ENGINEER_PARAMETER_FALLBACK,
   ENGINEER_PARAMETER_MAX,
   ENGINEER_PARAMETER_MIN,
@@ -17,7 +18,7 @@ import { createRoutes } from './route';
 import type { Route } from './route';
 
 // エンジニア（雇用）の純粋ロジック。Phaser に依存しない。
-// 給料の個人差(#33)は、ランク表（ENGINEER_RANKS）に列を足して扱う想定。
+// 給料(#33)は Engineer の salary フィールドに個人ごとに持たせる。初期額はランク表（ENGINEER_MONTHLY_SALARY_BY_RANK）で決まる。昇給・減給は #34。
 // ランクごとの不正コード率(#12)はランク表の maliciousRate / maliciousRateMax 列で持ち、difficulty.ts の maliciousRateForRank で求める。
 // 性格(#26)は Engineer の personality フィールドに持たせる（ランクとは独立）。性格ごとのパラメータの差(#29)は ENGINEER_PERSONALITY_TENDENCIES（傾向表）で持つ。
 
@@ -49,6 +50,9 @@ export type Engineer = {
   readonly routeId: number | null;
   // 雇ったときにランダムで付く性格(#26)。id/rank/routeId/パラメータとは独立。初期パラメータ(#29)と疲労の溜まりやすさの係数に使う。
   readonly personality: EngineerPersonalityId;
+  // 月給（円）(#33)。雇ったとき・初期編成のときにランクの初期額(getInitialSalary)が入る。ゲーム内1か月ごとにこの額を引く。
+  // パラメータ（疲労度・集中力・技術力・愛着心）とは別。昇給・減給(#34)はこの値を変える想定。
+  readonly salary: number;
 } & EngineerParameters;
 
 export type EngineerHiredPayload = {
@@ -240,6 +244,7 @@ export const createInitialEngineers = (
       rank: ranks[index],
       routeId: route.id,
       personality,
+      salary: getInitialSalary(ranks[index]),
       ...createEngineerParameters(ranks[index], personality),
     };
   });
@@ -303,6 +308,7 @@ export const hireEngineer = (
     rank,
     routeId: null,
     personality,
+    salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, personality),
   };
   return {
@@ -316,6 +322,9 @@ export const hireEngineer = (
 
 export const getRankLabel = (rank: EngineerRank): string =>
   ENGINEER_RANKS.find((entry) => entry.id === rank)?.label ?? rank;
+
+// ランクで決まる月給の初期額（円）(#33)。雇ったとき・初期編成のときに Engineer.salary に入れる。雇用費(ENGINEER_HIRE_COST)とは別。
+export const getInitialSalary = (rank: EngineerRank): number => ENGINEER_MONTHLY_SALARY_BY_RANK[rank];
 
 export const formatEngineerCount = (count: number, max: number): string =>
   `エンジニア: ${count}/${max}`;
