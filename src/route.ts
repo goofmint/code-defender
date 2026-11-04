@@ -156,6 +156,13 @@ export const addRoute = (
   return createRoute(id, spawn, RELEASE_POINT_CELL, random);
 };
 
+// 指定 id のルートを除いた新しい配列を返す（退職 #32）。存在しない id なら同じ内容の新しい配列。入力と残るルートは変更しない。
+// 残るルートは作り直さない（createRoutes の方針と同じく、流れているコードの path とずれないため）。
+// addRoute の採番（既存の最大 id + 1）はそのまま。最大 id のルートを消すと次の追加で同じ id が再び使われるが、
+// 退職時にその id の関連状態（描画・休暇マーカー・生成タイマー・流れているコード）をすべて片付けるので再利用を許す。
+export const removeRoute = (routes: readonly Route[], routeId: number): Route[] =>
+  routes.filter((route) => route.id !== routeId);
+
 export const cellCenter = (cell: GridCell): Point => ({
   x: (cell.col + 0.5) * CELL_SIZE,
   y: (cell.row + 0.5) * CELL_SIZE,
