@@ -27,6 +27,7 @@ const makeEngineer = (id: number, rank: EngineerRank, overrides: Partial<Enginee
   routeId: id,
   personality: 'meticulous',
   onVacation: false,
+  vacationRateReduction: 0,
   salary: getInitialSalary(rank),
   initialSalary: getInitialSalary(rank),
   ...createEngineerParameters(rank, 'meticulous'),

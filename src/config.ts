@@ -106,6 +106,12 @@ export const CODE_MALICIOUS_RATE_MAX = 0.5;
 // 休暇・リファクタリング等の補正（difficulty.ts の effectiveMaliciousRate）を加えた後の割合にだけ適用し、
 // maliciousRateForRank の基礎率には適用しない。全ランクの maliciousRate と CODE_MALICIOUS_RATE 以下にする。
 export const CODE_MALICIOUS_RATE_MIN = 0.05;
+// 仮・要確認(#39): 休暇を1回始めるごとに、担当エンジニアの不正コード率を下げる量（0〜1 のパーセントポイントの差分。0.1 で -10 ポイント）。
+// 企画書(6)「休暇を与えると不正コード率が下がる」(docs/game_plan.md) に対応する。数値は企画書に記載がなく叩き台。
+// 低下量は休暇中・復帰後も維持する。補正後の割合の下限は CODE_MALICIOUS_RATE_MIN で守る（difficulty.ts の effectiveMaliciousRate）。
+export const VACATION_MALICIOUS_RATE_REDUCTION = 0.1;
+// 仮・要確認(#39): 休暇による低下量の累積の上限（0〜1 のパーセントポイントの差分）。VACATION_MALICIOUS_RATE_REDUCTION 以上 1 以下にする。
+export const VACATION_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
 // 移動キーではないので、移動のキーボード優先判定には含めない。
@@ -181,6 +187,10 @@ export const TECH_DEBT_REPAY_PER_REFACTORING_WORK = 20;
 // 仮・要確認(#43): リファクタリングの割合（0〜1）の初期値。割合を指定するUIは別タスク（docs/tasks.md 8）。
 // 0.2 なら作業1単位で 0.8×10 溜まり 0.2×20 返すので、正味 +4。リファクタリング 1/3 で増減 0 になる。
 export const DEFAULT_REFACTORING_RATIO = 0.2;
+// 仮・要確認(#44): 企画書(7)は「技術的負債が増えると、開発スピードが低下する」とだけで、下がり方は未定。
+// 開発スピードはコードの生成頻度と解釈し、生成間隔（CODE_SPAWN_INTERVAL_MS）に倍率を掛けて延ばす。コードの移動速度には掛けない。
+// 倍率は負債に比例し、負債0で1（既存の挙動と同じ）、負債が上限（TECH_DEBT_MAX）でこの値。2 なら上限で生成間隔が2倍（2000ms→4000ms）。
+export const TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER = 2;
 // 仮・要確認(#43): 技術的負債の表示書式。「技術的負債: 40」。数値は四捨五入した整数。
 export const TECH_DEBT_FORMAT = { prefix: '技術的負債: ', suffix: '' } as const;
 // 仮・要確認(#43): 技術的負債の表示位置（HUD 4行目）。累計売上の1行下（y=176〜約206）。文字スタイルは ELAPSED_DAYS_STYLE（24px）。
@@ -428,6 +438,26 @@ export const INCIDENT_DEFAULT_DAMAGE_POINTS = 10;
 // 仮・要確認(#18): 障害の演出（画面全体の短い点滅）の継続時間（ミリ秒）と色（0xRRGGBB）。企画書には演出の記載なし。
 export const INCIDENT_FLASH_DURATION_MS = 250;
 export const INCIDENT_FLASH_COLOR = 0xff0000;
+
+// 仮・要確認(#46): 企画書(7)は「技術的負債が一定量を超えて放置すると、大障害が起きる」とだけで、閾値・放置時間・損害額は未定
+// （docs/tasks.md の「技術的負債の具体的な数値」）。以下はすべて仮の値。
+// 仮・要確認(#46): 大障害の閾値。技術的負債がこの値を「超えて」いる間（ちょうどは含まない）を放置とみなす。0〜TECH_DEBT_MAX の内側。
+export const TECH_DEBT_OUTAGE_THRESHOLD = 80;
+// 仮・要確認(#46): 閾値を超えたまま続けて放置できる時間（ミリ秒）。ゲーム内1か月。これ以上続くと大障害が1回起き、放置時間は 0 に戻る。
+// 閾値以下に下がったら放置時間は 0 に戻る（累積しない）。
+export const TECH_DEBT_OUTAGE_GRACE_MS = MS_PER_GAME_MONTH;
+// 仮・要確認(#46): 大障害の損害ポイント。損害額 = この値 × INCIDENT_DAMAGE_UNIT_YEN。種別なしの不正コード(INCIDENT_DEFAULT_DAMAGE_POINTS)より大きくする。
+export const TECH_DEBT_OUTAGE_DAMAGE_POINTS = 100;
+// 仮・要確認(#46): 大障害の損害額（円）。
+export const TECH_DEBT_OUTAGE_DAMAGE = TECH_DEBT_OUTAGE_DAMAGE_POINTS * INCIDENT_DAMAGE_UNIT_YEN;
+// 仮・要確認(#46): 大障害の演出（画面全体の点滅）。通常の障害(INCIDENT_FLASH_DURATION_MS)より長くする。企画書には演出の記載なし。
+export const TECH_DEBT_OUTAGE_FLASH_DURATION_MS = 600;
+export const TECH_DEBT_OUTAGE_FLASH_COLOR = 0xff0000;
+// 仮・要確認(#46): 大障害の通知（フィールド中央に出てフェードアウトする文字）の文言・文字サイズ・色・表示時間（ミリ秒）。
+export const TECH_DEBT_OUTAGE_TEXT = '大障害発生!';
+export const TECH_DEBT_OUTAGE_TEXT_FONT_SIZE = '48px';
+export const TECH_DEBT_OUTAGE_TEXT_COLOR = '#ff1744';
+export const TECH_DEBT_OUTAGE_TEXT_DURATION_MS = 1500;
 
 // 仮・要確認(#50): 企画書(8, 10)ではアイテムの範囲・攻撃力は「段階」だけで、具体的な数値は未定。以下はすべて仮の値。
 // 範囲(段階→距離): CELL_SIZE に対する比率。近距離=1.5(90px)、中距離=2.5(150px)、長距離=4(240px)。主人公の攻撃範囲(60px)より大きい。

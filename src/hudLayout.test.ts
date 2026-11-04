@@ -201,6 +201,7 @@ const longestSelectedEngineer = formatSelectedEngineer({
   routeId: null,
   personality: 'meticulous',
   onVacation: false,
+  vacationRateReduction: 0,
   salary: ENGINEER_SALARY_MAX,
   initialSalary: getInitialSalary('junior'),
   ...createEngineerParameters('junior'),
