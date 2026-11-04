@@ -397,6 +397,18 @@ export const ENGINEER_FATIGUE_RATE_MULTIPLIERS: Readonly<Record<EngineerTendency
   normal: 1,
   low: 0.5,
 };
+// 仮・要確認(#30): 愛着心の時間変化。企画書(6)は「休暇で愛着心が上がり、疲労度が高いまま働かせると下がる」とだけで、数値の記載はない。
+// highFatigueThreshold: 疲労度がこの値以上（境界を含む）で配属中かつ休暇中でないと愛着心が下がる。
+// *PerGameDay: ゲーム内1日（MS_PER_GAME_DAY = 2000ms）あたりの愛着心の変化量。経過ミリ秒に比例して連続的に変える（フレームの分け方に依存しない）。
+export const ENGINEER_ATTACHMENT_CHANGE: {
+  readonly highFatigueThreshold: number;
+  readonly vacationAttachmentGainPerGameDay: number;
+  readonly highFatigueAttachmentLossPerGameDay: number;
+} = {
+  highFatigueThreshold: 70,
+  vacationAttachmentGainPerGameDay: 1,
+  highFatigueAttachmentLossPerGameDay: 1,
+};
 // 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
 export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
 // 仮・要確認(#23): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。

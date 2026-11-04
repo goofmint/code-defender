@@ -123,6 +123,7 @@ import { formatRefactoringAllocation, stepRefactoringRatio } from './refactoring
 import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import {
   adjustEngineerSalary,
+  advanceEngineersAttachment,
   assignEngineerRoute,
   createInitialFleet,
   ENGINEER_HIRED_EVENT,
@@ -372,6 +373,8 @@ class MainScene extends Phaser.Scene {
     if (this.gameOver.over) {
       return;
     }
+    // ゲーム内時計と同じ経過時間で愛着心を進める(#30、休暇中は上がり、配属中に高疲労なら下がる)。
+    this.engineers = advanceEngineersAttachment(this.engineers, this.elapsedMs - prevElapsedMs);
     this.updatePlayer(delta);
     this.updateCodes(delta);
     this.updateItems(this.time.now);
@@ -832,6 +835,7 @@ class MainScene extends Phaser.Scene {
   // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。
   // 休暇中も給料は引く(#37): onMonthElapsed は this.engineers 全員の給料を引くので、ここでは給料の処理をしない。
   // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
+  // 休暇中は担当エンジニアの愛着心が時間経過で上がる(#30、update の advanceEngineersAttachment が onVacation から反映)。
   private toggleVacation(routeId: number): void {
     if (this.gameOver.over) {
       return;

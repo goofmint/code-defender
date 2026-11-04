@@ -1,4 +1,5 @@
 import {
+  ENGINEER_ATTACHMENT_CHANGE,
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
@@ -20,6 +21,7 @@ import {
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
 import type { EngineerTendency } from './config';
+import { MS_PER_GAME_DAY } from './gameTime';
 import { createRoutes } from './route';
 import type { Route } from './route';
 
@@ -249,6 +251,39 @@ export const adjustEngineerParameter = (
   updateEngineerParameters(engineer, {
     [key]: Number.isNaN(delta) ? engineer[key] : engineer[key] + delta,
   });
+
+// 愛着心の時間変化の設定(#30)。テストで閾値・速度を差し替えられるよう引数で受ける。
+export type EngineerAttachmentChangeConfig = typeof ENGINEER_ATTACHMENT_CHANGE;
+
+// 仮・要確認(#30): elapsedMs だけ時間が経ったときの愛着心を返す。入力は変更しない。
+// 休暇中なら疲労度に関係なく上がる。休暇中でなく、配属済み（routeId !== null）で疲労度が highFatigueThreshold 以上なら下がる。それ以外は変えない。
+// 変化量 = ゲーム内1日あたりの量 × elapsedMs / MS_PER_GAME_DAY。[MIN, MAX] への丸めは adjustEngineerParameter に任せる。
+// elapsedMs が 0 以下・NaN・±Infinity なら同じ engineer を返す（gameTime.ts のサニタイズと同じ扱い）。変化するときだけ新しいオブジェクトを返す。
+// 愛着心が 0 になってもエンジニアはそのまま返す（退職は #32 で扱う）。疲労度の増減はここでは扱わない。
+export const advanceEngineerAttachment = (
+  engineer: Engineer,
+  elapsedMs: number,
+  config: EngineerAttachmentChangeConfig = ENGINEER_ATTACHMENT_CHANGE,
+): Engineer => {
+  if (!(Number.isFinite(elapsedMs) && elapsedMs > 0)) {
+    return engineer;
+  }
+  const days = elapsedMs / MS_PER_GAME_DAY;
+  if (isEngineerOnVacation(engineer)) {
+    return adjustEngineerParameter(engineer, 'attachment', config.vacationAttachmentGainPerGameDay * days);
+  }
+  if (engineer.routeId !== null && engineer.fatigue >= config.highFatigueThreshold) {
+    return adjustEngineerParameter(engineer, 'attachment', -config.highFatigueAttachmentLossPerGameDay * days);
+  }
+  return engineer;
+};
+
+// 全エンジニアの愛着心を elapsedMs だけ進めた新しい配列を返す(#30)。各要素は独立に advanceEngineerAttachment で更新する。順序・長さは変えない。入力は変更しない。
+export const advanceEngineersAttachment = (
+  engineers: readonly Engineer[],
+  elapsedMs: number,
+  config: EngineerAttachmentChangeConfig = ENGINEER_ATTACHMENT_CHANGE,
+): Engineer[] => engineers.map((engineer) => advanceEngineerAttachment(engineer, elapsedMs, config));
 
 // 初期エンジニア。性格はランダム（random を注入できる）。パラメータは性格の補正つき(#29)。routes と ranks を同じ順序で対応させる（短い方に合わせる）。id は 0 からの連番。
 export const createInitialEngineers = (
