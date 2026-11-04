@@ -106,6 +106,12 @@ export const CODE_MALICIOUS_RATE_MAX = 0.5;
 // 休暇・リファクタリング等の補正（difficulty.ts の effectiveMaliciousRate）を加えた後の割合にだけ適用し、
 // maliciousRateForRank の基礎率には適用しない。全ランクの maliciousRate と CODE_MALICIOUS_RATE 以下にする。
 export const CODE_MALICIOUS_RATE_MIN = 0.05;
+// 仮・要確認(#39): 休暇を1回始めるごとに、担当エンジニアの不正コード率を下げる量（0〜1 のパーセントポイントの差分。0.1 で -10 ポイント）。
+// 企画書(6)「休暇を与えると不正コード率が下がる」(docs/game_plan.md) に対応する。数値は企画書に記載がなく叩き台。
+// 低下量は休暇中・復帰後も維持する。補正後の割合の下限は CODE_MALICIOUS_RATE_MIN で守る（difficulty.ts の effectiveMaliciousRate）。
+export const VACATION_MALICIOUS_RATE_REDUCTION = 0.1;
+// 仮・要確認(#39): 休暇による低下量の累積の上限（0〜1 のパーセントポイントの差分）。VACATION_MALICIOUS_RATE_REDUCTION 以上 1 以下にする。
+export const VACATION_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
 // 移動キーではないので、移動のキーボード優先判定には含めない。
