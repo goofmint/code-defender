@@ -98,7 +98,13 @@ import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
-import { createTechDebtChangedEvent, formatTechDebt, resolveWorkTechDebt, TECH_DEBT_CHANGED_EVENT } from './techDebt';
+import {
+  createTechDebtChangedEvent,
+  formatTechDebt,
+  resolveWorkTechDebt,
+  TECH_DEBT_CHANGED_EVENT,
+  techDebtSpawnIntervalMs,
+} from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
 import {
   assignEngineerRoute,
@@ -601,11 +607,15 @@ class MainScene extends Phaser.Scene {
   }
 
   private updateCodes(delta: number): void {
+    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートに同じ間隔を使う。
+    // フレーム内（リリース精算など）で負債が変わっても、反映は次のフレームから。
+    // 新規ルートの初期値にも同じ間隔を渡し、負債があっても最初の更新ですぐ1個生成されるようにする（既存の挙動を維持）。
+    const spawnIntervalMs = techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS);
     for (const route of this.routes) {
       const step = stepSpawnTimer(
-        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(CODE_SPAWN_INTERVAL_MS),
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(spawnIntervalMs),
         delta,
-        CODE_SPAWN_INTERVAL_MS,
+        spawnIntervalMs,
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
