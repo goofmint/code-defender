@@ -19,6 +19,7 @@ import {
   createEngineerParameters,
   createInitialFleet,
   findEngineerByRoute,
+  getInitialSalary,
   hireEngineer,
 } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
@@ -268,6 +269,7 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     rank,
     routeId,
     personality: 'meticulous',
+    salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
   // ルート 0〜2 に別ランクの担当者、ルート 3 は担当者なし。routeId: null の人はどのルートにも影響しない。
