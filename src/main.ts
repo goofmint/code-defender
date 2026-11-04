@@ -573,6 +573,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
+  // 給料の対象は this.engineers の全員（ルート未割当・休暇中も含む）(#37)。休暇などの状態で this.engineers を絞ってから渡さない。
   private onMonthElapsed(event: MonthElapsedEvent): void {
     const { salary, itemFee } = settleMonthBoundary(
       this.funds,
@@ -796,7 +797,8 @@ class MainScene extends Phaser.Scene {
   }
 
   // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
-  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。給料(#37)は休暇中も引き続き払う。
+  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。
+  // 休暇中も給料は引く(#37): onMonthElapsed は this.engineers 全員の給料を引くので、ここでは給料の処理をしない。
   // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
   private toggleVacation(routeId: number): void {
     if (this.gameOver.over) {
