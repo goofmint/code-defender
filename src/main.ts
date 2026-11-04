@@ -6,7 +6,6 @@ import {
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MS,
   ENGINEER_HIRE_COST,
-  ENGINEER_MONTHLY_SALARY,
   GAME_OVER_RESTART_KEYS,
   HIRE_KEYS,
   INCIDENT_FLASH_COLOR,
@@ -452,12 +451,12 @@ class MainScene extends Phaser.Scene {
     this.engineers = assignEngineerRoute(this.engineers, payload.engineer.id, route.id);
   }
 
-  // 月の境界ごとに給料、続けて月額アイテムの費用を引く。エンジニア数は仮に現在のルート数とする（主人公の給料は含めない）。
+  // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
   private onMonthElapsed(event: MonthElapsedEvent): void {
     const { salary, itemFee } = settleMonthBoundary(
       this.funds,
       event.month,
-      getEngineerSalaries(this.routes.length, ENGINEER_MONTHLY_SALARY),
+      getEngineerSalaries(this.engineers),
       this.placedItems,
       this.gameOver.over,
     );

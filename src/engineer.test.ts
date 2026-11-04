@@ -46,8 +46,6 @@ import type {
 } from './engineer';
 import { addRoute, createRoutes, nextSpawnCell } from './route';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
-import { getEngineerSalaries } from './salary';
-import { ENGINEER_MONTHLY_SALARY } from './config';
 
 const rules: HireRules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
 const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): Engineer => ({
@@ -438,15 +436,6 @@ describe('雇う→ルート追加→routeId 割当（8・9・10人目）', () =
     const step = hireAndRoute(full);
     expect(step?.route).toBeUndefined();
     expect(step?.engineer?.routeId).toBeNull();
-  });
-
-  it.each([
-    [3, 900000],
-    [4, 1200000],
-    [9, 2700000],
-  ])('ルート%i本の月給の合計は %i 円', (count, total) => {
-    const sum = getEngineerSalaries(count, ENGINEER_MONTHLY_SALARY).reduce((a, b) => a + b, 0);
-    expect(sum).toBe(total);
   });
 
   it('追加したルートの出現セルは左の列を上から埋める順（nextSpawnCell と一致）', () => {
