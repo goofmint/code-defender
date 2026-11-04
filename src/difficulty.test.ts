@@ -3,6 +3,7 @@ import {
   CODE_MALICIOUS_RATE,
   CODE_MALICIOUS_RATE_INCREMENT,
   CODE_MALICIOUS_RATE_MAX,
+  CODE_MALICIOUS_RATE_MIN,
   CODE_SPEED,
   CODE_SPEED_INCREMENT,
   CODE_SPEED_MAX,
@@ -13,7 +14,7 @@ import {
   PLAYER_SPEED,
 } from './config';
 import { pickCodeKind } from './codeFlow';
-import { codeSpeedAt, maliciousRateAt, maliciousRateForRank } from './difficulty';
+import { codeSpeedAt, effectiveMaliciousRate, maliciousRateAt, maliciousRateForRank } from './difficulty';
 import {
   assignEngineerRoute,
   createEngineerParameters,
@@ -269,6 +270,7 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     rank,
     routeId,
     personality: 'meticulous',
+    onVacation: false,
     salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
@@ -429,6 +431,107 @@ describe('生成経路の接続（初期配置・追加雇用・割当解除）'
   });
 });
 
+// 補正を加えた不正コード率(#13)。基礎率は maliciousRateForRank、下限は CODE_MALICIOUS_RATE_MIN、上限は 1。
+const EPS = 1e-9;
+const MIN = CODE_MALICIOUS_RATE_MIN;
+const RANK_OR_NONE: readonly (EngineerRank | undefined)[] = [...ENGINEER_RANKS.map((rank) => rank.id), undefined];
+const maxCapStep = Math.max(rateCapStep, ...ENGINEER_RANKS.map(rankCapStep));
+const ELAPSED_CASES = [
+  ['0ms', 0],
+  ['STEP', STEP],
+  ['上限到達後', STEP * (maxCapStep + 1)],
+] as const;
+const NO_MODIFIER_CASES = RANK_OR_NONE.flatMap((rank) => ELAPSED_CASES.map(([label, ms]) => [String(rank), label, rank, ms] as const));
+// ランクなし・0ms の基礎率（CODE_MALICIOUS_RATE）を起点に、合計が目標値になる差分を作る。
+const delta = (target: number): number => target - maliciousRateForRank(undefined, 0);
+
+describe('effectiveMaliciousRate（補正後の不正コード率・境界値）', () => {
+  it.each(NO_MODIFIER_CASES)('補正なし: %s / %s は maliciousRateForRank と同じ', (_id, _label, rank, ms) => {
+    expect(effectiveMaliciousRate(rank, ms)).toBe(maliciousRateForRank(rank, ms));
+    expect(effectiveMaliciousRate(rank, ms, [])).toBe(maliciousRateForRank(rank, ms));
+  });
+
+  it.each(NO_MODIFIER_CASES)('差分 0: %s / %s は基礎率と同じ', (_id, _label, rank, ms) => {
+    expect(effectiveMaliciousRate(rank, ms, [0])).toBe(maliciousRateForRank(rank, ms));
+  });
+
+  it.each([
+    ['MIN - ε', MIN - EPS, MIN],
+    ['MIN', MIN, MIN],
+    ['MIN + ε', MIN + EPS, MIN + EPS],
+  ])('下限の境界: 合計 %s は下限で止まる', (_label, target, expected) => {
+    expect(effectiveMaliciousRate(undefined, 0, [delta(target)])).toBeCloseTo(expected, 12);
+  });
+
+  it('下限の境界: MIN - ε と MIN + ε の結果は区別される', () => {
+    expect(effectiveMaliciousRate(undefined, 0, [delta(MIN - EPS)])).toBe(MIN);
+    expect(effectiveMaliciousRate(undefined, 0, [delta(MIN + EPS)])).toBeGreaterThan(MIN);
+  });
+
+  it.each([
+    ['1 - ε', 1 - EPS, 1 - EPS],
+    ['1', 1, 1],
+    ['1 + ε', 1 + EPS, 1],
+  ])('上限の境界: 合計 %s は 1 で止まる', (_label, target, expected) => {
+    expect(effectiveMaliciousRate(undefined, 0, [delta(target)])).toBeCloseTo(expected, 12);
+  });
+
+  it('上限の境界: 1 - ε は 1 未満、1 + ε は 1', () => {
+    expect(effectiveMaliciousRate(undefined, 0, [delta(1 - EPS)])).toBeLessThan(1);
+    expect(effectiveMaliciousRate(undefined, 0, [delta(1 + EPS)])).toBe(1);
+  });
+
+  it('ランク上限は補正後に適用しない: senior が上限に達した後に +0.1 で上限 + 0.1', () => {
+    const senior = ENGINEER_RANKS.find((rank) => rank.id === 'senior');
+    if (senior === undefined) throw new Error('senior がランク表にありません');
+    const ms = STEP * (rankCapStep(senior) + 1);
+    expect(maliciousRateForRank('senior', ms)).toBeCloseTo(senior.maliciousRateMax);
+    expect(effectiveMaliciousRate('senior', ms, [0.1])).toBeCloseTo(senior.maliciousRateMax + 0.1);
+    // 叩き台の値（企画書 6）での具体値。値を変えたらこの行も見直す。
+    expect(effectiveMaliciousRate('senior', ms, [0.1])).toBeCloseTo(0.35);
+  });
+
+  it.each([NaN, Infinity, -Infinity])('不正な差分 %s は 0 として扱い、結果は有限の [MIN, 1]', (value) => {
+    for (const rank of RANK_OR_NONE) {
+      const v = effectiveMaliciousRate(rank, STEP, [value]);
+      expect(v).toBe(maliciousRateForRank(rank, STEP));
+      expect(Number.isFinite(v)).toBe(true);
+      expect(v).toBeGreaterThanOrEqual(MIN);
+      expect(v).toBeLessThanOrEqual(1);
+      // 他の有効な差分はそのまま加算される。
+      expect(effectiveMaliciousRate(rank, STEP, [value, 0.05])).toBeCloseTo(maliciousRateForRank(rank, STEP) + 0.05);
+    }
+  });
+
+  it('複数の差分は加算され、順序に依存しない', () => {
+    const base = maliciousRateForRank('middle', STEP);
+    const a = effectiveMaliciousRate('middle', STEP, [0.1, -0.05, 0.02]);
+    const b = effectiveMaliciousRate('middle', STEP, [0.02, 0.1, -0.05]);
+    expect(a).toBeCloseTo(base + 0.07);
+    expect(b).toBeCloseTo(a, 12);
+  });
+
+  it.each(RANK_OR_NONE)('%s: -1 で下限、+1 で 1', (rank) => {
+    expect(effectiveMaliciousRate(rank, STEP, [-1])).toBe(MIN);
+    expect(effectiveMaliciousRate(rank, STEP, [1])).toBe(1);
+  });
+});
+
+describe('補正後の不正コード率で種類を決める（pickCodeKind との接続・境界値）', () => {
+  it.each(RANK_OR_NONE)('%s: 補正あり（+0.1）の rate で rate - ε は不正、rate は正常', (rank) => {
+    const rate = effectiveMaliciousRate(rank, STEP * 2, [0.1]);
+    expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
+  });
+
+  it.each(RANK_OR_NONE)('%s: 下限で止まる場合も MIN - ε は不正、MIN は正常', (rank) => {
+    const rate = effectiveMaliciousRate(rank, STEP * 2, [-1]);
+    expect(rate).toBe(MIN);
+    expect(pickCodeKind(() => MIN - EPS, rate)).toBe('malicious');
+    expect(pickCodeKind(() => MIN, rate)).toBe('normal');
+  });
+});
+
 describe('config の整合性', () => {
   it('速度の上限は開始値以上で、主人公より遅い', () => {
     expect(CODE_SPEED_MAX).toBeGreaterThanOrEqual(CODE_SPEED);
@@ -438,6 +541,15 @@ describe('config の整合性', () => {
   it('不正コード率の上限は開始値以上で 1 以下', () => {
     expect(CODE_MALICIOUS_RATE_MAX).toBeGreaterThanOrEqual(CODE_MALICIOUS_RATE);
     expect(CODE_MALICIOUS_RATE_MAX).toBeLessThanOrEqual(1);
+  });
+
+  it('補正後の下限は 0 以上で、担当者なしの開始値以下', () => {
+    expect(CODE_MALICIOUS_RATE_MIN).toBeGreaterThanOrEqual(0);
+    expect(CODE_MALICIOUS_RATE_MIN).toBeLessThanOrEqual(CODE_MALICIOUS_RATE);
+  });
+
+  it.each(RANKS)('補正後の下限は %s の開始値以下', (_id, rank) => {
+    expect(CODE_MALICIOUS_RATE_MIN).toBeLessThanOrEqual(rank.maliciousRate);
   });
 
   it('間隔は正、増加量は 0 以上', () => {

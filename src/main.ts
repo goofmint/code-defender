@@ -5,6 +5,7 @@ import {
   ATTACK_DAMAGE,
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MS,
+  DEFAULT_REFACTORING_RATIO,
   ENGINEER_HIRE_COST,
   GAME_OVER_RESTART_KEYS,
   HIRE_KEYS,
@@ -15,6 +16,7 @@ import {
   MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  TECH_DEBT_INITIAL,
 } from './config';
 import {
   ATTACK_COOLDOWN_MS,
@@ -25,7 +27,7 @@ import {
   isInsideTapArea,
 } from './attack';
 import type { CodeHitEvent } from './attack';
-import { codeSpeedAt, maliciousRateForRank } from './difficulty';
+import { codeSpeedAt, effectiveMaliciousRate } from './difficulty';
 import {
   clampToField,
   getMoveDirection,
@@ -53,8 +55,11 @@ import {
   drawPlayer,
   drawReleasePoint,
   drawRoutes,
+  drawTechDebt,
+  drawVacationMarker,
   flashCode,
 } from './render';
+import type { VacationMarker } from './render';
 import {
   CODE_RELEASED_EVENT,
   advanceCode,
@@ -93,6 +98,8 @@ import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
+import { createTechDebtChangedEvent, formatTechDebt, resolveWorkTechDebt, TECH_DEBT_CHANGED_EVENT } from './techDebt';
+import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
 import {
   assignEngineerRoute,
   createInitialFleet,
@@ -102,7 +109,9 @@ import {
   formatEngineerCount,
   formatHireMessage,
   hireEngineer,
+  isEngineerOnVacation,
   shouldAddRouteOnHire,
+  toggleEngineerVacation,
 } from './engineer';
 import type { Engineer, EngineerHiredPayload } from './engineer';
 import { addRoute, cellCenter } from './route';
@@ -144,6 +153,11 @@ class MainScene extends Phaser.Scene {
   private fundsText?: Phaser.GameObjects.Text;
   private score = INITIAL_SCORE;
   private salesText?: Phaser.GameObjects.Text;
+  // 技術的負債（0〜TECH_DEBT_MAX）。資金とは別。変更は changeTechDebt に集約する。
+  private techDebt = TECH_DEBT_INITIAL;
+  private techDebtText?: Phaser.GameObjects.Text;
+  // リファクタリングの割合（0〜1）。割合を指定するUI（docs/tasks.md 8）が変更する想定。今は初期値のまま。
+  private refactoringRatio = DEFAULT_REFACTORING_RATIO;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
   private engineers: Engineer[] = [];
   private nextEngineerId = 0;
@@ -152,6 +166,8 @@ class MainScene extends Phaser.Scene {
   private placedItems: readonly PlacedItem[] = [];
   private nextItemId = 0;
   private itemMessageText?: Phaser.GameObjects.Text;
+  // 休暇の切り替えマーカー（routeId がキー）(#35)。
+  private vacationMarkers = new Map<number, VacationMarker>();
 
   constructor() {
     super('main');
@@ -171,6 +187,9 @@ class MainScene extends Phaser.Scene {
     this.fundsText = drawFunds(this, this.funds);
     this.score = INITIAL_SCORE;
     this.salesText = drawCumulativeSales(this, this.score);
+    this.techDebt = TECH_DEBT_INITIAL;
+    this.refactoringRatio = DEFAULT_REFACTORING_RATIO;
+    this.techDebtText = drawTechDebt(this, this.techDebt);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
@@ -190,6 +209,8 @@ class MainScene extends Phaser.Scene {
     this.nextCodeId = 0;
     this.codeHp = new Map();
     drawRoutes(this, this.routes);
+    this.vacationMarkers = new Map();
+    this.routes.forEach((route) => this.addVacationMarker(route));
     this.engineers = fleet.engineers;
     this.nextEngineerId = fleet.nextEngineerId;
     this.hireMessageText = undefined;
@@ -231,7 +252,7 @@ class MainScene extends Phaser.Scene {
         this.tryRestart();
         return;
       }
-      // 雇うボタン上の押下では、離すまで主人公の移動・攻撃をしない。
+      // 雇うボタン・休暇マーカー上の押下では、離すまで主人公の移動・攻撃をしない。
       if (currentlyOver.length > 0) {
         this.attackPointerHeld = true;
         return;
@@ -371,6 +392,18 @@ class MainScene extends Phaser.Scene {
     this.events.emit(FUNDS_CHANGED_EVENT, createFundsChangedEvent(previous, next, reason));
   }
 
+  // 技術的負債を変更して、表示更新と TECH_DEBT_CHANGED_EVENT の発行を一か所で行う（changeFunds と同じ形）。
+  // 変化がないとき（上限・0 で止まったときなど）はイベントを発行しない。後続タスク（開発スピード低下・大障害など）はこのイベントを購読する。
+  private changeTechDebt(result: WorkTechDebtResult, reason: TechDebtChangeReason): void {
+    const previous = this.techDebt;
+    this.techDebt = result.current;
+    this.techDebtText?.setText(formatTechDebt(result.current));
+    const event = createTechDebtChangedEvent(previous, result.current, reason);
+    if (event.delta !== 0) {
+      this.events.emit(TECH_DEBT_CHANGED_EVENT, event);
+    }
+  }
+
   // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
   // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う。
   private hire(rank: string): void {
@@ -488,6 +521,10 @@ class MainScene extends Phaser.Scene {
   private onCodeReleased(payload: CodeReleasedPayload): void {
     if (getReleaseRevenue(payload.kind) > 0) {
       this.changeFunds(sellReleasedCode(this.funds, payload.kind), 'sales');
+      // 正常なコードのリリース1件を作業1単位として技術的負債を精算する。ゲームオーバー中は精算しない。
+      if (!this.gameOver.over) {
+        this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
+      }
     }
     const incident = settleIncident(this.funds, payload, this.gameOver);
     if (incident === null) {
@@ -556,6 +593,13 @@ class MainScene extends Phaser.Scene {
     this.events.emit(CODE_DEFEATED_EVENT, payload);
   }
 
+  // 不正コード率の補正（パーセントポイントの差分）の一覧(#13)。effectiveMaliciousRate に渡す。
+  // 今は補正がないので空配列。後続で差分を追加する: #39 休暇（担当エンジニア単位の減少）、
+  // #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
+  private maliciousRateModifiersFor(_engineer: Engineer | undefined): readonly number[] {
+    return [];
+  }
+
   private updateCodes(delta: number): void {
     for (const route of this.routes) {
       const step = stepSpawnTimer(
@@ -565,9 +609,11 @@ class MainScene extends Phaser.Scene {
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
-        // 担当エンジニアのランクに応じた割合(#12)。担当者がいないルートは既定の割合を使う。
-        const rank = findEngineerByRoute(this.engineers, route.id)?.rank;
-        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, maliciousRateForRank(rank, this.elapsedMs)), route);
+        // 担当エンジニアのランクに応じた割合(#12)に補正(#13)を加える。担当者がいないルートは既定の割合を使う。
+        const engineer = findEngineerByRoute(this.engineers, route.id);
+        const rank = engineer?.rank;
+        const rate = effectiveMaliciousRate(rank, this.elapsedMs, this.maliciousRateModifiersFor(engineer));
+        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, rate), route);
         if (code.kind === 'malicious') {
           this.codeHp.set(code.id, getInitialHp());
         }
@@ -614,7 +660,38 @@ class MainScene extends Phaser.Scene {
     if (route === undefined) return undefined;
     this.routes.push(route);
     drawRoutes(this, [route]);
+    this.addVacationMarker(route);
     return route;
+  }
+
+  // ルートの出現場所に休暇の切り替えマーカーを重ねる(#35)。
+  private addVacationMarker(route: Route): void {
+    this.vacationMarkers.set(
+      route.id,
+      drawVacationMarker(this, route, () => this.toggleVacation(route.id)),
+    );
+  }
+
+  // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
+  // 資金・スコアは変えない。コードの停止(#36)・給料(#37)・不正コード率はこの issue では変えない。
+  private toggleVacation(routeId: number): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const engineer = findEngineerByRoute(this.engineers, routeId);
+    if (engineer === undefined) {
+      return;
+    }
+    const marker = this.vacationMarkers.get(routeId);
+    if (marker === undefined) {
+      throw new Error(`休暇マーカーが見つかりません: routeId=${routeId}`);
+    }
+    this.engineers = toggleEngineerVacation(this.engineers, engineer.id);
+    const updated = findEngineerByRoute(this.engineers, routeId);
+    if (updated === undefined) {
+      throw new Error(`休暇を切り替えたエンジニアが見つかりません: routeId=${routeId}`);
+    }
+    marker.setOnVacation(isEngineerOnVacation(updated));
   }
 }
 

@@ -102,6 +102,10 @@ export const CODE_SPEED_MAX = 160;
 export const CODE_MALICIOUS_RATE_INCREMENT = 0.02;
 // 仮・要確認(#14): 担当エンジニアがいないルートの不正コード率の上限（0〜1）。
 export const CODE_MALICIOUS_RATE_MAX = 0.5;
+// 仮・要確認(#13): 補正後の不正コード率の下限（0〜1）。企画書(6)「一定以上の割合を確保する」(docs/game_plan.md) に対応する。
+// 休暇・リファクタリング等の補正（difficulty.ts の effectiveMaliciousRate）を加えた後の割合にだけ適用し、
+// maliciousRateForRank の基礎率には適用しない。全ランクの maliciousRate と CODE_MALICIOUS_RATE 以下にする。
+export const CODE_MALICIOUS_RATE_MIN = 0.05;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
 // 移動キーではないので、移動のキーボード優先判定には含めない。
@@ -163,6 +167,25 @@ export const CUMULATIVE_SALES_FORMAT = { prefix: '累計売上: ', suffix: '円'
 // 仮・要確認(#59追加対応): 累計売上の表示位置（HUD 3行目）。資金表示の1行下。文字スタイルは資金表示と同じ ELAPSED_DAYS_STYLE（24px）。
 // 重ならない根拠: 出現列 x<60 の右、雇用UI y≦約67 の下（y=144〜約174）、リリース地点 x≥900 の左。
 export const CUMULATIVE_SALES_POSITION = { x: HUD_LEFT_X, y: HUD_TOP_Y + HUD_ROW_HEIGHT * 2 } as const;
+
+// 仮・要確認(#43): 企画書(7)は「機能開発に偏ると技術的負債が溜まる」とだけで、溜まり方・返し方の数値は未定（docs/tasks.md の「技術的負債の具体的な数値」）。以下はすべて仮の値。
+// 負債は 0〜TECH_DEBT_MAX の数値。資金や借入ではない（資金には影響しない）。
+// 仮・要確認(#43): ゲーム開始時の技術的負債。
+export const TECH_DEBT_INITIAL = 0;
+// 仮・要確認(#43): 技術的負債の上限。これ以上は溜まらない。
+export const TECH_DEBT_MAX = 100;
+// 仮・要確認(#43): 正常なコードのリリース1件を作業1単位とする。作業1単位をすべて機能開発に充てたときに溜まる負債。
+export const TECH_DEBT_PER_FEATURE_WORK = 10;
+// 仮・要確認(#43): 作業1単位をすべてリファクタリングに充てたときに返す負債。
+export const TECH_DEBT_REPAY_PER_REFACTORING_WORK = 20;
+// 仮・要確認(#43): リファクタリングの割合（0〜1）の初期値。割合を指定するUIは別タスク（docs/tasks.md 8）。
+// 0.2 なら作業1単位で 0.8×10 溜まり 0.2×20 返すので、正味 +4。リファクタリング 1/3 で増減 0 になる。
+export const DEFAULT_REFACTORING_RATIO = 0.2;
+// 仮・要確認(#43): 技術的負債の表示書式。「技術的負債: 40」。数値は四捨五入した整数。
+export const TECH_DEBT_FORMAT = { prefix: '技術的負債: ', suffix: '' } as const;
+// 仮・要確認(#43): 技術的負債の表示位置（HUD 4行目）。累計売上の1行下（y=176〜約206）。文字スタイルは ELAPSED_DAYS_STYLE（24px）。
+// 重ならない根拠: 出現列 x<60 の右、雇用UI y≦約67 の下、リリース地点 x≥900 の左。
+export const TECH_DEBT_POSITION = { x: HUD_LEFT_X, y: HUD_TOP_Y + HUD_ROW_HEIGHT * 3 } as const;
 
 // 仮・要確認: 企画書に記載なし。「資金がなくなったら」を残高ちょうど 0 も倒産とするか。false なら 0 未満のみ倒産。
 export const BANKRUPT_INCLUDES_ZERO = true;
@@ -395,17 +418,17 @@ export const ITEM_PRICE_TIER_BY_TYPE = {
 } as const;
 // 仮・要確認(#48): アイテムを置けない行（UI と重なる行）。上端=雇うボタン・HUD、下端=アイテム購入ボタン。
 export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
-// 仮・要確認(#48): HUD（経過日数・資金・累計売上の3行）が占める範囲。幅は「資金: 1,000,000円」で約300px、
-// 高さは最下行（累計売上）の上端から文字の行高さ約30px（ELAPSED_DAYS_STYLE 24px）まで。
+// 仮・要確認(#48, #43): HUD（経過日数・資金・累計売上・技術的負債の4行）が占める範囲。幅は「資金: 1,000,000円」で約300px、
+// 高さは最下行（技術的負債）の上端から文字の行高さ約30px（ELAPSED_DAYS_STYLE 24px）まで。
 const ITEM_HUD_WIDTH = 300;
 const ITEM_HUD_LINE_HEIGHT = 30;
-// 仮・要確認(#48): アイテムを置けないセル。HUD は x=ELAPSED_DAYS_POSITION.x（72）〜372、y=80〜約174 で、行1〜2 × col 1〜6 と重なる。
-// 範囲は ELAPSED_DAYS_POSITION / CUMULATIVE_SALES_POSITION / CELL_SIZE から計算する（右端・下端ちょうどがセル境界なら次のセルは含めない）。
+// 仮・要確認(#48, #43): アイテムを置けないセル。HUD は x=ELAPSED_DAYS_POSITION.x（72）〜372、y=80〜約206 で、行1〜3 × col 1〜6 と重なる。
+// 範囲は ELAPSED_DAYS_POSITION / TECH_DEBT_POSITION / CELL_SIZE から計算する（右端・下端ちょうどがセル境界なら次のセルは含めない）。
 // col 0 は出現列（ルートがあれば元々置けない）なので含めない。
 const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
 const itemHudMaxCol = Math.ceil((ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH) / CELL_SIZE) - 1;
 const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
-const itemHudMaxRow = Math.ceil((CUMULATIVE_SALES_POSITION.y + ITEM_HUD_LINE_HEIGHT) / CELL_SIZE) - 1;
+const itemHudMaxRow = Math.ceil((TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT) / CELL_SIZE) - 1;
 export const ITEM_BLOCKED_CELLS = Array.from(
   { length: itemHudMaxRow - itemHudMinRow + 1 },
   (_, r) => itemHudMinRow + r,
@@ -447,8 +470,10 @@ export const ITEM_MARK_STYLE = { fontSize: '14px', color: '#ffffff', strokeColor
 // 仮・要確認(#48): アイテムの攻撃演出（アイテムから対象への線）の色・太さ・表示時間（ミリ秒）。
 export const ITEM_ATTACK_LINE = { color: 0xffffff, width: 3, durationMs: 150 } as const;
 // 仮・要確認(#48): 購入ボタンの配置。画面下端の行（アイテムを置けない行）に6個を横に並べる。
-export const ITEM_UI_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 34 } as const;
-export const ITEM_BUTTON_SIZE = { width: 154, height: 28, gap: 4 } as const;
+// 仮・要確認(#35): 左端 x は出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右端。出現場所は列0の行0〜8のどこにでも出るため、
+// 行8の出現場所・休暇マーカー（当たり判定 x=14〜46）と重ならないようにする。幅は 154→146 に縮め、6個で x=60〜956 とフィールド幅960に収める。
+export const ITEM_UI_POSITION = { x: CELL_SIZE * (ENGINEER_SPAWN_COL + 1), y: FIELD_ROWS * CELL_SIZE - 34 } as const;
+export const ITEM_BUTTON_SIZE = { width: 146, height: 28, gap: 4 } as const;
 export const ITEM_BUTTON_COLORS = { fill: 0x1e3a2a, stroke: 0x6cff9c, text: '#ffffff' } as const;
 // 仮・要確認(#48): 購入ボタンの背景の不透明度。下端の行を流れるコードがボタン越しに見えるよう半透明にする。
 export const ITEM_BUTTON_FILL_ALPHA = 0.7;
