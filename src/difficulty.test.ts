@@ -7,12 +7,20 @@ import {
   CODE_SPEED_INCREMENT,
   CODE_SPEED_MAX,
   DIFFICULTY_STEP_MS,
+  ENGINEER_HIRE_COST,
   ENGINEER_RANKS,
+  MAX_ENGINEERS,
   PLAYER_SPEED,
 } from './config';
 import { pickCodeKind } from './codeFlow';
 import { codeSpeedAt, maliciousRateAt, maliciousRateForRank } from './difficulty';
-import { createEngineerParameters, findEngineerByRoute } from './engineer';
+import {
+  assignEngineerRoute,
+  createEngineerParameters,
+  createInitialFleet,
+  findEngineerByRoute,
+  hireEngineer,
+} from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
 
 const STEP = DIFFICULTY_STEP_MS;
@@ -188,7 +196,7 @@ describe('maliciousRateForRank（ランク別の不正コード率・境界値�
     expect(maliciousRateForRank(id, ms)).toBeCloseTo(expected);
   });
 
-  it.each(RANKS.flatMap(([id, rank]) => [-1, NaN, Infinity].map((ms) => [id, ms, rank] as const)))(
+  it.each(RANKS.flatMap(([id, rank]) => [-1, -STEP, NaN, Infinity, -Infinity].map((ms) => [id, ms, rank] as const)))(
     '%s: %s ms は開始値',
     (id, ms, rank) => {
       expect(maliciousRateForRank(id, ms)).toBeCloseTo(rank.maliciousRate);
@@ -207,12 +215,27 @@ describe('maliciousRateForRank（ランク別の不正コード率・境界値�
     expect(middle).toBeGreaterThan(senior);
   });
 
-  it.each([0, STEP - 1, STEP, STEP * rateCapStep - 1, STEP * rateCapStep, STEP * (rateCapStep + 1), -1, NaN, Infinity])(
+  it.each([
+    0,
+    STEP - 1,
+    STEP,
+    STEP * rateCapStep - 1,
+    STEP * rateCapStep,
+    STEP * (rateCapStep + 1),
+    -1,
+    NaN,
+    Infinity,
+    -Infinity,
+  ])(
     'ランクなし（担当者がいない）: %s ms は既定の maliciousRateAt と同じ',
     (ms) => {
       expect(maliciousRateForRank(undefined, ms)).toBe(maliciousRateAt(ms));
     },
   );
+
+  it('ランク表に存在しないランクは例外（共通率へフォールバックしない）', () => {
+    expect(() => maliciousRateForRank('x' as never, 0)).toThrow(new Error('ランク表に存在しないランクです: x'));
+  });
 });
 
 describe('ランク別の不正コード率で種類を決める（pickCodeKind との接続・境界値）', () => {
@@ -220,6 +243,21 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
 
   it.each(RANKS)('%s: random = rate - ε は不正、rate・rate + ε は正常', (id) => {
     const rate = maliciousRateForRank(id, ms);
+    expect(pickCodeKind(() => rate - 1e-9, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
+    expect(pickCodeKind(() => rate + 1e-9, rate)).toBe('normal');
+  });
+
+  // 時間軸上の境界。期待値は叩き台の値（企画書 6）。値を変えたらこの表も見直す。
+  it.each([
+    ['junior', '段階の切替の直前(間隔-1ms)', STEP - 1, 0.4],
+    ['junior', '段階の切替ちょうど', STEP, 0.42],
+    ...ENGINEER_RANKS.map(
+      (rank) => [rank.id, '上限到達後', STEP * (rankCapStep(rank) + 1), rank.maliciousRateMax] as const,
+    ),
+  ] as const)('%s: %s（%s ms、率 %s）で rate - ε は不正、rate・rate + ε は正常', (id, _label, ms, expected) => {
+    const rate = maliciousRateForRank(id, ms);
+    expect(rate).toBeCloseTo(expected);
     expect(pickCodeKind(() => rate - 1e-9, rate)).toBe('malicious');
     expect(pickCodeKind(() => rate, rate)).toBe('normal');
     expect(pickCodeKind(() => rate + 1e-9, rate)).toBe('normal');
@@ -258,6 +296,134 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     const rate = rateOfRoute(3);
     expect(pickCodeKind(() => rate - 1e-9, rate)).toBe('malicious');
     expect(pickCodeKind(() => rate, rate)).toBe('normal');
+    expect(pickCodeKind(() => rate + 1e-9, rate)).toBe('normal');
+  });
+});
+
+// 生成経路（main.ts の updateCodes）と同じ順で既存関数を組み合わせる接続テスト。
+// findEngineerByRoute → maliciousRateForRank → pickCodeKind の順に呼ぶ。
+// 制限: main.ts（Phaser のシーン）自体がこの順で呼ぶことまでは保証しない。
+describe('生成経路の接続（初期配置・追加雇用・割当解除）', () => {
+  const EPS = 1e-9;
+  // 乱数列ヘルパー（engineer.test.ts と同じ形式）。
+  const sequence = (values: readonly number[]): (() => number) => {
+    let index = 0;
+    return () => values[index++ % values.length];
+  };
+  const rules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
+  const RICH = 100_000_000;
+  // 0ms と、全ランク・共通率が上限に達した後の2点。
+  const capMs = STEP * (Math.max(rateCapStep, ...ENGINEER_RANKS.map(rankCapStep)) + 1);
+  const TIMES = [
+    ['0ms', 0],
+    ['上限到達後', capMs],
+  ] as const;
+
+  // ルートの割合を生成経路と同じ順で求め、rate - ε / rate / rate + ε の乱数列で種類を3回決める。
+  const spawnKinds = (engineers: readonly Engineer[], routeId: number, elapsedMs: number) => {
+    const rate = maliciousRateForRank(findEngineerByRoute(engineers, routeId)?.rank, elapsedMs);
+    const random = sequence([rate - EPS, rate, rate + EPS]);
+    return { rate, kinds: [pickCodeKind(random, rate), pickCodeKind(random, rate), pickCodeKind(random, rate)] };
+  };
+
+  // 新しいルート id は初期ルートと重複させない。エンジニア id とも一致させない。
+  const hireAndAssign = () => {
+    const fleet = createInitialFleet(() => 0);
+    const maxRouteId = Math.max(...fleet.routes.map((route) => route.id));
+    const middle = hireEngineer(
+      { engineers: fleet.engineers, funds: RICH, nextId: fleet.nextEngineerId },
+      'middle',
+      rules,
+      () => 0,
+    );
+    if (!middle.ok) throw new Error('middle を雇えない');
+    const senior = hireEngineer(
+      { engineers: middle.engineers, funds: middle.fundsAfter, nextId: middle.engineer.id + 1 },
+      'senior',
+      rules,
+      () => 0,
+    );
+    if (!senior.ok) throw new Error('senior を雇えない');
+    // middle（id 3）→ ルート 4、senior（id 4）→ ルート 3 のように id を入れ違えて割り当てる。
+    const middleRouteId = maxRouteId + 2;
+    const seniorRouteId = maxRouteId + 1;
+    return {
+      fleet,
+      hired: senior.engineers,
+      middle: middle.engineer,
+      senior: senior.engineer,
+      middleRouteId,
+      seniorRouteId,
+    };
+  };
+
+  it.each(TIMES)('初期配置（%s）: 全初期ルートが junior の割合で、共通率とは異なる', (_label, ms) => {
+    const fleet = createInitialFleet(() => 0);
+    const junior = maliciousRateForRank('junior', ms);
+    for (const route of fleet.routes) {
+      const { rate, kinds } = spawnKinds(fleet.engineers, route.id, ms);
+      expect(rate).toBe(junior);
+      expect(rate).not.toBeCloseTo(maliciousRateAt(ms));
+      expect(kinds).toEqual(['malicious', 'normal', 'normal']);
+    }
+  });
+
+  it('初期配置の 0ms は junior の開始値（叩き台 0.40、共通率 0.30 とは異なる）', () => {
+    const fleet = createInitialFleet(() => 0);
+    for (const route of fleet.routes) {
+      expect(spawnKinds(fleet.engineers, route.id, 0).rate).toBeCloseTo(0.4);
+    }
+    expect(maliciousRateAt(0)).toBeCloseTo(0.3);
+  });
+
+  it.each(TIMES)('追加雇用（%s）: 雇った直後（routeId: null）は新しいルートで共通率', (_label, ms) => {
+    const { hired, middle, senior, middleRouteId, seniorRouteId } = hireAndAssign();
+    expect(middle.routeId).toBeNull();
+    expect(senior.routeId).toBeNull();
+    for (const routeId of [middleRouteId, seniorRouteId]) {
+      const { rate, kinds } = spawnKinds(hired, routeId, ms);
+      expect(rate).toBe(maliciousRateAt(ms));
+      expect(kinds).toEqual(['malicious', 'normal', 'normal']);
+    }
+  });
+
+  it.each(TIMES)('追加雇用（%s）: assignEngineerRoute で割り当てると middle・senior の割合', (_label, ms) => {
+    const { fleet, hired, middle, senior, middleRouteId, seniorRouteId } = hireAndAssign();
+    expect(middleRouteId).not.toBe(middle.id);
+    expect(seniorRouteId).not.toBe(senior.id);
+    const assigned = assignEngineerRoute(
+      assignEngineerRoute(hired, middle.id, middleRouteId),
+      senior.id,
+      seniorRouteId,
+    );
+    const cases = [
+      [middleRouteId, 'middle'],
+      [seniorRouteId, 'senior'],
+    ] as const;
+    for (const [routeId, rank] of cases) {
+      const { rate, kinds } = spawnKinds(assigned, routeId, ms);
+      expect(rate).toBe(maliciousRateForRank(rank, ms));
+      expect(kinds).toEqual(['malicious', 'normal', 'normal']);
+    }
+    // 初期ルートは junior のまま。
+    for (const route of fleet.routes) {
+      expect(spawnKinds(assigned, route.id, ms).rate).toBe(maliciousRateForRank('junior', ms));
+    }
+  });
+
+  it.each(TIMES)('割当解除（%s）: assignEngineerRoute(..., null) で外すと共通率に戻る', (_label, ms) => {
+    const { hired, middle, senior, middleRouteId, seniorRouteId } = hireAndAssign();
+    const assigned = assignEngineerRoute(
+      assignEngineerRoute(hired, middle.id, middleRouteId),
+      senior.id,
+      seniorRouteId,
+    );
+    const unassigned = assignEngineerRoute(assignEngineerRoute(assigned, middle.id, null), senior.id, null);
+    for (const routeId of [middleRouteId, seniorRouteId]) {
+      const { rate, kinds } = spawnKinds(unassigned, routeId, ms);
+      expect(rate).toBe(maliciousRateAt(ms));
+      expect(kinds).toEqual(['malicious', 'normal', 'normal']);
+    }
   });
 });
 
