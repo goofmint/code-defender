@@ -102,6 +102,10 @@ export const CODE_SPEED_MAX = 160;
 export const CODE_MALICIOUS_RATE_INCREMENT = 0.02;
 // 仮・要確認(#14): 担当エンジニアがいないルートの不正コード率の上限（0〜1）。
 export const CODE_MALICIOUS_RATE_MAX = 0.5;
+// 仮・要確認(#13): 補正後の不正コード率の下限（0〜1）。企画書(6)「一定以上の割合を確保する」(docs/game_plan.md) に対応する。
+// 休暇・リファクタリング等の補正（difficulty.ts の effectiveMaliciousRate）を加えた後の割合にだけ適用し、
+// maliciousRateForRank の基礎率には適用しない。全ランクの maliciousRate と CODE_MALICIOUS_RATE 以下にする。
+export const CODE_MALICIOUS_RATE_MIN = 0.05;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
 // 移動キーではないので、移動のキーボード優先判定には含めない。
