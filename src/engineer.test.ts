@@ -250,6 +250,21 @@ describe('ランク表', () => {
     expect(costs.every((cost) => cost > 0)).toBe(true);
     expect(costs).toEqual([...costs].sort((a, b) => a - b));
   });
+  it.each(ENGINEER_RANKS.map((rank) => [rank.id, rank] as const))(
+    '%s の不正コード率は 0 ≦ 開始値 ≦ 上限 ≦ 1',
+    (_id, rank) => {
+      expect(rank.maliciousRate).toBeGreaterThanOrEqual(0);
+      expect(rank.maliciousRate).toBeLessThanOrEqual(rank.maliciousRateMax);
+      expect(rank.maliciousRateMax).toBeLessThanOrEqual(1);
+    },
+  );
+  it('不正コード率は開始値・上限とも ジュニア > ミドル > シニア', () => {
+    const [junior, middle, senior] = ENGINEER_RANKS;
+    expect(junior.maliciousRate).toBeGreaterThan(middle.maliciousRate);
+    expect(middle.maliciousRate).toBeGreaterThan(senior.maliciousRate);
+    expect(junior.maliciousRateMax).toBeGreaterThan(middle.maliciousRateMax);
+    expect(middle.maliciousRateMax).toBeGreaterThan(senior.maliciousRateMax);
+  });
 });
 
 describe('表示用の文字列', () => {
