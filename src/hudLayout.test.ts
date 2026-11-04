@@ -32,7 +32,7 @@ import {
   TECH_DEBT_MAX,
   TECH_DEBT_POSITION,
 } from './config';
-import { createEngineerParameters, formatSelectedEngineer } from './engineer';
+import { createEngineerParameters, formatSelectedEngineer, getInitialSalary } from './engineer';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import { ITEM_TYPES } from './item';
 import { formatRefactoringAllocation } from './refactoringRatioControl';
@@ -306,6 +306,7 @@ const longestSelectedEngineer = formatSelectedEngineer({
   onVacation: false,
   vacationRateReduction: 0,
   salary: ENGINEER_SALARY_MAX,
+  initialSalary: getInitialSalary('junior'),
   ...createEngineerParameters('junior'),
 });
 const selectedEngineerRect = textRect(

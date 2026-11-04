@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DEFAULT_MALICIOUS_CODE_HP,
   ITEM_POWER_DAMAGE,
   ITEM_RANGE_RATIOS,
   ITEM_STRONG_AGAINST_MULTIPLIER,
@@ -15,6 +16,7 @@ import {
   isWithinRange,
 } from './item';
 import type { ItemPower, ItemRange, ItemType } from './item';
+import { applyHit, getInitialHp } from './defeat';
 import { MALICIOUS_CODE_TYPES } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
 
@@ -272,5 +274,28 @@ describe('calculateItemDamage', () => {
   it('得意でなければ倍率は無関係', () => {
     expect(calculateItemDamage(2, false, 0)).toBe(2);
     expect(calculateItemDamage(2, false, NaN)).toBe(2);
+  });
+});
+
+describe('CodeRabbit(#52): 撃破に必要な攻撃回数', () => {
+  const damage = getItemDamage('codeRabbit', undefined);
+
+  it('種類なしの不正なコードは 1 回目で生き残り、2 回目で撃破される', () => {
+    expect(damage).toBe(ITEM_POWER_DAMAGE.medium);
+    const initial = getInitialHp(undefined);
+    expect(initial).toBe(DEFAULT_MALICIOUS_CODE_HP);
+
+    const first = applyHit(initial, damage);
+    expect(first).toEqual({ hp: DEFAULT_MALICIOUS_CODE_HP - ITEM_POWER_DAMAGE.medium, defeated: false });
+    expect(first.hp).toBeGreaterThan(0);
+
+    const second = applyHit(first.hp, damage);
+    expect(second.defeated).toBe(true);
+    expect(second.hp).toBeLessThanOrEqual(0);
+  });
+
+  it('撃破済みへの 3 回目は hp を変えず defeated も false', () => {
+    const second = applyHit(applyHit(getInitialHp(undefined), damage).hp, damage);
+    expect(applyHit(second.hp, damage)).toEqual({ hp: second.hp, defeated: false });
   });
 });
