@@ -179,3 +179,12 @@ export const SPAWN_MARKER_STYLE = {
   strokeColor: 0xffffff,
   strokeWidth: 2,
 } as const;
+
+// 仮・要確認(#35): 休暇中の出現場所マーカーの見た目（出現場所の円に重ねる）。大きさは SPAWN_MARKER_STYLE と同じ。
+export const VACATION_MARKER_STYLE = {
+  fillColor: 0x8a8f98,
+  strokeColor: 0xffffff,
+  label: '休',
+  labelFontSize: '18px',
+  labelColor: '#ffffff',
+} as const;

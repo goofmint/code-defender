@@ -33,8 +33,11 @@ import {
   formatHireButton,
   formatHireMessage,
   hireEngineer,
+  isEngineerOnVacation,
   isEngineerRank,
   pickRandomPersonality,
+  setEngineerVacation,
+  toggleEngineerVacation,
   updateEngineerParameters,
 } from './engineer';
 import type {
@@ -53,6 +56,7 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): E
   rank,
   routeId,
   personality: 'meticulous',
+  onVacation: false,
   ...createEngineerParameters(rank, 'meticulous'),
 });
 const makeEngineers = (count: number): Engineer[] =>
@@ -308,6 +312,132 @@ describe('assignEngineerRoute: パラメータの保持', () => {
     const [assigned] = assignEngineerRoute([edge], 0, 3);
     const [cleared] = assignEngineerRoute([assigned], 0, null);
     expect(cleared).toEqual(edge);
+  });
+});
+
+describe('休暇(#35): 初期状態', () => {
+  it('初期フリートの全員が休暇中ではない', () => {
+    const { engineers } = createInitialFleet(() => 0.5);
+    expect(engineers.map(isEngineerOnVacation)).toEqual(engineers.map(() => false));
+  });
+  it.each(['junior', 'middle', 'senior'] as const)('%s を雇った直後は休暇中ではない', (rank) => {
+    const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, rank, rules, () => 0.5);
+    if (!hired.ok) throw new Error('雇えるはず');
+    expect(isEngineerOnVacation(hired.engineer)).toBe(false);
+  });
+});
+
+describe('休暇(#35): setEngineerVacation', () => {
+  const engineers: Engineer[] = makeEngineers(3);
+  it.each<[string, boolean, boolean]>([
+    ['休暇中でない → 開始', false, true],
+    ['休暇中でない → 終了（変化なし）', false, false],
+    ['休暇中 → 終了', true, false],
+    ['休暇中 → 再度開始（変化なし）', true, true],
+  ])('%s', (_name, before, onVacation) => {
+    const start = setEngineerVacation(engineers, 1, before);
+    const result = setEngineerVacation(start, 1, onVacation);
+    expect(result.map(isEngineerOnVacation)).toEqual([false, onVacation, false]);
+    expect(result[1]).toEqual({ ...engineers[1], onVacation });
+  });
+  it('対象以外のエンジニアは同じ参照のまま', () => {
+    const result = setEngineerVacation(engineers, 1, true);
+    expect(result[0]).toBe(engineers[0]);
+    expect(result[2]).toBe(engineers[2]);
+  });
+  // 先頭・末尾・範囲外（-1 と 末尾 +1）の境界。
+  it.each<[number, boolean[]]>([
+    [0, [true, false, false]],
+    [2, [false, false, true]],
+    [-1, [false, false, false]],
+    [3, [false, false, false]],
+  ])('id %i を休暇にすると %j', (engineerId, expected) => {
+    expect(setEngineerVacation(engineers, engineerId, true).map(isEngineerOnVacation)).toEqual(expected);
+  });
+  it('該当 id がなければ同じ内容の配列', () => {
+    expect(setEngineerVacation(engineers, 99, true)).toEqual(engineers);
+  });
+  it('空の配列は空のまま', () => {
+    expect(setEngineerVacation([], 0, true)).toEqual([]);
+  });
+  it('入力の配列とエンジニアを変更しない', () => {
+    const snapshot = structuredClone(engineers);
+    const result = setEngineerVacation(engineers, 0, true);
+    expect(engineers).toEqual(snapshot);
+    expect(result).not.toBe(engineers);
+  });
+  it('routeId が null（ルートなし）のエンジニアも休暇にでき、routeId は null のまま', () => {
+    const [result] = setEngineerVacation([makeEngineer(0, 'senior', null)], 0, true);
+    expect(result).toEqual({ ...makeEngineer(0, 'senior', null), onVacation: true });
+  });
+});
+
+describe('休暇(#35): パラメータ・ルートの保持', () => {
+  const edges: Engineer[] = [
+    {
+      ...makeEngineer(0, 'middle', 4),
+      fatigue: ENGINEER_PARAMETER_MAX,
+      concentration: ENGINEER_PARAMETER_MIN,
+      skill: ENGINEER_PARAMETER_MAX,
+      attachment: ENGINEER_PARAMETER_MIN,
+    },
+    {
+      ...makeEngineer(0, 'senior', 0),
+      fatigue: ENGINEER_PARAMETER_MIN,
+      concentration: ENGINEER_PARAMETER_MAX,
+      skill: ENGINEER_PARAMETER_MIN,
+      attachment: ENGINEER_PARAMETER_MAX,
+    },
+  ];
+  it.each(edges.map((edge, index) => [index, edge] as const))('境界値の組 %i: 開始しても休暇以外は変わらない', (_index, edge) => {
+    const [result] = setEngineerVacation([edge], 0, true);
+    expect(result).toEqual({ ...edge, onVacation: true });
+  });
+  it.each(edges.map((edge, index) => [index, edge] as const))('境界値の組 %i: 開始→終了で元に戻る', (_index, edge) => {
+    const [result] = setEngineerVacation(setEngineerVacation([edge], 0, true), 0, false);
+    expect(result).toEqual(edge);
+  });
+});
+
+describe('休暇(#35): toggleEngineerVacation', () => {
+  const engineers: Engineer[] = makeEngineers(3);
+  // 切り替え回数 0・1・2・3 回の境界（偶数回で元に戻る）。
+  it.each<[number, boolean]>([
+    [0, false],
+    [1, true],
+    [2, false],
+    [3, true],
+  ])('%i 回切り替えると休暇中=%s', (times, expected) => {
+    let result: readonly Engineer[] = engineers;
+    for (let i = 0; i < times; i++) {
+      result = toggleEngineerVacation(result, 1);
+    }
+    expect(result.map(isEngineerOnVacation)).toEqual([false, expected, false]);
+  });
+  it('2 回切り替えると元と同じ内容', () => {
+    expect(toggleEngineerVacation(toggleEngineerVacation(engineers, 2), 2)).toEqual(engineers);
+  });
+  it('対象以外のエンジニアは同じ参照のまま', () => {
+    const result = toggleEngineerVacation(engineers, 1);
+    expect(result[0]).toBe(engineers[0]);
+    expect(result[2]).toBe(engineers[2]);
+  });
+  it.each([-1, 3, 99])('該当 id %i がなければ同じ内容の新しい配列', (engineerId) => {
+    const result = toggleEngineerVacation(engineers, engineerId);
+    expect(result).toEqual(engineers);
+    expect(result).not.toBe(engineers);
+  });
+  it('空の配列は空のまま', () => {
+    expect(toggleEngineerVacation([], 0)).toEqual([]);
+  });
+  it('入力の配列とエンジニアを変更しない', () => {
+    const snapshot = structuredClone(engineers);
+    toggleEngineerVacation(engineers, 0);
+    expect(engineers).toEqual(snapshot);
+  });
+  it('別々のエンジニアを独立して切り替えられる', () => {
+    const result = toggleEngineerVacation(toggleEngineerVacation(engineers, 0), 2);
+    expect(result.map(isEngineerOnVacation)).toEqual([true, false, true]);
   });
 });
 
@@ -818,7 +948,7 @@ describe('性格の付与', () => {
       );
       if (!hired.ok) throw new Error('雇えるはず');
       expect(hired.engineer.personality).toBe(id);
-      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, ...parameters } = hired.engineer;
+      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, onVacation: _onVacation, ...parameters } = hired.engineer;
       expect(parameters).toEqual(createEngineerParameters('middle', id));
     }
   });
