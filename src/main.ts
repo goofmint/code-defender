@@ -25,7 +25,7 @@ import {
   isInsideTapArea,
 } from './attack';
 import type { CodeHitEvent } from './attack';
-import { codeSpeedAt, maliciousRateAt } from './difficulty';
+import { codeSpeedAt, maliciousRateForRank } from './difficulty';
 import {
   clampToField,
   getMoveDirection,
@@ -573,7 +573,9 @@ class MainScene extends Phaser.Scene {
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
-        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, maliciousRateAt(this.elapsedMs)), route);
+        // 担当エンジニアのランクに応じた割合(#12)。担当者がいないルートは既定の割合を使う。
+        const rank = findEngineerByRoute(this.engineers, route.id)?.rank;
+        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, maliciousRateForRank(rank, this.elapsedMs)), route);
         if (code.kind === 'malicious') {
           this.codeHp.set(code.id, getInitialHp());
         }

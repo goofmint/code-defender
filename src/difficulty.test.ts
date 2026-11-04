@@ -7,9 +7,13 @@ import {
   CODE_SPEED_INCREMENT,
   CODE_SPEED_MAX,
   DIFFICULTY_STEP_MS,
+  ENGINEER_RANKS,
   PLAYER_SPEED,
 } from './config';
-import { codeSpeedAt, maliciousRateAt } from './difficulty';
+import { pickCodeKind } from './codeFlow';
+import { codeSpeedAt, maliciousRateAt, maliciousRateForRank } from './difficulty';
+import { createEngineerParameters, findEngineerByRoute } from './engineer';
+import type { Engineer, EngineerRank } from './engineer';
 
 const STEP = DIFFICULTY_STEP_MS;
 // 上限に達する段階（切り上げ）。
@@ -138,6 +142,123 @@ describe('maliciousRateAt（不正コード率）', () => {
     expect(maliciousRateAt(1000, 0.1, 0.05, 0.9, 1000)).toBeCloseTo(0.15);
     expect(maliciousRateAt(999, 0.1, 0.05, 0.9, 1000)).toBeCloseTo(0.1);
     expect(maliciousRateAt(1000000, 0.1, 0.05, 0.9, 1000)).toBeCloseTo(0.9);
+  });
+});
+
+// ランク別の不正コード率(#12)。開始値・上限は ENGINEER_RANKS から取り、値をハードコードしない。
+const RANKS = ENGINEER_RANKS.map((rank) => [rank.id, rank] as const);
+// そのランクの上限に達する段階（切り上げ）。
+const rankCapStep = (rank: (typeof ENGINEER_RANKS)[number]): number =>
+  Math.ceil((rank.maliciousRateMax - rank.maliciousRate) / CODE_MALICIOUS_RATE_INCREMENT - 1e-9);
+
+describe('maliciousRateForRank（ランク別の不正コード率・境界値）', () => {
+  it.each(RANKS)('%s: 0ms は開始値', (id, rank) => {
+    expect(maliciousRateForRank(id, 0)).toBeCloseTo(rank.maliciousRate);
+  });
+
+  it.each(RANKS)('%s: 段階の切替（間隔-1ms / ちょうど / +1ms）', (id, rank) => {
+    expect(maliciousRateForRank(id, STEP - 1)).toBeCloseTo(rank.maliciousRate);
+    expect(maliciousRateForRank(id, STEP)).toBeCloseTo(rank.maliciousRate + CODE_MALICIOUS_RATE_INCREMENT);
+    expect(maliciousRateForRank(id, STEP + 1)).toBeCloseTo(rank.maliciousRate + CODE_MALICIOUS_RATE_INCREMENT);
+  });
+
+  it.each(RANKS)('%s: 上限到達の直前(-1ms)は上限未満、ちょうど・直後(+1ms)・十分後は上限', (id, rank) => {
+    const capMs = STEP * rankCapStep(rank);
+    const before = maliciousRateForRank(id, capMs - 1);
+    expect(before).toBeCloseTo(rank.maliciousRate + (rankCapStep(rank) - 1) * CODE_MALICIOUS_RATE_INCREMENT);
+    expect(before).toBeLessThan(rank.maliciousRateMax);
+    expect(maliciousRateForRank(id, capMs)).toBeCloseTo(rank.maliciousRateMax);
+    expect(maliciousRateForRank(id, capMs + 1)).toBeCloseTo(rank.maliciousRateMax);
+    expect(maliciousRateForRank(id, STEP * (rankCapStep(rank) + 100))).toBeCloseTo(rank.maliciousRateMax);
+    expect(maliciousRateForRank(id, Number.MAX_SAFE_INTEGER)).toBeCloseTo(rank.maliciousRateMax);
+  });
+
+  // 叩き台の値（企画書 6）での具体的な境界。値を変えたらこの表も見直す。
+  it.each([
+    ['junior', 299999, 0.58],
+    ['junior', 300000, 0.6],
+    ['middle', 299999, 0.43],
+    ['middle', 300000, 0.45],
+    ['senior', 209999, 0.22],
+    ['senior', 210000, 0.24],
+    ['senior', 239999, 0.24],
+    // 段階 8 の計算値 0.26 は上限 0.25 で止まる。
+    ['senior', 240000, 0.25],
+  ] as const)('%s: %sms は %s', (id, ms, expected) => {
+    expect(maliciousRateForRank(id, ms)).toBeCloseTo(expected);
+  });
+
+  it.each(RANKS.flatMap(([id, rank]) => [-1, NaN, Infinity].map((ms) => [id, ms, rank] as const)))(
+    '%s: %s ms は開始値',
+    (id, ms, rank) => {
+      expect(maliciousRateForRank(id, ms)).toBeCloseTo(rank.maliciousRate);
+    },
+  );
+
+  it.each([
+    ['0ms', 0],
+    ['途中の段階', STEP * 3],
+    ['全ランクが上限に達した後', STEP * Math.max(...ENGINEER_RANKS.map(rankCapStep))],
+  ])('%s: ジュニア > ミドル > シニア', (_label, ms) => {
+    const junior = maliciousRateForRank('junior', ms);
+    const middle = maliciousRateForRank('middle', ms);
+    const senior = maliciousRateForRank('senior', ms);
+    expect(junior).toBeGreaterThan(middle);
+    expect(middle).toBeGreaterThan(senior);
+  });
+
+  it.each([0, STEP - 1, STEP, STEP * rateCapStep - 1, STEP * rateCapStep, STEP * (rateCapStep + 1), -1, NaN, Infinity])(
+    'ランクなし（担当者がいない）: %s ms は既定の maliciousRateAt と同じ',
+    (ms) => {
+      expect(maliciousRateForRank(undefined, ms)).toBe(maliciousRateAt(ms));
+    },
+  );
+});
+
+describe('ランク別の不正コード率で種類を決める（pickCodeKind との接続・境界値）', () => {
+  const ms = STEP * 2;
+
+  it.each(RANKS)('%s: random = rate - ε は不正、rate・rate + ε は正常', (id) => {
+    const rate = maliciousRateForRank(id, ms);
+    expect(pickCodeKind(() => rate - 1e-9, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
+    expect(pickCodeKind(() => rate + 1e-9, rate)).toBe('normal');
+  });
+
+  const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): Engineer => ({
+    id,
+    rank,
+    routeId,
+    personality: 'meticulous',
+    onVacation: false,
+    ...createEngineerParameters(rank, 'meticulous'),
+  });
+  // ルート 0〜2 に別ランクの担当者、ルート 3 は担当者なし。routeId: null の人はどのルートにも影響しない。
+  const engineers: readonly Engineer[] = [
+    makeEngineer(1, 'junior', 0),
+    makeEngineer(2, 'middle', 1),
+    makeEngineer(3, 'senior', 2),
+    makeEngineer(4, 'junior', null),
+  ];
+  const rateOfRoute = (routeId: number): number =>
+    maliciousRateForRank(findEngineerByRoute(engineers, routeId)?.rank, ms);
+
+  it.each([
+    [0, 'junior'],
+    [1, 'middle'],
+    [2, 'senior'],
+  ] as const)('ルート %s は担当(%s)のランク別の割合', (routeId, rank) => {
+    expect(rateOfRoute(routeId)).toBe(maliciousRateForRank(rank, ms));
+  });
+
+  it('担当者がいないルートは既定の割合（routeId: null の人は影響しない）', () => {
+    expect(rateOfRoute(3)).toBe(maliciousRateAt(ms));
+  });
+
+  it('担当者がいないルートの境界: rate - ε は不正、rate は正常', () => {
+    const rate = rateOfRoute(3);
+    expect(pickCodeKind(() => rate - 1e-9, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
   });
 });
 
