@@ -1,6 +1,7 @@
 import {
   DEFAULT_REFACTORING_RATIO,
   TECH_DEBT_FORMAT,
+  TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
   TECH_DEBT_PER_FEATURE_WORK,
   TECH_DEBT_REPAY_PER_REFACTORING_WORK,
@@ -10,7 +11,7 @@ import {
 // 技術的負債の状態。Phaser に依存しない純粋関数だけを置く（funds.ts と同じ構成）。
 // 負債は 0〜上限の数値。資金や借入ではない（資金には影響しない）。
 // 負債の影響のうち、開発スピード低下（コードの生成間隔が延びる、#44）は techDebtSpawnIntervalMs で実装済み。
-// 不具合率の増加・大障害は未実装。後続タスクが TECH_DEBT_CHANGED_EVENT を購読するなどして実装する。
+// 不具合率の増加(#45)は techDebtMaliciousRateModifier で実装済み（不正コード率の補正として生成時に合成する）。
 
 // 技術的負債が変化したときに scene.events で発行するイベント名。
 export const TECH_DEBT_CHANGED_EVENT = 'tech-debt-changed';
@@ -89,6 +90,30 @@ export const resolveWorkTechDebt = (
     accumulated,
     repaid,
   };
+};
+
+// 技術的負債による不正コード率の補正(#45)。effectiveMaliciousRate の modifiers に渡すパーセントポイントの差分（0 以上）。
+// 負債を 0〜max に丸め、負債 ÷ max × maxBonus で線形に変換する（負債 0 で 0、max で maxBonus）。負債の NaN・±Infinity は clampTechDebt に従う。
+// max が 0 以下・有限でない場合と、maxBonus が負・NaN・±Infinity の場合は 0（sanitizeAmount と同じ扱い）。
+// [CODE_MALICIOUS_RATE_MIN, 1] への制限は差分ごとには行わず、合計後に effectiveMaliciousRate に任せる。
+export const techDebtMaliciousRateModifier = (
+  debt: number,
+  {
+    max = TECH_DEBT_MAX,
+    maxBonus = TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
+  }: {
+    readonly max?: number;
+    readonly maxBonus?: number;
+  } = {},
+): number => {
+  if (!Number.isFinite(max) || max <= 0) {
+    return 0;
+  }
+  const bonus = sanitizeAmount(maxBonus);
+  if (bonus === 0) {
+    return 0;
+  }
+  return (clampTechDebt(debt, max) / max) * bonus;
 };
 
 // 負債から生成間隔の倍率を求める（#44）。1 + 負債 / max × (maxMultiplier − 1)。負債0で1、上限で maxMultiplier。
