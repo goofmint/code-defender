@@ -30,6 +30,7 @@ const makeEngineer = (id: number, rank: EngineerRank, overrides: Partial<Enginee
   vacationRateReduction: 0,
   salary: getInitialSalary(rank),
   initialSalary: getInitialSalary(rank),
+  aiAgent: null,
   ...createEngineerParameters(rank, 'meticulous'),
   ...overrides,
 });
@@ -171,7 +172,7 @@ describe('月の境界との合成（getCrossedMonths → settleMonthBoundary �
     let current = funds;
     for (const month of getCrossedMonths(prevMs, nextMs)) {
       if (state.gameOver.over) break;
-      const { salary } = settleMonthBoundary(current, month, getEngineerSalaries(state.engineers), [], state.gameOver.over);
+      const { salary } = settleMonthBoundary(current, month, getEngineerSalaries(state.engineers), [], state.gameOver.over, state.engineers);
       current = salary.fundsAfter;
       const gameOver = checkBankruptcy(state.gameOver, current, month).state;
       state = gameOver.over

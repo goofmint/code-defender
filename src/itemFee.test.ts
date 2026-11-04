@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINEER_MONTHLY_SALARY_BY_RANK, MS_PER_GAME_MONTH } from './config';
+import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_SPAWN_CELLS, INITIAL_ENGINEER_RANKS, MS_PER_GAME_MONTH } from './config';
 import { isBankrupt } from './gameOver';
 import { createMonthElapsedEvent, getCrossedMonths } from './gameTime';
 import { ITEM_TYPES } from './item';
@@ -16,7 +16,11 @@ import {
 import type { ItemFeePaidEvent } from './itemFee';
 import type { PlacedItem } from './itemPlacement';
 import { settleMonthBoundary } from './monthBoundary';
-import { getInitialSalary } from './engineer';
+import { createInitialEngineers, getInitialSalary, setEngineerVacation } from './engineer';
+import type { Engineer } from './engineer';
+import { AI_AGENT_TYPES, equipAiAgent, getAiAgentMonthlyFee, getMonthlyAiAgentFees } from './aiAgent';
+import type { AiAgentType } from './aiAgent';
+import { createRoutes } from './route';
 import { getEngineerSalaries } from './salary';
 
 const placed = (id: number, itemType: ItemType): PlacedItem => ({
@@ -230,7 +234,14 @@ describe('給料と同じ月: 給料 → アイテム費の順', () => {
 
   // main.ts の onMonthElapsed が使う精算と同じ関数（settleMonthBoundary）を呼ぶ。
   const monthBoundary = (funds: number, over: boolean, placedItems: readonly PlacedItem[] = items) => {
-    const { salary, itemFee } = settleMonthBoundary(funds, createMonthElapsedEvent(1).month, salaries, placedItems, over);
+    const { salary, itemFee } = settleMonthBoundary(
+      funds,
+      createMonthElapsedEvent(1).month,
+      salaries,
+      placedItems,
+      over,
+      [],
+    );
     return { salary, fee: itemFee };
   };
 
@@ -271,5 +282,111 @@ describe('ゲームオーバー後は引かない', () => {
 describe('イベント名', () => {
   it('item-fee-paid', () => {
     expect(ITEM_FEE_PAID_EVENT).toBe('item-fee-paid');
+  });
+});
+
+// AIエージェント(#53)の月額は、月額アイテム費に合算して1回で引く。
+describe('AIエージェントの月額（settleMonthBoundary に合算）(#53)', () => {
+  // 初期編成（固定の乱数）。
+  const fixedRandom = (): number => 0;
+  const baseEngineers: readonly Engineer[] = createInitialEngineers(
+    createRoutes(ENGINEER_SPAWN_CELLS, fixedRandom),
+    INITIAL_ENGINEER_RANKS,
+    fixedRandom,
+  );
+  const withAgents = (agents: readonly (AiAgentType | null)[]): Engineer[] =>
+    baseEngineers.map((engineer, index) => ({ ...engineer, aiAgent: agents[index] ?? null }));
+  const salariesOf = (engineers: readonly Engineer[]): readonly number[] => getEngineerSalaries(engineers);
+  const payrollOf = (engineers: readonly Engineer[]): number => salariesOf(engineers).reduce((sum, v) => sum + v, 0);
+  const settle = (funds: number, engineers: readonly Engineer[], placedItems: readonly PlacedItem[] = [], over = false) =>
+    settleMonthBoundary(funds, 1, salariesOf(engineers), placedItems, over, engineers);
+
+  it('3種の月額は価格の段階（強い=高い・普通=普通・安い=安い）× ITEM_MONTHLY_FEE_RATIO', () => {
+    expect(AI_AGENT_TYPES.map((type) => getAiAgentMonthlyFee(type))).toEqual([200000, 100000, 50000]);
+  });
+
+  it('誰も付けていなければ件数 0 で、月額アイテムもなければ itemFee は null', () => {
+    const engineers = withAgents([]);
+    expect(getMonthlyAiAgentFees(engineers)).toEqual({ amount: 0, itemCount: 0 });
+    expect(settle(10000000, engineers).itemFee).toBeNull();
+  });
+
+  it('AIエージェントだけでも引く（月額アイテム 0 個）', () => {
+    const engineers = withAgents(['cheap']);
+    const funds = 10000000;
+    const afterSalary = funds - payrollOf(engineers);
+    expect(settle(funds, engineers).itemFee).toEqual({
+      month: 1,
+      amount: 50000,
+      itemCount: 1,
+      fundsBefore: afterSalary,
+      fundsAfter: afterSalary - 50000,
+    });
+  });
+
+  it('AIエージェントと置いた月額アイテムを合算して1回で引く（1回払いは数えない）', () => {
+    const engineers = withAgents(['strong', 'normal', 'cheap']);
+    const funds = 10000000;
+    const afterSalary = funds - payrollOf(engineers);
+    const fee = settle(funds, engineers, [placed(0, 'ci'), placed(1, 'linter')]).itemFee;
+    expect(fee).toEqual({
+      month: 1,
+      amount: 200000 + 100000 + 50000 + 100000,
+      itemCount: 4,
+      fundsBefore: afterSalary,
+      fundsAfter: afterSalary - 450000,
+    });
+  });
+
+  // 合計 T = 給料 + AI(強い 200000) + CI 100000。
+  it.each([
+    ['T-1', -1, -1, true],
+    ['T', 0, 0, true],
+    ['T+1', 1, 1, false],
+  ])('資金 %s なら精算後 %d 円（倒産 = %s）', (_name, offset, expected, bankrupt) => {
+    const engineers = withAgents(['strong']);
+    const total = payrollOf(engineers) + 200000 + 100000;
+    const fee = settle(total + offset, engineers, [placed(0, 'ci')]).itemFee;
+    expect(fee?.fundsAfter).toBe(expected);
+    expect(isBankrupt(fee?.fundsAfter ?? Number.NaN)).toBe(bankrupt);
+  });
+
+  it.each([
+    ['ちょうど給料', 0],
+    ['給料-1', -1],
+  ])('資金が%sで給料で倒産したら AIエージェントの月額は引かない', (_name, offset) => {
+    const engineers = withAgents(['strong']);
+    expect(settle(payrollOf(engineers) + offset, engineers).itemFee).toBeNull();
+  });
+
+  it('ゲームオーバー中は AIエージェントを付けていても引かない', () => {
+    expect(settle(10000000, withAgents(['strong']), [], true).itemFee).toBeNull();
+  });
+
+  it('休暇中・ルート未割当のエンジニアの AIエージェントも引く', () => {
+    const onVacation = setEngineerVacation(withAgents(['normal']), baseEngineers[0].id, true);
+    const unassigned = withAgents([null, 'cheap']).map((engineer) =>
+      engineer.id === baseEngineers[1].id ? { ...engineer, routeId: null } : engineer,
+    );
+    expect(getMonthlyAiAgentFees(onVacation)).toEqual({ amount: 100000, itemCount: 1 });
+    expect(getMonthlyAiAgentFees(unassigned)).toEqual({ amount: 50000, itemCount: 1 });
+    expect(settle(10000000, onVacation).itemFee?.amount).toBe(100000);
+    expect(settle(10000000, unassigned).itemFee?.amount).toBe(50000);
+  });
+
+  it('付け替えた後は新しい種類の月額だけを引く（前の種類は引かない）', () => {
+    const first = equipAiAgent(baseEngineers, baseEngineers[0].id, 'strong', { funds: 10000000, gameOver: false });
+    if (!first.ok) throw new Error('1回目の装着に失敗した');
+    const second = equipAiAgent(first.engineers, baseEngineers[0].id, 'cheap', { funds: first.fundsAfter, gameOver: false });
+    if (!second.ok) throw new Error('付け替えに失敗した');
+    expect(getMonthlyAiAgentFees(second.engineers)).toEqual({ amount: 50000, itemCount: 1 });
+    expect(settle(10000000, [...second.engineers]).itemFee?.amount).toBe(50000);
+  });
+
+  it('ratio 0・負・NaN は月額 0（件数は数える）', () => {
+    const engineers = withAgents(['strong', 'cheap']);
+    for (const ratio of [0, -1, Number.NaN]) {
+      expect(getMonthlyAiAgentFees(engineers, ratio)).toEqual({ amount: 0, itemCount: 2 });
+    }
   });
 });

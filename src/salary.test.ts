@@ -226,6 +226,7 @@ describe('越えた月ごとに1回ずつ給料を引く（getCrossedMonths と�
     vacationRateReduction: 0,
     salary: getInitialSalary(rank),
     initialSalary: getInitialSalary(rank),
+    aiAgent: null,
     ...createEngineerParameters(rank, 'meticulous'),
   });
 
@@ -289,6 +290,7 @@ const makeEngineer = (
   vacationRateReduction: 0,
   salary,
   initialSalary: getInitialSalary(rank),
+  aiAgent: null,
   ...createEngineerParameters(rank, 'meticulous'),
 });
 
@@ -413,7 +415,7 @@ describe('休暇中・未割当を含む給料と資金の境界（settleMonthBo
   });
 
   it('資金 P+1 なら給料後 1 円残り、アイテム費を引く', () => {
-    const { salary, itemFee } = settleMonthBoundary(payroll + 1, 1, salaries, items, false);
+    const { salary, itemFee } = settleMonthBoundary(payroll + 1, 1, salaries, items, false, engineers);
     expect(salary).toEqual({ month: 1, amount: payroll, fundsBefore: payroll + 1, fundsAfter: 1 });
     expect(isBankrupt(salary.fundsAfter)).toBe(false);
     expect(itemFee).toEqual({ month: 1, amount: fee, itemCount: 1, fundsBefore: 1, fundsAfter: 1 - fee });
@@ -423,7 +425,7 @@ describe('休暇中・未割当を含む給料と資金の境界（settleMonthBo
     ['P', 0, 0],
     ['P-1', -1, -1],
   ])('資金 %s なら給料後 %d 円で倒産し、アイテム費は引かない', (_name, offset, expected) => {
-    const { salary, itemFee } = settleMonthBoundary(payroll + offset, 1, salaries, items, false);
+    const { salary, itemFee } = settleMonthBoundary(payroll + offset, 1, salaries, items, false, engineers);
     expect(salary.amount).toBe(payroll);
     expect(salary.fundsAfter).toBe(expected);
     expect(isBankrupt(salary.fundsAfter)).toBe(true);
@@ -445,7 +447,7 @@ describe('休暇中・未割当を含む給料を越えた月ごとに引く（g
     const settled = [];
     // MainScene.onMonthElapsed と同じく、倒産したらそれ以降の月は精算しない。
     for (const month of months) {
-      const { salary } = settleMonthBoundary(funds, month, salaries, [], false);
+      const { salary } = settleMonthBoundary(funds, month, salaries, [], false, engineers);
       settled.push(salary);
       funds = salary.fundsAfter;
       if (isBankrupt(funds)) {

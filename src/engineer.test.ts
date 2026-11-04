@@ -78,6 +78,7 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): E
   vacationRateReduction: 0,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
   initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
+  aiAgent: null,
   ...createEngineerParameters(rank, 'meticulous'),
 });
 const makeEngineers = (count: number): Engineer[] =>
@@ -1213,7 +1214,7 @@ describe('性格の付与', () => {
       );
       if (!hired.ok) throw new Error('雇えるはず');
       expect(hired.engineer.personality).toBe(id);
-      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, onVacation: _onVacation, vacationRateReduction: _vacationRateReduction, salary: _salary, initialSalary: _initialSalary, ...parameters } = hired.engineer;
+      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, onVacation: _onVacation, vacationRateReduction: _vacationRateReduction, salary: _salary, initialSalary: _initialSalary, aiAgent: _aiAgent, ...parameters } = hired.engineer;
       expect(parameters).toEqual(createEngineerParameters('middle', id));
     }
   });
@@ -1754,9 +1755,18 @@ describe('selectAdjacentEngineerId(#34)', () => {
 
 describe('formatSelectedEngineer / formatSalaryButton(#34)', () => {
   it('通常の表示', () => {
-    expect(formatSelectedEngineer(makeEngineer(3, 'junior', 0))).toBe('選択: #3 ジュニア 月給 300,000円');
+    expect(formatSelectedEngineer(makeEngineer(3, 'junior', 0))).toBe('選択: #3 ジュニア 月給 300,000円 AI: なし');
     expect(formatSelectedEngineer({ ...makeEngineer(12, 'senior', 0), salary: ENGINEER_SALARY_MAX })).toBe(
-      '選択: #12 シニア 月給 1,000,000円',
+      '選択: #12 シニア 月給 1,000,000円 AI: なし',
+    );
+  });
+  it.each([
+    ['strong', '強い'],
+    ['normal', '普通'],
+    ['cheap', '安い'],
+  ] as const)('AIエージェント %s を付けていれば短い名前「%s」を出す(#53)', (aiAgent, name) => {
+    expect(formatSelectedEngineer({ ...makeEngineer(3, 'junior', 0), aiAgent })).toBe(
+      `選択: #3 ジュニア 月給 300,000円 AI: ${name}`,
     );
   });
   it('null は対象なし', () => {
