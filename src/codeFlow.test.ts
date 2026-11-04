@@ -3,9 +3,11 @@ import { ENGINEER_SPAWN_CELLS } from './config';
 import {
   advanceCode,
   initialSpawnElapsed,
+  moveDistanceUnlessPaused,
   pickCodeKind,
   spawnCode,
   stepSpawnTimer,
+  stepSpawnTimerUnlessPaused,
 } from './codeFlow';
 import type { FlowingCode } from './codeFlow';
 import { RELEASE_POINT_CENTER } from './releasePoint';
@@ -135,6 +137,109 @@ describe('stepSpawnTimer（境界値）', () => {
 
   it('初回（初期値）はすぐ生成する', () => {
     expect(stepSpawnTimer(initialSpawnElapsed(interval), 0, interval).spawn).toBe(true);
+  });
+});
+
+describe('stepSpawnTimerUnlessPaused（休暇中の停止 #36・境界値）', () => {
+  const interval = 2000;
+  // 1 か月分の大きい delta。
+  const huge = 60000;
+
+  it.each([interval - 1, interval, interval + 1])('停止中は elapsed + delta = %i でも生成せず、入力値を保持する', (total) => {
+    expect(stepSpawnTimerUnlessPaused(0, total, interval, true)).toEqual({ elapsedMs: 0, spawn: false });
+    expect(stepSpawnTimerUnlessPaused(interval - 1, total - (interval - 1), interval, true)).toEqual({
+      elapsedMs: interval - 1,
+      spawn: false,
+    });
+  });
+
+  it('停止中は初期値と delta = 0 でも生成せず、解除後は生成する', () => {
+    const initial = initialSpawnElapsed(interval);
+    expect(stepSpawnTimerUnlessPaused(initial, 0, interval, true)).toEqual({ elapsedMs: initial, spawn: false });
+    expect(stepSpawnTimerUnlessPaused(initial, 0, interval, false)).toEqual({ elapsedMs: 0, spawn: true });
+  });
+
+  it('停止中は大きい delta でも生成せず、値を保持する', () => {
+    expect(stepSpawnTimerUnlessPaused(interval - 1, huge, interval, true)).toEqual({
+      elapsedMs: interval - 1,
+      spawn: false,
+    });
+  });
+
+  it.each<[number, number, boolean]>([
+    [0, interval - 1, false],
+    [1, 0, true],
+    [2, 1, true],
+  ])('解除後、凍結値 interval - 1 に delta = %i → 経過 %i・生成 %s', (delta, elapsedMs, spawn) => {
+    expect(stepSpawnTimerUnlessPaused(interval - 1, delta, interval, false)).toEqual({ elapsedMs, spawn });
+  });
+
+  it('解除後は大きい delta でも 1 個だけで、経過時間は間隔未満', () => {
+    const result = stepSpawnTimerUnlessPaused(interval - 1, huge, interval, false);
+    expect(result.spawn).toBe(true);
+    expect(result.elapsedMs).toBeGreaterThanOrEqual(0);
+    expect(result.elapsedMs).toBeLessThan(interval);
+  });
+
+  it.each<[number, number]>([
+    [0, interval - 1],
+    [0, interval],
+    [interval - 1, 2],
+    [0, huge],
+  ])('停止していなければ stepSpawnTimer と同じ（elapsed %i, delta %i）', (elapsedMs, delta) => {
+    expect(stepSpawnTimerUnlessPaused(elapsedMs, delta, interval, false)).toEqual(
+      stepSpawnTimer(elapsedMs, delta, interval),
+    );
+  });
+});
+
+describe('moveDistanceUnlessPaused（休暇中の停止 #36・境界値）', () => {
+  it.each([0, 1, 30, 1e6])('停止中は基準 %i でも 0', (distance) => {
+    expect(moveDistanceUnlessPaused(distance, true)).toBe(0);
+  });
+
+  it.each([0, 1, 30, 1e6])('停止していなければ基準 %i をそのまま返す', (distance) => {
+    expect(moveDistanceUnlessPaused(distance, false)).toBe(distance);
+  });
+
+  it.each(['normal', 'malicious'] as const)(
+    '%s: 残り 1px のコードに停止中の大きい距離を渡してもリリースされず、元のオブジェクトのまま',
+    (kind) => {
+      const code = spawnCode(1, kind, topRoute);
+      const nearEnd = advanceCode(code, pathLength(code.path) - 1);
+      expect(nearEnd.released).toBe(false);
+      const next = advanceCode(nearEnd, moveDistanceUnlessPaused(1e6, true));
+      expect(next).toBe(nearEnd);
+      expect(next.released).toBe(false);
+      expect(next.id).toBe(nearEnd.id);
+      expect(next.kind).toBe(kind);
+      expect(next.path).toBe(nearEnd.path);
+      expect(next.segmentIndex).toBe(nearEnd.segmentIndex);
+      expect(next.position).toEqual(nearEnd.position);
+    },
+  );
+
+  describe('解除後のリリース境界', () => {
+    const code = spawnCode(1, 'malicious', topRoute);
+    const total = pathLength(code.path);
+    // 途中まで進めたあと停止し、解除後に残り距離 - 1 / 一致 / + 1 を渡す。
+    const half = advanceCode(code, total / 2);
+    const frozen = advanceCode(half, moveDistanceUnlessPaused(total, true));
+    const remaining = total - total / 2;
+
+    it.each<[string, number, boolean]>([
+      ['残り距離 - 1', remaining - 1, false],
+      ['残り距離ちょうど', remaining, true],
+      ['残り距離 + 1', remaining + 1, true],
+    ])('%s は released=%s', (_label, distance, released) => {
+      expect(frozen).toBe(half);
+      const next = advanceCode(frozen, moveDistanceUnlessPaused(distance, false));
+      expect(next.released).toBe(released);
+      if (released) {
+        expect(next.position.x).toBeCloseTo(RELEASE_POINT_CENTER.x);
+        expect(next.position.y).toBeCloseTo(RELEASE_POINT_CENTER.y);
+      }
+    });
   });
 });
 

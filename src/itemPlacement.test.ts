@@ -150,6 +150,12 @@ describe('isPlaceableCell: 置ける場所', () => {
     [{ col: 7, row: 1 }, true], // HUD の右隣（行1）
     [{ col: 6, row: 2 }, false], // HUD と重なるセルの右端（行2）
     [{ col: 7, row: 2 }, true], // HUD の右隣（行2）
+    [{ col: 1, row: 3 }, false], // HUD の最下行（行3、技術的負債）の左端
+    [{ col: 6, row: 3 }, false], // HUD と重なるセルの右端（行3）
+    [{ col: 7, row: 3 }, true], // HUD の右隣（行3）
+    [{ col: 1, row: 4 }, false], // 昇給・減給ボタン(#34)の左端（行4）
+    [{ col: 6, row: 4 }, false], // 昇給・減給ボタン(#34)と重なるセルの右端（行4）
+    [{ col: 7, row: 4 }, true], // 昇給・減給ボタン(#34)の右隣（行4）
     [{ col: 1, row: 1 }, false], // HUD の左端
     [{ col: 0, row: 1 }, true], // 出現列（ルートが無ければ置ける）
     [{ col: 3, row: lastRow - 1 }, true], // UI の行の1つ内側
@@ -167,9 +173,11 @@ describe('isPlaceableCell: 置ける場所', () => {
   it('ルート上のセルは不可、その隣は可', () => {
     expect(isPlaceableCell({ col: 3, row: 3 }, ctx)).toBe(false);
     expect(isPlaceableCell({ col: 3, row: 2 }, ctx)).toBe(false); // 隣だが HUD と重なる
-    expect(isPlaceableCell({ col: 3, row: 4 }, ctx)).toBe(true);
+    expect(isPlaceableCell({ col: 3, row: 4 }, ctx)).toBe(false); // 隣だが昇給・減給ボタン(#34)と重なる
     expect(isPlaceableCell({ col: 5, row: 4 }, ctx)).toBe(false);
-    expect(isPlaceableCell({ col: 6, row: 4 }, ctx)).toBe(true);
+    expect(isPlaceableCell({ col: 6, row: 4 }, ctx)).toBe(false); // 隣だが昇給・減給ボタン(#34)と重なる
+    expect(isPlaceableCell({ col: 5, row: 6 }, ctx)).toBe(true);
+    expect(isPlaceableCell({ col: 7, row: 4 }, ctx)).toBe(true);
   });
 
   it('出現セルは不可、その隣は可', () => {
@@ -203,8 +211,26 @@ describe('isPlaceableCell: 置ける場所', () => {
 });
 
 describe('isPlaceableCell: HUD の下', () => {
-  it('行3 col1 は（ルートが無ければ）置ける', () => {
-    expect(isPlaceableCell({ col: 1, row: 3 }, { routes: [], placedItems: [] })).toBe(true);
+  it('行3 col1 は HUD（技術的負債の行）と重なるため置けない', () => {
+    expect(isPlaceableCell({ col: 1, row: 3 }, { routes: [], placedItems: [] })).toBe(false);
+  });
+
+  // 行3〜4 は昇給・減給の情報行・ボタン(#34)と重なるため置けない。その下の行5から置ける。
+  it.each([3, 4])('行%i col1〜6 は置けず、col7 は置ける（ルートが無いとき）', (row) => {
+    for (let col = 1; col <= 6; col += 1) {
+      expect(isPlaceableCell({ col, row }, { routes: [], placedItems: [] })).toBe(false);
+    }
+    expect(isPlaceableCell({ col: 7, row }, { routes: [], placedItems: [] })).toBe(true);
+  });
+
+  it('行4 col1 は昇給・減給ボタン(#34)と重なるため置けない', () => {
+    expect(isPlaceableCell({ col: 1, row: 4 }, { routes: [], placedItems: [] })).toBe(false);
+  });
+
+  it('行5 col1〜6 は（ルートが無ければ）置ける', () => {
+    for (let col = 1; col <= 6; col += 1) {
+      expect(isPlaceableCell({ col, row: 5 }, { routes: [], placedItems: [] })).toBe(true);
+    }
   });
 });
 
@@ -294,7 +320,7 @@ describe('purchaseItem: 成功時の結果', () => {
     let current = state();
     const ids: number[] = [];
     for (let col = 1; col <= 3; col++) {
-      const result = purchaseItem(current, 'linter', { col, row: 4 }, options);
+      const result = purchaseItem(current, 'linter', { col, row: 6 }, options);
       if (!result.ok) throw new Error('purchase failed');
       ids.push(result.item.id);
       current = { ...current, placedItems: result.placedItems, nextId: result.item.id + 1, funds: result.fundsAfter };

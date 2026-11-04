@@ -82,6 +82,18 @@ export const stepSpawnTimer = (
   return { elapsedMs: total % intervalMs, spawn: true };
 };
 
+// 停止中（担当者の休暇中 #36）は経過時間を進めず、生成もしない。停止していなければ stepSpawnTimer と同じ。
+export const stepSpawnTimerUnlessPaused = (
+  elapsedMs: number,
+  deltaMs: number,
+  intervalMs: number,
+  paused: boolean,
+): { readonly elapsedMs: number; readonly spawn: boolean } =>
+  paused ? { elapsedMs, spawn: false } : stepSpawnTimer(elapsedMs, deltaMs, intervalMs);
+
+// そのコードを進める距離。停止中（担当者の休暇中 #36）は 0 で、advanceCode は元のコードをそのまま返す。
+export const moveDistanceUnlessPaused = (distance: number, paused: boolean): number => (paused ? 0 : distance);
+
 // random(0以上1未満) が割合未満なら不正コード。
 export const pickCodeKind = (random: () => number, maliciousRate: number): CodeKind =>
   random() < maliciousRate ? 'malicious' : 'normal';

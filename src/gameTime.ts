@@ -1,7 +1,7 @@
 import { DAYS_PER_GAME_MONTH, ELAPSED_DAYS_FORMAT, MS_PER_GAME_MONTH } from './config';
 
 // ゲーム内時計。Phaser に依存しない純粋関数だけを置く。
-// 時計は「経過msを累積する」形。一時停止・休暇中に時間を止めるかは未決定。
+// 時計は「経過msを累積する」形。個別の休暇(#36)ではゲーム時計を止めない。一時停止で時間を止めるかは未決定。
 // 決まったら、停止中は advanceElapsedMs を呼ばない（累積を止める）だけで足せる。
 
 export const MS_PER_GAME_DAY = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH;

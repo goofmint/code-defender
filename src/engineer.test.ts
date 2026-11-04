@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CODE_SPAWN_INTERVAL_MS,
   ENGINEER_HIRE_COST,
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
@@ -11,6 +12,9 @@ import {
   ENGINEER_PERSONALITY_TENDENCIES,
   ENGINEER_PERSONALITY_WEIGHTS,
   ENGINEER_RANKS,
+  ENGINEER_SALARY_MAX,
+  ENGINEER_SALARY_MIN,
+  ENGINEER_SALARY_STEP,
   ENGINEER_SPAWN_CELLS,
   ENGINEER_TENDENCY_OFFSETS,
   INITIAL_ENGINEER_RANKS,
@@ -19,6 +23,7 @@ import {
 } from './config';
 import {
   adjustEngineerParameter,
+  adjustEngineerSalary,
   applyPersonalityTendencies,
   assignEngineerRoute,
   clampEngineerParameter,
@@ -33,11 +38,17 @@ import {
   formatEngineerCount,
   formatHireButton,
   formatHireMessage,
+  formatSalaryButton,
+  formatSalaryMessage,
+  formatSelectedEngineer,
   getInitialSalary,
   hireEngineer,
+  isAssigneeOnVacation,
   isEngineerOnVacation,
   isEngineerRank,
+  isRouteOnVacation,
   pickRandomPersonality,
+  selectAdjacentEngineerId,
   setEngineerVacation,
   toggleEngineerVacation,
   updateEngineerParameters,
@@ -48,8 +59,11 @@ import type {
   EngineerPersonalityId,
   EngineerRank,
   HireRules,
+  SalaryAdjustResult,
+  SalaryDirection,
 } from './engineer';
 import { addRoute, createRoutes, nextSpawnCell } from './route';
+import { advanceCode, moveDistanceUnlessPaused, spawnCode, stepSpawnTimerUnlessPaused } from './codeFlow';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
 
 const rules: HireRules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
@@ -476,6 +490,90 @@ describe('findEngineerByRoute / findRouteIdOfEngineer', () => {
     [99, null],
   ])('エンジニア%i のルートは %s', (engineerId, expected) => {
     expect(findRouteIdOfEngineer(engineers, engineerId)).toBe(expected);
+  });
+});
+
+describe('休暇中はそのエンジニアのコードを止める(#36): isRouteOnVacation', () => {
+  // ルート0: 休暇中、ルート1: 勤務中、ルート2: 担当なし、エンジニア2: ルートなし（routeId === null）で休暇中。
+  const engineers: Engineer[] = [
+    { ...makeEngineer(0, 'junior', 0), onVacation: true },
+    makeEngineer(1, 'middle', 1),
+    { ...makeEngineer(2, 'senior', null), onVacation: true },
+  ];
+  it.each<[string, readonly Engineer[], number, boolean]>([
+    ['担当者が休暇中', engineers, 0, true],
+    ['担当者が勤務中', engineers, 1, false],
+    ['担当者がいない', engineers, 2, false],
+    ['存在しないルート id', engineers, -1, false],
+    ['エンジニア 0 人', [], 0, false],
+  ])('%s（ルート%i） → %s', (_label, list, routeId, expected) => {
+    expect(isRouteOnVacation(list, routeId)).toBe(expected);
+  });
+  it('ルートなし（routeId === null）の休暇中エンジニアはどのルートも止めない', () => {
+    const onlyUnrouted = [engineers[2]];
+    expect([0, 1, 2].map((routeId) => isRouteOnVacation(onlyUnrouted, routeId))).toEqual([false, false, false]);
+  });
+  it('複数エンジニアのうち休暇中の担当ルートだけが止まる', () => {
+    const many = toggleEngineerVacation(makeEngineers(4), 2);
+    expect([0, 1, 2, 3].map((routeId) => isRouteOnVacation(many, routeId))).toEqual([false, false, true, false]);
+  });
+  it('toggleEngineerVacation を 1 回で true、2 回で false', () => {
+    const base = makeEngineers(2);
+    const once = toggleEngineerVacation(base, 1);
+    expect(isRouteOnVacation(once, 1)).toBe(true);
+    expect(isRouteOnVacation(toggleEngineerVacation(once, 1), 1)).toBe(false);
+  });
+  it.each<[string, Engineer | undefined, boolean]>([
+    ['休暇中', { ...makeEngineer(0, 'junior', 0), onVacation: true }, true],
+    ['勤務中', makeEngineer(0, 'junior', 0), false],
+    ['担当者なし(undefined)', undefined, false],
+  ])('isAssigneeOnVacation: %s → %s', (_label, engineer, expected) => {
+    expect(isAssigneeOnVacation(engineer)).toBe(expected);
+  });
+  it('入力を変更しない', () => {
+    const snapshot = structuredClone(engineers);
+    isRouteOnVacation(engineers, 0);
+    expect(engineers).toEqual(snapshot);
+  });
+});
+
+describe('休暇中はそのエンジニアのコードを止める(#36): 複数フレームの合成', () => {
+  // main.ts の updateCodes と同じ順に、休暇の切替 → ルートの判定 → 生成タイマー・移動を組み合わせる。
+  const interval = CODE_SPAWN_INTERVAL_MS;
+  const route = createRoutes(ENGINEER_SPAWN_CELLS, () => 0)[0];
+  const frame = (
+    engineers: readonly Engineer[],
+    elapsedMs: number,
+    deltaMs: number,
+  ): { readonly elapsedMs: number; readonly spawn: boolean } =>
+    stepSpawnTimerUnlessPaused(elapsedMs, deltaMs, interval, isRouteOnVacation(engineers, route.id));
+
+  it('休暇中は何フレームでも凍結し、解除後は保持値から再開する', () => {
+    let engineers: readonly Engineer[] = [makeEngineer(0, 'junior', route.id)];
+    // 勤務中に間隔 - 1 まで進める。
+    let timer = frame(engineers, 0, interval - 1);
+    expect(timer).toEqual({ elapsedMs: interval - 1, spawn: false });
+    engineers = toggleEngineerVacation(engineers, 0);
+    for (const delta of [1, interval, interval * 30]) {
+      timer = frame(engineers, timer.elapsedMs, delta);
+      expect(timer).toEqual({ elapsedMs: interval - 1, spawn: false });
+    }
+    engineers = toggleEngineerVacation(engineers, 0);
+    expect(frame(engineers, timer.elapsedMs, 0)).toEqual({ elapsedMs: interval - 1, spawn: false });
+    expect(frame(engineers, timer.elapsedMs, 1)).toEqual({ elapsedMs: 0, spawn: true });
+  });
+
+  it('休暇中のルートのコードは進まず、解除後に進む。他のルートは影響を受けない', () => {
+    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0);
+    let engineers: readonly Engineer[] = toggleEngineerVacation(makeEngineers(2), 0);
+    const paused = spawnCode(1, 'malicious', routes[0]);
+    const working = spawnCode(2, 'normal', routes[1]);
+    const step = (code: ReturnType<typeof spawnCode>) =>
+      advanceCode(code, moveDistanceUnlessPaused(30, isRouteOnVacation(engineers, code.routeId)));
+    expect(step(paused)).toBe(paused);
+    expect(step(working).position).not.toEqual(working.position);
+    engineers = toggleEngineerVacation(engineers, 0);
+    expect(step(paused).position).not.toEqual(paused.position);
   });
 });
 
@@ -1286,5 +1384,236 @@ describe('給料の初期額をランクで決める(#33)', () => {
   it('assignEngineerRoute のあとも salary は変わらない', () => {
     const engineers: Engineer[] = [{ ...makeEngineer(0, 'junior', null), salary: 350000 }];
     expect(assignEngineerRoute(engineers, 0, 4)[0].salary).toBe(350000);
+  });
+});
+
+describe('adjustEngineerSalary: 上限の境界(#34)', () => {
+  const MAX = ENGINEER_SALARY_MAX;
+  const STEP = ENGINEER_SALARY_STEP;
+  it.each<[string, number, SalaryDirection, number]>([
+    ['MAX−STEP の昇給は MAX', MAX - STEP, 'raise', MAX],
+    ['MAX−1 の昇給は MAX に収める', MAX - 1, 'raise', MAX],
+    ['MAX の減給は MAX−STEP', MAX, 'cut', MAX - STEP],
+  ])('%s', (_name, salary, direction, expected) => {
+    const result = adjustEngineerSalary([{ ...makeEngineer(0, 'junior', 0), salary }], 0, direction);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.salaryBefore).toBe(salary);
+    expect(result.salaryAfter).toBe(expected);
+    expect(result.engineer.salary).toBe(expected);
+    expect(result.engineers.map((e) => e.salary)).toEqual([expected]);
+  });
+
+  it.each([
+    ['MAX', MAX],
+    ['MAX+1', MAX + 1],
+  ])('%s の昇給は at-max で拒否', (_name, salary) => {
+    expect(adjustEngineerSalary([{ ...makeEngineer(0, 'junior', 0), salary }], 0, 'raise')).toEqual({
+      ok: false,
+      direction: 'raise',
+      engineerId: 0,
+      reason: 'at-max',
+    });
+  });
+});
+
+describe('adjustEngineerSalary: 下限の境界(#34)', () => {
+  const MIN = ENGINEER_SALARY_MIN;
+  const STEP = ENGINEER_SALARY_STEP;
+  it.each<[string, number, SalaryDirection, number]>([
+    ['MIN+STEP の減給は MIN', MIN + STEP, 'cut', MIN],
+    ['MIN+1 の減給は MIN に収める', MIN + 1, 'cut', MIN],
+    ['MIN の昇給は MIN+STEP', MIN, 'raise', MIN + STEP],
+  ])('%s', (_name, salary, direction, expected) => {
+    const result = adjustEngineerSalary([{ ...makeEngineer(0, 'junior', 0), salary }], 0, direction);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.salaryBefore).toBe(salary);
+    expect(result.salaryAfter).toBe(expected);
+  });
+
+  it.each([
+    ['MIN', MIN],
+    ['MIN−1', MIN - 1],
+  ])('%s の減給は at-min で拒否', (_name, salary) => {
+    expect(adjustEngineerSalary([{ ...makeEngineer(0, 'junior', 0), salary }], 0, 'cut')).toEqual({
+      ok: false,
+      direction: 'cut',
+      engineerId: 0,
+      reason: 'at-min',
+    });
+  });
+});
+
+describe('adjustEngineerSalary: 連続操作(#34)', () => {
+  it('ジュニアの初期額から昇給を繰り返すと MAX に届き、その後の昇給は at-max、減給は成功', () => {
+    const initial = getInitialSalary('junior');
+    const times = (ENGINEER_SALARY_MAX - initial) / ENGINEER_SALARY_STEP;
+    expect(Number.isInteger(times)).toBe(true);
+    let engineers: readonly Engineer[] = [makeEngineer(0, 'junior', 0)];
+    for (let i = 1; i <= times; i += 1) {
+      const result = adjustEngineerSalary(engineers, 0, 'raise');
+      if (!result.ok) throw new Error(`raise ${i} failed: ${result.reason}`);
+      expect(result.salaryAfter).toBe(initial + ENGINEER_SALARY_STEP * i);
+      engineers = result.engineers;
+    }
+    expect(engineers[0].salary).toBe(ENGINEER_SALARY_MAX);
+    expect(adjustEngineerSalary(engineers, 0, 'raise')).toMatchObject({ ok: false, reason: 'at-max' });
+    const cut = adjustEngineerSalary(engineers, 0, 'cut');
+    expect(cut).toMatchObject({ ok: true, salaryAfter: ENGINEER_SALARY_MAX - ENGINEER_SALARY_STEP });
+  });
+
+  it('ジュニアの初期額から減給を繰り返すと MIN に届き、その後の減給は at-min', () => {
+    const initial = getInitialSalary('junior');
+    const times = (initial - ENGINEER_SALARY_MIN) / ENGINEER_SALARY_STEP;
+    let engineers: readonly Engineer[] = [makeEngineer(0, 'junior', 0)];
+    for (let i = 1; i <= times; i += 1) {
+      const result = adjustEngineerSalary(engineers, 0, 'cut');
+      if (!result.ok) throw new Error(`cut ${i} failed: ${result.reason}`);
+      engineers = result.engineers;
+    }
+    expect(engineers[0].salary).toBe(ENGINEER_SALARY_MIN);
+    expect(adjustEngineerSalary(engineers, 0, 'cut')).toMatchObject({ ok: false, reason: 'at-min' });
+  });
+});
+
+describe('adjustEngineerSalary: 不正な月給・対象なし(#34)', () => {
+  it.each<[number, SalaryDirection]>([
+    [Number.NaN, 'raise'],
+    [Number.NaN, 'cut'],
+    [Number.POSITIVE_INFINITY, 'raise'],
+    [Number.POSITIVE_INFINITY, 'cut'],
+    [Number.NEGATIVE_INFINITY, 'raise'],
+    [Number.NEGATIVE_INFINITY, 'cut'],
+  ])('salary %d の %s は invalid-salary で拒否', (salary, direction) => {
+    expect(adjustEngineerSalary([{ ...makeEngineer(0, 'junior', 0), salary }], 0, direction)).toEqual({
+      ok: false,
+      direction,
+      engineerId: 0,
+      reason: 'invalid-salary',
+    });
+  });
+
+  it.each<[string, readonly Engineer[], number | null]>([
+    ['存在しない id', makeEngineers(3), 99],
+    ['空の名簿', [], 0],
+    ['選択なし（null）', makeEngineers(3), null],
+  ])('%s は not-found で拒否', (_name, engineers, engineerId) => {
+    expect(adjustEngineerSalary(engineers, engineerId, 'raise')).toEqual({
+      ok: false,
+      direction: 'raise',
+      engineerId,
+      reason: 'not-found',
+    });
+  });
+
+  it('not-found は invalid-salary より先に判定する（他人の月給が不正でも対象なし）', () => {
+    const engineers = [{ ...makeEngineer(0, 'junior', 0), salary: Number.NaN }];
+    expect(adjustEngineerSalary(engineers, 1, 'raise')).toMatchObject({ ok: false, reason: 'not-found' });
+  });
+});
+
+describe('adjustEngineerSalary: 対象の特定と不変性(#34)', () => {
+  it('配列の位置と異なる id でも正しいエンジニアが変わり、同じランクの他のエンジニアは変わらない', () => {
+    const engineers = [makeEngineer(5, 'junior', 0), makeEngineer(2, 'junior', 1), makeEngineer(9, 'junior', 2)];
+    const result = adjustEngineerSalary(engineers, 2, 'raise');
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.engineers.map((e) => [e.id, e.salary])).toEqual([
+      [5, getInitialSalary('junior')],
+      [2, getInitialSalary('junior') + ENGINEER_SALARY_STEP],
+      [9, getInitialSalary('junior')],
+    ]);
+    expect(result.engineers[0]).toBe(engineers[0]);
+    expect(result.engineers[2]).toBe(engineers[2]);
+    expect(result.engineer).toBe(result.engineers[1]);
+  });
+
+  it('対象以外のフィールドは変わらず、凍結した入力も変更しない', () => {
+    const target = Object.freeze({
+      ...makeEngineer(1, 'middle', 4),
+      personality: 'cheerful' as EngineerPersonalityId,
+      salary: 450000,
+      fatigue: 12.5,
+      concentration: 34,
+      skill: 56,
+      attachment: 78,
+    });
+    const other = Object.freeze(makeEngineer(0, 'senior', 3));
+    const engineers = Object.freeze([other, target]);
+    const result = adjustEngineerSalary(engineers, 1, 'cut');
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.engineer).toEqual({ ...target, salary: 450000 - ENGINEER_SALARY_STEP });
+    expect(result.engineers[0]).toBe(other);
+    expect(target.salary).toBe(450000);
+    expect(engineers).toEqual([other, target]);
+    expect(result.engineers).not.toBe(engineers);
+  });
+
+  it('失敗時は名簿を返さない', () => {
+    const result = adjustEngineerSalary([{ ...makeEngineer(0, 'junior', 0), salary: ENGINEER_SALARY_MAX }], 0, 'raise');
+    expect('engineers' in result).toBe(false);
+  });
+});
+
+describe('formatSalaryMessage(#34)', () => {
+  const ok = (direction: SalaryDirection): SalaryAdjustResult =>
+    adjustEngineerSalary([makeEngineer(3, 'junior', 0)], 3, direction);
+  it.each<[string, SalaryAdjustResult, string]>([
+    ['昇給', ok('raise'), '#3 昇給: 300,000円→350,000円'],
+    ['減給', ok('cut'), '#3 減給: 300,000円→250,000円'],
+    ['上限', { ok: false, direction: 'raise', engineerId: 3, reason: 'at-max' }, 'これ以上昇給できません（上限 1,000,000円）'],
+    ['下限', { ok: false, direction: 'cut', engineerId: 3, reason: 'at-min' }, 'これ以上減給できません（下限 100,000円）'],
+    ['不正な月給', { ok: false, direction: 'raise', engineerId: 3, reason: 'invalid-salary' }, '#3 の月給が不正です'],
+    ['対象なし', { ok: false, direction: 'raise', engineerId: null, reason: 'not-found' }, '対象のエンジニアがいません'],
+  ])('%s', (_name, result, expected) => {
+    expect(formatSalaryMessage(result)).toBe(expected);
+  });
+
+  it('結果の種類ごとに異なる文言', () => {
+    const messages = [
+      formatSalaryMessage(ok('raise')),
+      formatSalaryMessage(ok('cut')),
+      ...(['at-max', 'at-min', 'invalid-salary', 'not-found'] as const).map((reason) =>
+        formatSalaryMessage({ ok: false, direction: 'raise', engineerId: 3, reason }),
+      ),
+    ];
+    expect(new Set(messages).size).toBe(messages.length);
+  });
+});
+
+describe('selectAdjacentEngineerId(#34)', () => {
+  const engineers = [makeEngineer(4, 'junior', 0), makeEngineer(7, 'junior', 1), makeEngineer(2, 'junior', 2)];
+  it.each<[string, readonly Engineer[], number | null, 'previous' | 'next', number | null]>([
+    ['空の名簿・次へ', [], null, 'next', null],
+    ['空の名簿・前へ（id あり）', [], 4, 'previous', null],
+    ['1人・次へ', [makeEngineer(4, 'junior', 0)], 4, 'next', 4],
+    ['1人・前へ', [makeEngineer(4, 'junior', 0)], 4, 'previous', 4],
+    ['中間から次へ', engineers, 7, 'next', 2],
+    ['中間から前へ', engineers, 7, 'previous', 4],
+    ['先頭から前へは末尾', engineers, 4, 'previous', 2],
+    ['末尾から次へは先頭', engineers, 2, 'next', 4],
+    ['先頭から次へ', engineers, 4, 'next', 7],
+    ['末尾から前へ', engineers, 2, 'previous', 7],
+    ['null・次へは先頭', engineers, null, 'next', 4],
+    ['null・前へも先頭', engineers, null, 'previous', 4],
+    ['存在しない id・次へは先頭', engineers, 99, 'next', 4],
+    ['存在しない id・前へも先頭', engineers, 99, 'previous', 4],
+  ])('%s', (_name, list, currentId, direction, expected) => {
+    expect(selectAdjacentEngineerId(list, currentId, direction)).toBe(expected);
+  });
+});
+
+describe('formatSelectedEngineer / formatSalaryButton(#34)', () => {
+  it('通常の表示', () => {
+    expect(formatSelectedEngineer(makeEngineer(3, 'junior', 0))).toBe('選択: #3 ジュニア 月給 300,000円');
+    expect(formatSelectedEngineer({ ...makeEngineer(12, 'senior', 0), salary: ENGINEER_SALARY_MAX })).toBe(
+      '選択: #12 シニア 月給 1,000,000円',
+    );
+  });
+  it('null は対象なし', () => {
+    expect(formatSelectedEngineer(null)).toBe('選択: 対象なし');
+  });
+  it('ボタンのラベル', () => {
+    expect(formatSalaryButton('Q', '前へ')).toBe('[Q] 前へ');
   });
 });

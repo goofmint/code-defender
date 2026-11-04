@@ -53,14 +53,25 @@ import {
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
   PENALTY_TEXT_RISE_PX,
+  SALARY_ADJUST_KEYS,
+  SALARY_BUTTON_FONT_SIZE,
+  SALARY_BUTTON_LABELS,
+  SALARY_BUTTON_ORDER,
+  SALARY_BUTTON_SIZE,
+  SALARY_SELECT_KEYS,
+  SALARY_UI_POSITION,
+  SELECTED_ENGINEER_FONT_SIZE,
+  SELECTED_ENGINEER_POSITION,
+  TECH_DEBT_POSITION,
 } from './config';
 import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
 import { formatCumulativeSales } from './score';
+import { formatTechDebt } from './techDebt';
 import { buildGameOverLines } from './gameOver';
-import { formatEngineerCount, formatHireButton } from './engineer';
-import type { EngineerRank } from './engineer';
+import { formatEngineerCount, formatHireButton, formatSalaryButton, formatSelectedEngineer } from './engineer';
+import type { Engineer, EngineerRank, EngineerSelectDirection, SalaryDirection } from './engineer';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
 import {
   ITEM_ATTACK_LINE,
@@ -400,6 +411,18 @@ export const drawCumulativeSales = (scene: Phaser.Scene, score: number): Phaser.
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
 
+// 技術的負債（HUD 4行目）。値が変わったら MainScene が setText() で更新する。
+export const drawTechDebt = (scene: Phaser.Scene, debt: number): Phaser.GameObjects.Text =>
+  scene.add
+    .text(TECH_DEBT_POSITION.x, TECH_DEBT_POSITION.y, formatTechDebt(debt), {
+      fontSize: ELAPSED_DAYS_STYLE.fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ELAPSED_DAYS_STYLE.color,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
 // 仮: HUD(2)より上。
 const GAME_OVER_DEPTH = 3;
 // ゲームオーバー表示（全面の半透明オーバーレイと中央のタイトル・スコア・経過日数・案内の4行テキスト）。返した Container を destroy すると消える。
@@ -493,6 +516,60 @@ export const drawHireMessage = (scene: Phaser.Scene, message: string): Phaser.Ga
     .setDepth(ELAPSED_DAYS_DEPTH);
   scene.time.delayedCall(HIRE_MESSAGE_DURATION_MS, () => text.destroy());
   return text;
+};
+
+// 選択中のエンジニアの情報行(#34)。返した Text の setText(formatSelectedEngineer(...)) で更新する。
+export const drawSelectedEngineer = (scene: Phaser.Scene, engineer: Engineer | null): Phaser.GameObjects.Text =>
+  scene.add
+    .text(
+      SELECTED_ENGINEER_POSITION.x,
+      SELECTED_ENGINEER_POSITION.y,
+      formatSelectedEngineer(engineer),
+      hireTextStyle(SELECTED_ENGINEER_FONT_SIZE),
+    )
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
+// 昇給・減給の操作ボタン(#34)。左から前へ・次へ・昇給・減給（SALARY_BUTTON_ORDER）。前へ・次へは onSelect、昇給・減給は onAdjust を呼ぶ。
+// 見た目・当たり判定・深さは drawHireButtons と同じ。stopPropagation はしない（main.ts が currentlyOver で移動・攻撃を止める）。
+export const drawSalaryButtons = (
+  scene: Phaser.Scene,
+  onSelect: (direction: EngineerSelectDirection) => void,
+  onAdjust: (direction: SalaryDirection) => void,
+): Phaser.GameObjects.Container[] => {
+  const keys = { ...SALARY_SELECT_KEYS, ...SALARY_ADJUST_KEYS };
+  const press = (action: (typeof SALARY_BUTTON_ORDER)[number]): void => {
+    if (action === 'previous' || action === 'next') {
+      onSelect(action);
+      return;
+    }
+    onAdjust(action);
+  };
+  return SALARY_BUTTON_ORDER.map((action, index) => {
+    const { width, height, gap } = SALARY_BUTTON_SIZE;
+    const x = SALARY_UI_POSITION.x + index * (width + gap);
+    const background = scene.add
+      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+      .setOrigin(0)
+      .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
+    const label = scene.add
+      .text(width / 2, height / 2, formatSalaryButton(keys[action], SALARY_BUTTON_LABELS[action]), {
+        fontSize: SALARY_BUTTON_FONT_SIZE,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: HIRE_BUTTON_COLORS.text,
+      })
+      .setOrigin(0.5);
+    const button = scene.add
+      .container(x, SALARY_UI_POSITION.y, [background, label])
+      .setSize(width, height)
+      .setDepth(ELAPSED_DAYS_DEPTH);
+    // drawHireButtons と同じ。表示範囲と当たり判定を一致させるため矩形を半分ずらす。
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    button.on('pointerdown', () => press(action));
+    return button;
+  });
 };
 
 // 置いたアイテム（セル内の色付き四角と短い文字）。主人公(1)より下、コード(0.5)と同じ深さ。
