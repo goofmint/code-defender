@@ -64,9 +64,10 @@ import {
   CODE_RELEASED_EVENT,
   advanceCode,
   initialSpawnElapsed,
+  moveDistanceUnlessPaused,
   pickCodeKind,
   spawnCode,
-  stepSpawnTimer,
+  stepSpawnTimerUnlessPaused,
 } from './codeFlow';
 import type { CodeReleasedPayload, FlowingCode } from './codeFlow';
 import {
@@ -109,7 +110,9 @@ import {
   formatEngineerCount,
   formatHireMessage,
   hireEngineer,
+  isAssigneeOnVacation,
   isEngineerOnVacation,
+  isRouteOnVacation,
   shouldAddRouteOnHire,
   toggleEngineerVacation,
 } from './engineer';
@@ -145,7 +148,7 @@ class MainScene extends Phaser.Scene {
   private lastAttackTime: number | null = null;
   // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
   private attackPointerHeld = false;
-  // ゲーム内の経過ミリ秒（累積）。一時停止・休暇中に止めるかは未決定。止める場合は加算をやめるだけでよい。
+  // ゲーム内の経過ミリ秒（累積）。個別の休暇(#36)ではゲーム時計を止めない。一時停止で止めるかは未決定で、止める場合は加算をやめるだけでよい。
   private elapsedMs = 0;
   private elapsedDaysText?: Phaser.GameObjects.Text;
   private displayedDays = 0;
@@ -602,15 +605,18 @@ class MainScene extends Phaser.Scene {
 
   private updateCodes(delta: number): void {
     for (const route of this.routes) {
-      const step = stepSpawnTimer(
+      // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
+      const engineer = findEngineerByRoute(this.engineers, route.id);
+      // 担当者の休暇中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
+      const step = stepSpawnTimerUnlessPaused(
         this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(CODE_SPAWN_INTERVAL_MS),
         delta,
         CODE_SPAWN_INTERVAL_MS,
+        isAssigneeOnVacation(engineer),
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
         // 担当エンジニアのランクに応じた割合(#12)に補正(#13)を加える。担当者がいないルートは既定の割合を使う。
-        const engineer = findEngineerByRoute(this.engineers, route.id);
         const rank = engineer?.rank;
         const rate = effectiveMaliciousRate(rank, this.elapsedMs, this.maliciousRateModifiersFor(engineer));
         const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, rate), route);
@@ -629,7 +635,9 @@ class MainScene extends Phaser.Scene {
         flowing.push(...this.codes.slice(index));
         break;
       }
-      const next: ActiveCode = { ...advanceCode(active, distance), graphics: active.graphics };
+      // 担当者の休暇中はそのルートのコードを進めない(#36)。流れたまま残るので攻撃はできる。
+      const moved = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId));
+      const next: ActiveCode = { ...advanceCode(active, moved), graphics: active.graphics };
       // hp を持つのは不正なコードだけ。正常なコードは撃破されない。
       const hp = this.codeHp.get(next.id);
       const fate = resolveCodeFate(hp !== undefined && isDefeated(hp), next.released);
@@ -673,7 +681,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
-  // 資金・スコアは変えない。コードの停止(#36)・給料(#37)・不正コード率はこの issue では変えない。
+  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。給料(#37)・不正コード率はここでは変えない。
   private toggleVacation(routeId: number): void {
     if (this.gameOver.over) {
       return;
