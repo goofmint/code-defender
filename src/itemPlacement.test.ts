@@ -322,7 +322,14 @@ describe('formatItemMessage / formatItemButton', () => {
 
   it('ボタンは 4 番から始まる', () => {
     expect(formatItemButton(1, 'linter')).toBe('[5] Linter 5万円');
-    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 20万円');
+    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 20万/月');
+    expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 20万/月');
+  });
+
+  it('月額の表示は精算と同じ倍率を使う（1回払いは倍率に関係なく購入価格）', () => {
+    expect(formatItemButton(0, 'codeRabbit', 0.5)).toBe('[4] CodeRabbit 10万/月');
+    expect(formatItemButton(0, 'codeRabbit', 0)).toBe('[4] CodeRabbit 0万/月');
+    expect(formatItemButton(1, 'linter', 0.5)).toBe('[5] Linter 5万円');
   });
 });
 

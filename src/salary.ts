@@ -1,3 +1,5 @@
+import { ENGINEER_MONTHLY_SALARY_BY_RANK } from './config';
+import type { EngineerRank } from './engineer';
 import { subtractFunds } from './funds';
 
 // 給料の計算。Phaser に依存しない純粋関数だけを置く。
@@ -18,9 +20,9 @@ export type SalaryPaidEvent = {
 export const getMonthlyPayroll = (salaries: readonly number[]): number =>
   salaries.reduce((sum, salary) => sum + (Number.isFinite(salary) && salary > 0 ? salary : 0), 0);
 
-// 仮の給料一覧（全員同額）。将来 #23 以降でランク別の給料に置き換える前提。
-export const getEngineerSalaries = (engineerCount: number, salary: number): number[] =>
-  Array.from({ length: Math.max(0, Math.floor(engineerCount)) }, () => salary);
+// エンジニアそれぞれのランクで決まる月給の一覧。入力と同じ順序・同じ長さ。
+export const getEngineerSalaries = (engineers: readonly { readonly rank: EngineerRank }[]): number[] =>
+  engineers.map((engineer) => ENGINEER_MONTHLY_SALARY_BY_RANK[engineer.rank]);
 
 // 1か月分の給料を引いた資金を返す。
 export const paySalary = (funds: number, payroll: number): number => subtractFunds(funds, payroll);

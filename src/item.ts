@@ -1,6 +1,6 @@
 // アイテムの属性（企画書 8）と、ダメージ計算・範囲判定の純粋関数。Phaser には依存しない（テスト可能にするため）。
 // 今回定義するのは「攻撃する」6アイテムだけ。攻撃力・得意が「なし」の他15アイテムは、
-// それぞれのタスク（#52〜）で追加する。価格・支払いは #51 の担当のため持たせない。
+// それぞれのタスク（#52〜）で追加する。価格は itemPlacement.ts（#48）、支払い区分は payment（#51）で持つ。
 import {
   ITEM_POWER_DAMAGE,
   ITEM_RANGE_RATIOS,
@@ -33,8 +33,12 @@ export type ItemRange = 'short' | 'middle' | 'long';
 // 攻撃力の段階（弱・中・強）。
 export type ItemPower = 'weak' | 'medium' | 'strong';
 
+// 支払い区分（企画書 8 の「支払い」列）。monthly は月額払い、oneTime は購入時の1回払い。
+export type ItemPayment = 'monthly' | 'oneTime';
+
 type ItemDefinition = {
   readonly label: string;
+  readonly payment: ItemPayment;
   readonly strongAgainst: StrongAgainst;
   readonly range: ItemRange;
   readonly power: ItemPower;
@@ -43,30 +47,35 @@ type ItemDefinition = {
 export const ITEM_DEFINITIONS = {
   codeRabbit: {
     label: 'CodeRabbit',
+    payment: 'monthly',
     strongAgainst: { kind: 'all' },
     range: 'long',
     power: 'medium',
   },
   linter: {
     label: '静的解析ツール（Linter）',
+    payment: 'oneTime',
     strongAgainst: { kind: 'types', types: ['typo', 'duplication'] },
     range: 'short',
     power: 'weak',
   },
   testTool: {
     label: 'テストツール',
+    payment: 'oneTime',
     strongAgainst: { kind: 'types', types: ['bug'] },
     range: 'middle',
     power: 'weak',
   },
   ci: {
     label: 'CI',
+    payment: 'monthly',
     strongAgainst: { kind: 'types', types: ['bug', 'lowPerformance'] },
     range: 'short',
     power: 'medium',
   },
   securityScanner: {
     label: 'セキュリティスキャナー',
+    payment: 'monthly',
     strongAgainst: {
       kind: 'types',
       types: ['vulnerabilityCritical', 'vulnerabilityMajor'],
@@ -76,6 +85,7 @@ export const ITEM_DEFINITIONS = {
   },
   pairProgrammer: {
     label: 'ペアプロ相棒',
+    payment: 'monthly',
     strongAgainst: { kind: 'types', types: ['spaghetti'] },
     range: 'short',
     power: 'medium',

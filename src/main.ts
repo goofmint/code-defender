@@ -6,7 +6,6 @@ import {
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MS,
   ENGINEER_HIRE_COST,
-  ENGINEER_MONTHLY_SALARY,
   GAME_OVER_RESTART_KEYS,
   HIRE_KEYS,
   INCIDENT_FLASH_COLOR,
@@ -89,7 +88,9 @@ import {
 import type { GameOverState } from './gameOver';
 import { NORMAL_CODE_PENALIZED_EVENT, resolveNormalCodePenalty } from './penalty';
 import type { NormalCodePenalizedPayload } from './penalty';
-import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
+import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
+import { ITEM_FEE_PAID_EVENT } from './itemFee';
+import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
@@ -450,15 +451,21 @@ class MainScene extends Phaser.Scene {
     this.engineers = assignEngineerRoute(this.engineers, payload.engineer.id, route.id);
   }
 
-  // 月の境界ごとに給料を引く。エンジニア数は仮に現在のルート数とする（主人公の給料は含めない）。
+  // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
   private onMonthElapsed(event: MonthElapsedEvent): void {
-    const paid = settleMonthlySalary(
+    const { salary, itemFee } = settleMonthBoundary(
       this.funds,
       event.month,
-      getEngineerSalaries(this.routes.length, ENGINEER_MONTHLY_SALARY),
+      getEngineerSalaries(this.engineers),
+      this.placedItems,
+      this.gameOver.over,
     );
-    this.changeFunds(paid.fundsAfter, 'salary');
-    this.events.emit(SALARY_PAID_EVENT, paid);
+    this.changeFunds(salary.fundsAfter, 'salary');
+    this.events.emit(SALARY_PAID_EVENT, salary);
+    // 給料のあとに月額アイテムの費用を引く（給料で倒産していたら itemFee は null）。
+    if (itemFee === null) return;
+    this.changeFunds(itemFee.fundsAfter, 'itemFee');
+    this.events.emit(ITEM_FEE_PAID_EVENT, itemFee);
   }
 
   // 資金の変化ごとに倒産を判定する。倒産したら Tween を止めてゲームオーバー表示を出す。
@@ -471,7 +478,7 @@ class MainScene extends Phaser.Scene {
       return;
     }
     this.tweens.pauseAll();
-    drawGameOver(this, this.score);
+    drawGameOver(this, this.score, getElapsedDays(this.elapsedMs));
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
   }
 

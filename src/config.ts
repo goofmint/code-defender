@@ -147,12 +147,10 @@ export const ELAPSED_DAYS_STYLE = {
 
 // 仮・要確認: 企画書に記載なし。初期資金（円）。
 export const INITIAL_FUNDS = 1000000;
-// 仮・要確認: 企画書に記載なし。エンジニア1人の月給（円）。全ランク一律。ランク別は #23 以降。
-export const ENGINEER_MONTHLY_SALARY = 300000;
 // 仮・要確認(#17): 正常なコード1件をリリースしたときの売上（円）。企画書に数値の記載なし。
 // 根拠: 1ルートは2秒に1件=ゲーム内1か月(60秒)に30件出る。正常率は70%→50%（#14）なので月21〜15件。
-// 20000円なら正常コードを全部通したとき月420000〜300000円で、エンジニア1人の給料(300000円/月)を上回る〜同等になる。
-// 10000円だと全部通しても給料に届かず常に赤字になる。
+// 20000円なら正常コードを全部通したとき月420000〜300000円で、ジュニア1人の給料(300000円/月、ENGINEER_MONTHLY_SALARY_BY_RANK)を上回る〜同等になる。
+// 10000円だと全部通しても給料に届かず常に赤字になる。ミドル・シニアは月給が上がるぶん、正常率が高い間でないと黒字にならない（仮）。
 export const REVENUE_PER_NORMAL_CODE = 20000;
 // 仮・要確認: 企画書に記載なし。資金の表示書式。「資金: 1,000,000円」。数値部分は3桁区切り。
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
@@ -177,8 +175,15 @@ export const GAME_OVER_RESTART_KEYS = ['ENTER', 'SPACE'] as const;
 export const GAME_OVER_RESTART_DELAY_MS = 1000;
 // 仮・要確認: 企画書に記載なし。ゲームオーバー表示の全面オーバーレイ（半透明の黒）。
 export const GAME_OVER_OVERLAY = { color: 0x000000, alpha: 0.6 } as const;
-// 仮・要確認: 企画書に記載なし。ゲームオーバー表示の文字サイズ（タイトル・案内）。文字の色・縁取りは ELAPSED_DAYS_STYLE と同じ。
-export const GAME_OVER_FONT_SIZES = { title: '48px', restart: '24px' } as const;
+// 仮・要確認(#60): 企画書に記載なし。ゲームオーバー画面の各行の文字サイズ(px)と、画面中央から行の中心までの縦のずれ(px、下が正)。
+// 並びはタイトル→スコア→経過日数→案内。スコアを主役にするため文字を大きくする（最長の MAX_SAFE_INTEGER でも画面幅に収まる大きさ）。
+// 行の高さは文字サイズの約1.25倍。隣り合う行が重ならないよう間隔をあけている。文字の色・縁取りは ELAPSED_DAYS_STYLE と同じ。
+export const GAME_OVER_LAYOUT = {
+  title: { fontSize: 48, offsetY: -80 },
+  score: { fontSize: 32, offsetY: -20 },
+  elapsedDays: { fontSize: 24, offsetY: 30 },
+  restart: { fontSize: 24, offsetY: 80 },
+} as const;
 
 // 仮・要確認: 企画書(3-1)では不正なコードの種類ごとの見た目・強さ・損害額は未定。以下はすべて仮の値。
 // 見た目: 不正コード共通の赤い星形＋「!」に、星の右上へ付ける小円（バッジ）の色と大きさで種類を区別する。
@@ -213,10 +218,8 @@ export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
 // 仮・要確認(#22): 企画書は「スコアは倒産までの累計売上」とだけで、表示の書式・位置は未記載。
 // ゲームオーバー画面のスコア表示書式。「スコア: 20,000円」。数値部分は3桁区切り。
 export const SCORE_FORMAT = { prefix: 'スコア: ', suffix: '円' } as const;
-// 仮・要確認(#22): ゲームオーバー画面のスコア行の文字サイズ。タイトルと案内の間に置く。
-export const GAME_OVER_SCORE_FONT_SIZE = '24px';
 
-// 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコア（累計売上 #22）が未実装のため、減点は資金から引く。
+// 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコアは累計売上で減らさない方針のため、減点は資金から引く。
 export const NORMAL_CODE_PENALTY_TARGET = 'funds' as const;
 // 仮・要確認: 正常なコードを1回攻撃したときの減点額（円）。企画書には未記載。
 export const NORMAL_CODE_PENALTY = 50000;
@@ -229,12 +232,22 @@ export const PENALTY_TEXT_RISE_PX = 40;
 export const PENALTY_TEXT_FONT_SIZE = '20px';
 
 // 仮・要確認(#23): 企画書(6)は「ジュニア・ミドル・シニアの3ランクから雇える」とだけで、費用・人数・上限・操作は未記載。以下はすべて仮の値。
-// ランク表。表示名のほか、給料(#25/#33)・不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。
+// ランク表。表示名のほか、給料の個人差(#33)・不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。
 export const ENGINEER_RANKS = [
   { id: 'junior', label: 'ジュニア' },
   { id: 'middle', label: 'ミドル' },
   { id: 'senior', label: 'シニア' },
 ] as const;
+// 仮・要確認(#25): 企画書(6)は「ランクによって、一定期間ごとの支払い（給料）が変わる」とだけで金額は未記載。以下はすべて仮の値。
+// ランク別の月給（円）。ゲーム内1か月（60秒）ごとに、雇っている全員ぶんの合計を引く。
+// ジュニアは従来の月給300000円を維持（REVENUE_PER_NORMAL_CODE の釣り合いの根拠と同じ）。
+// ミドル400000円・シニア500000円は CodeRabbit の計画どおりの仮値（ジュニア＋100000円ずつ）。
+// 雇用費(ENGINEER_HIRE_COST: 100000/200000/300000円)と同じ順序で高くなる。個人ごとの給料(#33)・昇給減給(#34)は別 issue。
+export const ENGINEER_MONTHLY_SALARY_BY_RANK: Readonly<Record<(typeof ENGINEER_RANKS)[number]['id'], number>> = {
+  junior: 300000,
+  middle: 400000,
+  senior: 500000,
+};
 // 仮・要確認(#28): 企画書(8)はパラメータ（疲労度・集中力・技術力・愛着心）の効果だけで、範囲・初期値・刻みは未記載。以下はすべて仮の値。
 // パラメータの範囲（両端を含む）。
 export const ENGINEER_PARAMETER_MIN = 0;
@@ -243,7 +256,7 @@ export const ENGINEER_PARAMETER_MAX = 100;
 export const ENGINEER_PARAMETER_FALLBACK = 50;
 // 仮・要確認(#28): ランク別の初期値。疲労度は 0（雇った直後は疲れていない）、他は中央値。
 // 企画書では技術力は「ランクとは別の個人差」なので、ランクでは変えない（仮）。変えたくなったらこの表の値を変えるだけでよい。
-// 性格(#26/#29)による差もここには入れない。
+// 性格(#26/#29)による差もここには入れない（性格の補正は ENGINEER_PERSONALITY_TENDENCIES / ENGINEER_TENDENCY_OFFSETS で後から足す）。
 export const ENGINEER_INITIAL_PARAMETERS: Readonly<
   Record<
     (typeof ENGINEER_RANKS)[number]['id'],
@@ -260,7 +273,7 @@ export const ENGINEER_INITIAL_PARAMETERS: Readonly<
   senior: { fatigue: 0, concentration: 50, skill: 50, attachment: 50 },
 };
 // 仮・要確認(#26): 企画書(6)の性格8種。順序は企画書の表どおり。雇ったときにランダムで1つ付く。
-// 性格ごとのパラメータの傾向（企画書の表の高い・普通・低い）は今回は入れない。#29 でこの表に列を足して使う。
+// 性格ごとのパラメータの傾向は、この表とは別に ENGINEER_PERSONALITY_TENDENCIES に持つ(#29)。
 // 性格は画面には出さない（仮）。#59 の表示と衝突するため。
 export const ENGINEER_PERSONALITIES = [
   { id: 'meticulous', label: '几帳面' },
@@ -284,6 +297,45 @@ export const ENGINEER_PERSONALITY_WEIGHTS: Readonly<
   calm: 1,
   cheerful: 1,
   gloomy: 1,
+};
+// 傾向の3段階（企画書(6)の「高い・普通・低い」）。
+export type EngineerTendency = 'high' | 'normal' | 'low';
+// 企画書(6)「性格」の表を写したもの（確定。値は企画書どおり）。
+// fatigue は「疲労の溜まりやすさ」＝疲労度の初期値ではなく溜まる速さ。→ ENGINEER_FATIGUE_RATE_MULTIPLIERS の係数として使う。
+// concentration / skill / attachment は初期値の補正。→ ENGINEER_TENDENCY_OFFSETS を足す。
+// 表にない項目（疲労度の初期値、集中力・技術力・愛着心の変化の速さ）は「普通」＝補正なし。
+// Record なので、性格の過不足は型エラーになる。
+export const ENGINEER_PERSONALITY_TENDENCIES: Readonly<
+  Record<
+    (typeof ENGINEER_PERSONALITIES)[number]['id'],
+    {
+      readonly fatigue: EngineerTendency;
+      readonly concentration: EngineerTendency;
+      readonly skill: EngineerTendency;
+      readonly attachment: EngineerTendency;
+    }
+  >
+> = {
+  meticulous: { fatigue: 'normal', concentration: 'normal', skill: 'high', attachment: 'normal' },
+  passive: { fatigue: 'normal', concentration: 'low', skill: 'normal', attachment: 'normal' },
+  careless: { fatigue: 'low', concentration: 'high', skill: 'low', attachment: 'normal' },
+  slacker: { fatigue: 'low', concentration: 'low', skill: 'normal', attachment: 'low' },
+  earnest: { fatigue: 'high', concentration: 'high', skill: 'normal', attachment: 'high' },
+  calm: { fatigue: 'low', concentration: 'normal', skill: 'high', attachment: 'normal' },
+  cheerful: { fatigue: 'low', concentration: 'normal', skill: 'normal', attachment: 'high' },
+  gloomy: { fatigue: 'high', concentration: 'high', skill: 'high', attachment: 'low' },
+};
+// 仮・要確認(#29): 傾向ごとの初期値への加算補正。企画書は3段階だけで具体的な数値は試作で調整するとしている。
+export const ENGINEER_TENDENCY_OFFSETS: Readonly<Record<EngineerTendency, number>> = {
+  high: 20,
+  normal: 0,
+  low: -20,
+};
+// 仮・要確認(#29): 傾向ごとの「疲労が溜まる量」に掛ける係数（疲労の溜まりやすさ）。
+export const ENGINEER_FATIGUE_RATE_MULTIPLIERS: Readonly<Record<EngineerTendency, number>> = {
+  high: 1.5,
+  normal: 1,
+  low: 0.5,
 };
 // 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
 export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
@@ -399,3 +451,5 @@ export const ITEM_BUTTON_FONT_SIZE = '13px';
 export const ITEM_MESSAGE_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 70 } as const;
 export const ITEM_MESSAGE_COLOR = '#b9f6ca';
 export const ITEM_MESSAGE_DURATION_MS = 2000;
+// 仮・要確認(#51): 月額 = Math.round(購入価格 × この倍率)。企画書の月額アイテムの「価格」を月額の価格と読み、購入時と同じ額（倍率 1）にした。数値の調整口。
+export const ITEM_MONTHLY_FEE_RATIO = 1;
