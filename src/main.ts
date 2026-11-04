@@ -102,6 +102,7 @@ import type { GameOverState } from './gameOver';
 import { NORMAL_CODE_PENALIZED_EVENT, resolveNormalCodePenalty } from './penalty';
 import type { NormalCodePenalizedPayload } from './penalty';
 import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
+import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
@@ -582,6 +583,10 @@ class MainScene extends Phaser.Scene {
     );
     this.changeFunds(salary.fundsAfter, 'salary');
     this.events.emit(SALARY_PAID_EVENT, salary);
+    // 給料を払ったあと、ゲームオーバーでなければ月給と初期額の差で愛着心を動かす(#31)。給料で倒産した月とそれ以降は動かさない。
+    if (!this.gameOver.over) {
+      this.engineers = applySalaryToAttachment(this.engineers);
+    }
     // 給料のあとに月額アイテムの費用を引く（給料で倒産していたら itemFee は null）。
     if (itemFee === null) return;
     this.changeFunds(itemFee.fundsAfter, 'itemFee');

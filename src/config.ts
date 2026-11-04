@@ -295,6 +295,15 @@ export const ENGINEER_SALARY_STEP = 50000;
 // パラメータ（ENGINEER_PARAMETER_MIN〜MAX の 0〜100）とは別の範囲。
 export const ENGINEER_SALARY_MIN = 100000;
 export const ENGINEER_SALARY_MAX = 1000000;
+// 仮・要確認(#31): 給料が愛着心に与える影響。企画書(6)は「昇給は飽和曲線（例: 1 - e^(-k × 昇給額)）、減給は大きめの係数をかけた直線」とだけで、係数は未記載。以下はすべて仮の値。
+// 差額 = 現在の月給（Engineer.salary）− 初期額（Engineer.initialSalary）。ゲーム内1か月ごとに、差額に応じた量を愛着心（0〜100）に足す。
+// 昇給時の1か月あたりの愛着心の最大増加量。差額が大きくなるほどこの値に近づくが、超えない。
+export const SALARY_ATTACHMENT_RAISE_MAX_GAIN = 5;
+// 昇給時の飽和係数 k（1円あたり）。増加量 = 最大増加量 × (1 − e^(−k × 差額))。1/100000 なら +100000円で約 3.16、+200000円で約 4.32。
+export const SALARY_ATTACHMENT_RAISE_SATURATION_PER_YEN = 1 / 100000;
+// 減給時の係数（1円あたり）。減少量 = 係数 × |差額|。10/100000 なら −50000円で 5、−100000円で 10 下がる。
+// 同じ差額なら、減給の減少量が昇給の増加量より大きくなるようにする（最大増加量 × k ≦ この係数なら、どの差額でも成り立つ）。
+export const SALARY_ATTACHMENT_CUT_PER_YEN = 10 / 100000;
 // 仮・要確認(#28): 企画書(8)はパラメータ（疲労度・集中力・技術力・愛着心）の効果だけで、範囲・初期値・刻みは未記載。以下はすべて仮の値。
 // パラメータの範囲（両端を含む）。
 export const ENGINEER_PARAMETER_MIN = 0;

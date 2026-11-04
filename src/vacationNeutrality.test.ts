@@ -67,6 +67,7 @@ const makeEngineer = (
   onVacation,
   vacationRateReduction: 0,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
+  initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
   ...createEngineerParameters(rank, 'meticulous'),
 });
 
