@@ -13,7 +13,7 @@ import {
   RELEASE_POINT_CELL,
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
-import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES } from './item';
+import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES, itemTargetsNormalCode } from './item';
 import type { ItemPayment, ItemType } from './item';
 import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
@@ -203,15 +203,38 @@ export const formatItemButton = (
   return `${head} ${getItemPrice(itemType) / 10000}万円`;
 };
 
-// アイテムの範囲内で最も近い不正なコード。正常なコードは近くても除く。境界ちょうどは範囲内。なければ null。
+// 攻撃対象の候補。設定が false なら不正なコードだけ、true なら正常も含む。入力は変更しない。
+export const filterItemTargets = <T extends AttackTarget>(
+  codes: readonly T[],
+  targetsNormalCode: boolean,
+): T[] => codes.filter((code) => targetsNormalCode || code.kind === 'malicious');
+
+export type ItemTargetQuery = {
+  readonly position: Point;
+  readonly range: number;
+  readonly targetsNormalCode: boolean;
+};
+
+// 位置・範囲・設定から範囲内で最も近い対象を選ぶ。境界ちょうどは範囲内。なければ null。
+// 同じ距離のときは配列で先にあるもの（findAttackTarget と同じ。企画書にないため仮の扱い）。
+export const findTargetFor = <T extends AttackTarget>(
+  query: ItemTargetQuery,
+  codes: readonly T[],
+): T | null =>
+  findAttackTarget(query.position, filterItemTargets(codes, query.targetsNormalCode), query.range);
+
+// アイテムの範囲内で最も近い攻撃対象。アイテムの targetsNormalCode が false なら正常なコードは近くても除く。
 export const findItemTarget = <T extends AttackTarget>(
   item: PlacedItem,
   codes: readonly T[],
 ): T | null =>
-  findAttackTarget(
-    cellCenter(item.cell),
-    codes.filter((code) => code.kind === 'malicious'),
-    getItemRange(item.itemType),
+  findTargetFor(
+    {
+      position: cellCenter(item.cell),
+      range: getItemRange(item.itemType),
+      targetsNormalCode: itemTargetsNormalCode(item.itemType),
+    },
+    codes,
   );
 
 // 攻撃できるか。初回(null)は常に可能。経過時間がクールダウン以上なら可能。
