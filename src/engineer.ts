@@ -1,20 +1,24 @@
 import {
+  ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
   ENGINEER_PARAMETER_FALLBACK,
   ENGINEER_PARAMETER_MAX,
   ENGINEER_PARAMETER_MIN,
   ENGINEER_PERSONALITIES,
+  ENGINEER_PERSONALITY_TENDENCIES,
   ENGINEER_PERSONALITY_WEIGHTS,
   ENGINEER_RANKS,
   ENGINEER_SPAWN_CELLS,
+  ENGINEER_TENDENCY_OFFSETS,
   INITIAL_ENGINEER_RANKS,
 } from './config';
+import type { EngineerTendency } from './config';
 import { createRoutes } from './route';
 import type { Route } from './route';
 
 // エンジニア（雇用）の純粋ロジック。Phaser に依存しない。
 // 給料の個人差(#33)・ランクごとの不正コード率(#12/#24)は、ランク表（ENGINEER_RANKS）に列を足して扱う想定。
-// 性格(#26)は Engineer の personality フィールドに持たせる（ランクとは独立）。性格ごとのパラメータの差(#29)は、性格表（ENGINEER_PERSONALITIES）に列を足して扱う想定。
+// 性格(#26)は Engineer の personality フィールドに持たせる（ランクとは独立）。性格ごとのパラメータの差(#29)は ENGINEER_PERSONALITY_TENDENCIES（傾向表）で持つ。
 
 export type EngineerRank = (typeof ENGINEER_RANKS)[number]['id'];
 
@@ -42,7 +46,7 @@ export type Engineer = {
   readonly id: number;
   readonly rank: EngineerRank;
   readonly routeId: number | null;
-  // 雇ったときにランダムで付く性格(#26)。id/rank/routeId/パラメータとは独立。今回はどこにも効かせない（#29 で使う）。
+  // 雇ったときにランダムで付く性格(#26)。id/rank/routeId/パラメータとは独立。初期パラメータ(#29)と疲労の溜まりやすさの係数に使う。
   readonly personality: EngineerPersonalityId;
 } & EngineerParameters;
 
@@ -122,11 +126,6 @@ export const pickRandomPersonality = (
 export const getPersonalityLabel = (personality: EngineerPersonalityId): string =>
   ENGINEER_PERSONALITIES.find((entry) => entry.id === personality)?.label ?? personality;
 
-// ランクに応じた初期パラメータ。呼ぶたびに新しいオブジェクトを返す（エンジニア間で参照を共有しない）。
-export const createEngineerParameters = (rank: EngineerRank): EngineerParameters => ({
-  ...ENGINEER_INITIAL_PARAMETERS[rank],
-});
-
 const clampToRange = (value: number): number =>
   Math.min(ENGINEER_PARAMETER_MAX, Math.max(ENGINEER_PARAMETER_MIN, value));
 
@@ -138,6 +137,63 @@ export const clampEngineerParameter = (value: number, fallback: number): number 
     return clampToRange(value);
   }
   return Number.isNaN(fallback) ? ENGINEER_PARAMETER_FALLBACK : clampToRange(fallback);
+};
+
+// テストで境界を作るための差し替え用。省略した項目は config の値。
+export type PersonalityTendencyTables = {
+  readonly tendencies?: Readonly<Record<EngineerPersonalityId, Record<EngineerParameterKey, EngineerTendency>>>;
+  readonly offsets?: Readonly<Record<EngineerTendency, number>>;
+};
+
+export type EngineerParameterTables = PersonalityTendencyTables & {
+  readonly initial?: Readonly<Record<EngineerRank, EngineerParameters>>;
+};
+
+// 仮・要確認(#29): 基準値に性格の補正を足して [MIN, MAX] に収めた、4キーだけの新しいオブジェクトを返す。入力は変更しない。
+// 補正を受けるのは集中力・技術力・愛着心。疲労度は基準値のまま（clamp のみ）。
+// 補正値が不正（NaN・±Infinity）なら 0（補正なし）。小数は丸めない。throw しない。
+export const applyPersonalityTendencies = (
+  base: EngineerParameters,
+  personality: EngineerPersonalityId,
+  tables: PersonalityTendencyTables = {},
+): EngineerParameters => {
+  const tendencies = (tables.tendencies ?? ENGINEER_PERSONALITY_TENDENCIES)[personality];
+  const offsets = tables.offsets ?? ENGINEER_TENDENCY_OFFSETS;
+  const adjust = (key: Exclude<EngineerParameterKey, 'fatigue'>): number => {
+    const offset = offsets[tendencies[key]];
+    return clampEngineerParameter(base[key] + (Number.isFinite(offset) ? offset : 0), base[key]);
+  };
+  return {
+    fatigue: clampEngineerParameter(base.fatigue, base.fatigue),
+    concentration: adjust('concentration'),
+    skill: adjust('skill'),
+    attachment: adjust('attachment'),
+  };
+};
+
+// ランクに応じた初期パラメータ。呼ぶたびに新しいオブジェクトを返す（エンジニア間で参照を共有しない）。
+// personality を省略したらランクの初期値のまま。渡したら「ランクの初期値 + 性格の補正」(applyPersonalityTendencies)。
+export const createEngineerParameters = (
+  rank: EngineerRank,
+  personality?: EngineerPersonalityId,
+  tables: EngineerParameterTables = {},
+): EngineerParameters => {
+  const base = (tables.initial ?? ENGINEER_INITIAL_PARAMETERS)[rank];
+  if (personality === undefined) {
+    return { ...base };
+  }
+  return applyPersonalityTendencies(base, personality, tables);
+};
+
+// 仮・要確認(#29): 性格の「疲労の溜まりやすさ」の係数。疲労が溜まるとき(#30)に
+// adjustEngineerParameter(e, 'fatigue', 量 * getFatigueRateMultiplier(e.personality)) のように使う。
+// 不正な係数（NaN・負・±Infinity）は 1（普通）。0 は有効（溜まらない）。throw しない。
+export const getFatigueRateMultiplier = (
+  personality: EngineerPersonalityId,
+  multipliers: Readonly<Record<EngineerTendency, number>> = ENGINEER_FATIGUE_RATE_MULTIPLIERS,
+): number => {
+  const multiplier = multipliers[ENGINEER_PERSONALITY_TENDENCIES[personality].fatigue];
+  return Number.isFinite(multiplier) && multiplier >= 0 ? multiplier : 1;
 };
 
 // 指定したキーだけ丸めて設定した新しい Engineer を返す。NaN のキーは現在値のまま。入力は変更しない。
@@ -170,19 +226,22 @@ export const adjustEngineerParameter = (
     [key]: Number.isNaN(delta) ? engineer[key] : engineer[key] + delta,
   });
 
-// 初期エンジニア。性格はランダム（random を注入できる）。パラメータは性格で変えない（#29 で createEngineerParameters に性格を足せば効く）。routes と ranks を同じ順序で対応させる（短い方に合わせる）。id は 0 からの連番。
+// 初期エンジニア。性格はランダム（random を注入できる）。パラメータは性格の補正つき(#29)。routes と ranks を同じ順序で対応させる（短い方に合わせる）。id は 0 からの連番。
 export const createInitialEngineers = (
   routes: readonly Route[],
   ranks: readonly EngineerRank[],
   random: () => number = Math.random,
 ): Engineer[] =>
-  routes.slice(0, ranks.length).map((route, index) => ({
-    id: index,
-    rank: ranks[index],
-    routeId: route.id,
-    personality: pickRandomPersonality(random),
-    ...createEngineerParameters(ranks[index]),
-  }));
+  routes.slice(0, ranks.length).map((route, index) => {
+    const personality = pickRandomPersonality(random);
+    return {
+      id: index,
+      rank: ranks[index],
+      routeId: route.id,
+      personality,
+      ...createEngineerParameters(ranks[index], personality),
+    };
+  });
 
 // 対象のエンジニアだけ routeId を差し替えた新しい配列を返す。他のエンジニアは同じ参照のまま。入力は変更しない。
 // 該当 id がなければ同じ内容の配列。
@@ -237,12 +296,13 @@ export const hireEngineer = (
   if (!isValidCost(cost) || !(state.funds >= cost)) {
     return { ok: false, reason: 'insufficientFunds' };
   }
+  const personality = pickRandomPersonality(random);
   const engineer: Engineer = {
     id: state.nextId,
     rank,
     routeId: null,
-    personality: pickRandomPersonality(random),
-    ...createEngineerParameters(rank),
+    personality,
+    ...createEngineerParameters(rank, personality),
   };
   return {
     ok: true,

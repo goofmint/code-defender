@@ -1,20 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
   ENGINEER_HIRE_COST,
+  ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
   ENGINEER_PARAMETER_FALLBACK,
   ENGINEER_PARAMETER_MAX,
   ENGINEER_PARAMETER_MIN,
   ENGINEER_PERSONALITIES,
+  ENGINEER_PERSONALITY_TENDENCIES,
   ENGINEER_PERSONALITY_WEIGHTS,
   ENGINEER_RANKS,
   ENGINEER_SPAWN_CELLS,
+  ENGINEER_TENDENCY_OFFSETS,
   INITIAL_ENGINEER_RANKS,
   MAX_ENGINEER_ROUTES,
   MAX_ENGINEERS,
 } from './config';
 import {
   adjustEngineerParameter,
+  applyPersonalityTendencies,
   assignEngineerRoute,
   clampEngineerParameter,
   createEngineerParameters,
@@ -22,6 +26,7 @@ import {
   createInitialFleet,
   findEngineerByRoute,
   findRouteIdOfEngineer,
+  getFatigueRateMultiplier,
   getPersonalityLabel,
   shouldAddRouteOnHire,
   formatEngineerCount,
@@ -48,7 +53,7 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): E
   rank,
   routeId,
   personality: 'meticulous',
-  ...createEngineerParameters(rank),
+  ...createEngineerParameters(rank, 'meticulous'),
 });
 const makeEngineers = (count: number): Engineer[] =>
   Array.from({ length: count }, (_, id) => makeEngineer(id, 'junior', id));
@@ -479,7 +484,7 @@ describe('createEngineerParameters / 初期値', () => {
   it('初期エンジニアは設定表どおりで、人ごとに別オブジェクト（変更しても他に影響しない）', () => {
     const fleet = createInitialFleet(() => 0);
     for (const engineer of fleet.engineers) {
-      expect(engineer).toMatchObject(ENGINEER_INITIAL_PARAMETERS[engineer.rank]);
+      expect(engineer).toMatchObject(createEngineerParameters(engineer.rank, engineer.personality));
     }
     const changed = updateEngineerParameters(fleet.engineers[0], { fatigue: 80 });
     expect(changed.fatigue).toBe(80);
@@ -488,9 +493,9 @@ describe('createEngineerParameters / 初期値', () => {
   });
   it('createInitialEngineers はランク指定どおりの初期値', () => {
     const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
-    const engineers = createInitialEngineers(routes, ['senior', 'middle', 'junior']);
+    const engineers = createInitialEngineers(routes, ['senior', 'middle', 'junior'], () => 0);
     expect(engineers.map((e) => e.skill)).toEqual(
-      (['senior', 'middle', 'junior'] as const).map((r) => ENGINEER_INITIAL_PARAMETERS[r].skill),
+      (['senior', 'middle', 'junior'] as const).map((r) => createEngineerParameters(r, 'meticulous').skill),
     );
   });
   it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を雇った人は設定表どおりで、毎回別オブジェクト', (rank) => {
@@ -498,7 +503,7 @@ describe('createEngineerParameters / 初期値', () => {
     const first = hireEngineer(state, rank, rules);
     const second = hireEngineer(state, rank, rules);
     if (!first.ok || !second.ok) throw new Error('雇えるはず');
-    expect(first.engineer).toMatchObject(ENGINEER_INITIAL_PARAMETERS[rank]);
+    expect(first.engineer).toMatchObject(createEngineerParameters(rank, first.engineer.personality));
     expect(first.engineer).not.toBe(second.engineer);
     expect(first.engineers[3]).toBe(first.engineer);
   });
@@ -803,7 +808,7 @@ describe('性格の付与', () => {
     hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, 'junior', rules, counter.random);
     expect(counter.calls()).toBe(1);
   });
-  it('性格が違っても初期パラメータは設定表どおり', () => {
+  it('性格ごとに、ランクの初期値 + 性格の補正の初期パラメータが付く', () => {
     for (const [i, id] of PERSONALITY_IDS.entries()) {
       const hired = hireEngineer(
         { engineers: [], funds: RICH, nextId: 0 },
@@ -814,7 +819,7 @@ describe('性格の付与', () => {
       if (!hired.ok) throw new Error('雇えるはず');
       expect(hired.engineer.personality).toBe(id);
       const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, ...parameters } = hired.engineer;
-      expect(parameters).toEqual(ENGINEER_INITIAL_PARAMETERS.middle);
+      expect(parameters).toEqual(createEngineerParameters('middle', id));
     }
   });
   it('パラメータは4キーだけで、性格を含まない', () => {
@@ -827,5 +832,205 @@ describe('性格の付与', () => {
     expect(assignEngineerRoute([base], 0, 2)[0].personality).toBe('calm');
     expect(updateEngineerParameters(base, { fatigue: 70 }).personality).toBe('calm');
     expect(adjustEngineerParameter(base, 'skill', 5).personality).toBe('calm');
+  });
+});
+
+describe('性格の傾向表（企画書(6)の表）', () => {
+  const T = { high: 'high', normal: 'normal', low: 'low' } as const;
+  const expected: Record<string, [string, string, string, string]> = {
+    meticulous: [T.normal, T.normal, T.high, T.normal],
+    passive: [T.normal, T.low, T.normal, T.normal],
+    careless: [T.low, T.high, T.low, T.normal],
+    slacker: [T.low, T.low, T.normal, T.low],
+    earnest: [T.high, T.high, T.normal, T.high],
+    calm: [T.low, T.normal, T.high, T.normal],
+    cheerful: [T.low, T.normal, T.normal, T.high],
+    gloomy: [T.high, T.high, T.high, T.low],
+  };
+  it('全性格が表にあり、キーは4つだけ', () => {
+    expect(Object.keys(ENGINEER_PERSONALITY_TENDENCIES).sort()).toEqual([...PERSONALITY_IDS].sort());
+    for (const id of PERSONALITY_IDS) {
+      expect(Object.keys(ENGINEER_PERSONALITY_TENDENCIES[id]).sort()).toEqual(
+        ['attachment', 'concentration', 'fatigue', 'skill'],
+      );
+    }
+  });
+  it.each(Object.entries(expected))('%s は企画書の表どおり', (id, [fatigue, concentration, skill, attachment]) => {
+    expect(ENGINEER_PERSONALITY_TENDENCIES[id as EngineerPersonalityId]).toEqual({
+      fatigue,
+      concentration,
+      skill,
+      attachment,
+    });
+  });
+  it('補正表: high > normal = 0 > low', () => {
+    expect(ENGINEER_TENDENCY_OFFSETS.high).toBeGreaterThan(ENGINEER_TENDENCY_OFFSETS.normal);
+    expect(ENGINEER_TENDENCY_OFFSETS.normal).toBe(0);
+    expect(ENGINEER_TENDENCY_OFFSETS.normal).toBeGreaterThan(ENGINEER_TENDENCY_OFFSETS.low);
+  });
+  it('係数表: 正の有限値で high > normal > low', () => {
+    const m = ENGINEER_FATIGUE_RATE_MULTIPLIERS;
+    for (const v of [m.high, m.normal, m.low]) {
+      expect(Number.isFinite(v) && v > 0).toBe(true);
+    }
+    expect(m.high).toBeGreaterThan(m.normal);
+    expect(m.normal).toBeGreaterThan(m.low);
+  });
+});
+
+describe('createEngineerParameters: 8性格 × 3ランク = 24通り（手計算の期待値）', () => {
+  // 初期値は全ランク 疲労0・集中50・技術50・愛着50。高い=+20、普通=0、低い=-20。
+  const byPersonality: Record<string, [number, number, number]> = {
+    meticulous: [50, 70, 50],
+    passive: [30, 50, 50],
+    careless: [70, 30, 50],
+    slacker: [30, 50, 30],
+    earnest: [70, 50, 70],
+    calm: [50, 70, 50],
+    cheerful: [50, 50, 70],
+    gloomy: [70, 70, 30],
+  };
+  const cases = Object.entries(byPersonality).flatMap(([id, [c, s, a]]) =>
+    (['junior', 'middle', 'senior'] as const).map((rank): [string, EngineerRank, number, number, number] => [
+      id,
+      rank,
+      c,
+      s,
+      a,
+    ]),
+  );
+  it.each(cases)('%s / %s', (id, rank, concentration, skill, attachment) => {
+    expect(createEngineerParameters(rank, id as EngineerPersonalityId)).toEqual({
+      fatigue: 0,
+      concentration,
+      skill,
+      attachment,
+    });
+  });
+  it('全ランク×全性格で結果が範囲内', () => {
+    for (const rank of ENGINEER_RANKS) {
+      for (const id of PERSONALITY_IDS) {
+        for (const value of Object.values(createEngineerParameters(rank.id, id))) {
+          expect(value).toBeGreaterThanOrEqual(ENGINEER_PARAMETER_MIN);
+          expect(value).toBeLessThanOrEqual(ENGINEER_PARAMETER_MAX);
+        }
+      }
+    }
+  });
+  it('personality を省略したらランクの初期値のまま', () => {
+    for (const rank of ENGINEER_RANKS) {
+      expect(createEngineerParameters(rank.id)).toEqual(ENGINEER_INITIAL_PARAMETERS[rank.id]);
+    }
+  });
+  it('呼ぶたびに別オブジェクトで、設定表を変更しない', () => {
+    const before = JSON.stringify([ENGINEER_INITIAL_PARAMETERS, ENGINEER_PERSONALITY_TENDENCIES, ENGINEER_TENDENCY_OFFSETS]);
+    const a = createEngineerParameters('junior', 'gloomy');
+    const b = createEngineerParameters('junior', 'gloomy');
+    expect(a).not.toBe(b);
+    expect(a).toEqual(b);
+    expect(JSON.stringify([ENGINEER_INITIAL_PARAMETERS, ENGINEER_PERSONALITY_TENDENCIES, ENGINEER_TENDENCY_OFFSETS])).toBe(before);
+  });
+});
+
+describe('applyPersonalityTendencies: 丸めと不正な補正値', () => {
+  type Tendency = 'high' | 'normal' | 'low';
+  // 全性格が同じ傾向になる表（実際の性格表に依存しない）
+  const allTendency = (t: Tendency): Record<EngineerPersonalityId, Record<EngineerParameterKey, Tendency>> =>
+    Object.fromEntries(
+      PERSONALITY_IDS.map((id) => [id, { fatigue: t, concentration: t, skill: t, attachment: t }]),
+    ) as Record<EngineerPersonalityId, Record<EngineerParameterKey, Tendency>>;
+  const base = (v: number) => ({ fatigue: 10, concentration: v, skill: v, attachment: v });
+  const run = (tendency: Tendency, v: number, offsets = ENGINEER_TENDENCY_OFFSETS) =>
+    applyPersonalityTendencies(base(v), 'meticulous', { tendencies: allTendency(tendency), offsets });
+  it.each<[Tendency, number, number]>([
+    ['high', 79, 99],
+    ['high', 80, 100],
+    ['high', 81, 100],
+    ['low', 21, 1],
+    ['low', 20, 0],
+    ['low', 19, 0],
+  ])('%s: 基準値 %i → %i', (tendency, input, output) => {
+    const result = run(tendency, input);
+    expect([result.concentration, result.skill, result.attachment]).toEqual([output, output, output]);
+  });
+  it.each([0, 100])('普通なら基準値 %i そのまま', (v) => {
+    const result = run('normal', v);
+    expect([result.concentration, result.skill, result.attachment]).toEqual([v, v, v]);
+  });
+  it('疲労度は補正されず基準値のまま', () => {
+    expect(run('high', 50).fatigue).toBe(10);
+    expect(run('low', 50).fatigue).toBe(10);
+  });
+  it('小数の基準値は丸められない', () => {
+    expect(run('high', 50.5).skill).toBe(70.5);
+    expect(run('normal', 33.3).skill).toBe(33.3);
+  });
+  it.each([
+    ['NaN', Number.NaN],
+    ['+Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+  ])('補正値が %s なら補正なし', (_name, bad) => {
+    const result = run('high', 50, { high: bad, normal: 0, low: -20 });
+    expect(result).toEqual(base(50));
+  });
+  it('入力が Object.freeze でも変更せず、4キーだけの新しいオブジェクトを返す', () => {
+    const frozen = Object.freeze(base(50));
+    const result = applyPersonalityTendencies(frozen, 'gloomy');
+    expect(result).not.toBe(frozen);
+    expect(Object.keys(result).sort()).toEqual(['attachment', 'concentration', 'fatigue', 'skill']);
+    expect(frozen).toEqual(base(50));
+  });
+});
+
+describe('getFatigueRateMultiplier', () => {
+  it.each<[EngineerPersonalityId, number]>([
+    ['meticulous', 1],
+    ['passive', 1],
+    ['careless', 0.5],
+    ['slacker', 0.5],
+    ['earnest', 1.5],
+    ['calm', 0.5],
+    ['cheerful', 0.5],
+    ['gloomy', 1.5],
+  ])('%s の既定の係数は %f', (id, value) => {
+    expect(getFatigueRateMultiplier(id)).toBe(value);
+  });
+  // 'earnest' の疲労は high
+  it.each<[string, number, number]>([
+    ['0 は有効（溜まらない）', 0, 0],
+    ['小数 0.25', 0.25, 0.25],
+    ['負 -1 は 1', -1, 1],
+    ['負 -0.000001 は 1', -0.000001, 1],
+    ['NaN は 1', Number.NaN, 1],
+    ['+Infinity は 1', Number.POSITIVE_INFINITY, 1],
+    ['-Infinity は 1', Number.NEGATIVE_INFINITY, 1],
+  ])('差し替えた係数: %s', (_name, input, output) => {
+    expect(getFatigueRateMultiplier('earnest', { high: input, normal: 1, low: 0.5 })).toBe(output);
+  });
+});
+
+describe('性格の初期値と乱数', () => {
+  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+  it('最初の3人に性格どおりの初期値が付く', () => {
+    const engineers = createInitialEngineers(routes, INITIAL_ENGINEER_RANKS, sequence([0, 0.5, 0.999]));
+    expect(engineers.map((e) => [e.personality, e.concentration, e.skill, e.attachment, e.fatigue])).toEqual([
+      ['meticulous', 50, 70, 50, 0],
+      ['earnest', 70, 50, 70, 0],
+      ['gloomy', 70, 70, 30, 0],
+    ]);
+  });
+  it('createInitialFleet: 同じ乱数列で同じルート・性格・パラメータ', () => {
+    const values = [0.1, 0.9, 0.4, 0.6, 0.2, 0.8, 0.3, 0.7, 0.05, 0.95, 0.5, 0.15];
+    expect(createInitialFleet(sequence(values))).toEqual(createInitialFleet(sequence(values)));
+  });
+  it('createInitialEngineers が random を呼ぶ回数は人数と同じ', () => {
+    const counter = counting(0.5);
+    createInitialEngineers(routes, INITIAL_ENGINEER_RANKS, counter.random);
+    expect(counter.calls()).toBe(INITIAL_ENGINEER_RANKS.length);
+  });
+  it.each(['junior', 'middle', 'senior'] as const)('%s を雇った人に性格どおりの初期値が付く（根暗）', (rank) => {
+    const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, rank, rules, () => 0.999);
+    if (!hired.ok) throw new Error('雇えるはず');
+    expect(hired.engineer).toMatchObject({ personality: 'gloomy', fatigue: 0, concentration: 70, skill: 70, attachment: 30 });
   });
 });
