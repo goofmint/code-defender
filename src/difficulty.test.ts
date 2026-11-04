@@ -12,7 +12,7 @@ import {
 } from './config';
 import { pickCodeKind } from './codeFlow';
 import { codeSpeedAt, maliciousRateAt, maliciousRateForRank } from './difficulty';
-import { createEngineerParameters, findEngineerByRoute } from './engineer';
+import { createEngineerParameters, findEngineerByRoute, getInitialSalary } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
 
 const STEP = DIFFICULTY_STEP_MS;
@@ -230,6 +230,7 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     rank,
     routeId,
     personality: 'meticulous',
+    salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
   // ルート 0〜2 に別ランクの担当者、ルート 3 は担当者なし。routeId: null の人はどのルートにも影響しない。

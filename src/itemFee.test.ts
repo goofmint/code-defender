@@ -16,6 +16,7 @@ import {
 import type { ItemFeePaidEvent } from './itemFee';
 import type { PlacedItem } from './itemPlacement';
 import { settleMonthBoundary } from './monthBoundary';
+import { getInitialSalary } from './engineer';
 import { getEngineerSalaries } from './salary';
 
 const placed = (id: number, itemType: ItemType): PlacedItem => ({
@@ -225,7 +226,7 @@ describe('1フレームで複数月をまたぐ', () => {
 
 describe('給料と同じ月: 給料 → アイテム費の順', () => {
   const items = [placed(0, 'codeRabbit')]; // 月額 200000
-  const salaries = getEngineerSalaries([{ rank: 'junior' }]);
+  const salaries = getEngineerSalaries([{ salary: getInitialSalary('junior') }]);
 
   // main.ts の onMonthElapsed が使う精算と同じ関数（settleMonthBoundary）を呼ぶ。
   const monthBoundary = (funds: number, over: boolean, placedItems: readonly PlacedItem[] = items) => {
