@@ -400,7 +400,7 @@ export const TECH_DEBT_OUTAGE_THRESHOLD = 80;
 // 閾値以下に下がったら放置時間は 0 に戻る（累積しない）。
 export const TECH_DEBT_OUTAGE_GRACE_MS = MS_PER_GAME_MONTH;
 // 仮・要確認(#46): 大障害の損害ポイント。損害額 = この値 × INCIDENT_DAMAGE_UNIT_YEN。種別なしの不正コード(INCIDENT_DEFAULT_DAMAGE_POINTS)より大きくする。
-export const TECH_DEBT_OUTAGE_DAMAGE_POINTS = 30;
+export const TECH_DEBT_OUTAGE_DAMAGE_POINTS = 100;
 // 仮・要確認(#46): 大障害の損害額（円）。
 export const TECH_DEBT_OUTAGE_DAMAGE = TECH_DEBT_OUTAGE_DAMAGE_POINTS * INCIDENT_DAMAGE_UNIT_YEN;
 // 仮・要確認(#46): 大障害の演出（画面全体の点滅）。通常の障害(INCIDENT_FLASH_DURATION_MS)より長くする。企画書には演出の記載なし。
