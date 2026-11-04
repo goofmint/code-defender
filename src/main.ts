@@ -15,6 +15,8 @@ import {
   MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  SALARY_ADJUST_KEYS,
+  SALARY_SELECT_KEYS,
 } from './config';
 import {
   ATTACK_COOLDOWN_MS,
@@ -53,6 +55,8 @@ import {
   drawPlayer,
   drawReleasePoint,
   drawRoutes,
+  drawSalaryButtons,
+  drawSelectedEngineer,
   flashCode,
 } from './render';
 import {
@@ -94,6 +98,7 @@ import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
+  adjustEngineerSalary,
   assignEngineerRoute,
   createInitialFleet,
   ENGINEER_HIRED_EVENT,
@@ -101,10 +106,13 @@ import {
   findEngineerByRoute,
   formatEngineerCount,
   formatHireMessage,
+  formatSalaryMessage,
+  formatSelectedEngineer,
   hireEngineer,
+  selectAdjacentEngineerId,
   shouldAddRouteOnHire,
 } from './engineer';
-import type { Engineer, EngineerHiredPayload } from './engineer';
+import type { Engineer, EngineerHiredPayload, EngineerSelectDirection, SalaryDirection } from './engineer';
 import { addRoute, cellCenter } from './route';
 import { getItemDamage, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
@@ -149,6 +157,9 @@ class MainScene extends Phaser.Scene {
   private nextEngineerId = 0;
   private engineerCountText?: Phaser.GameObjects.Text;
   private hireMessageText?: Phaser.GameObjects.Text;
+  // 昇給・減給(#34)の対象。名簿の並びではなく id で持つ（assignEngineerRoute などで配列が置き換わっても選択を保つ）。
+  private selectedEngineerId: number | null = null;
+  private selectedEngineerText?: Phaser.GameObjects.Text;
   private placedItems: readonly PlacedItem[] = [];
   private nextItemId = 0;
   private itemMessageText?: Phaser.GameObjects.Text;
@@ -199,6 +210,14 @@ class MainScene extends Phaser.Scene {
       ENGINEER_RANKS.map((entry) => ({ rank: entry.id, cost: ENGINEER_HIRE_COST[entry.id] })),
       (rank) => this.hire(rank),
     );
+    // scene.restart() でも前回の選択を残さない。初期値は先頭のエンジニア（名簿が空なら null）。
+    this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, null, 'next');
+    this.selectedEngineerText = drawSelectedEngineer(this, this.findSelectedEngineer());
+    drawSalaryButtons(
+      this,
+      (direction) => this.selectEngineer(direction),
+      (direction) => this.adjustSalary(direction),
+    );
     const itemState = createItemState();
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;
@@ -221,6 +240,10 @@ class MainScene extends Phaser.Scene {
       HIRE_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.hire(ENGINEER_RANKS[index].id)),
       );
+      keyboard.addKey(SALARY_SELECT_KEYS.previous).on('down', () => this.selectEngineer('previous'));
+      keyboard.addKey(SALARY_SELECT_KEYS.next).on('down', () => this.selectEngineer('next'));
+      keyboard.addKey(SALARY_ADJUST_KEYS.raise).on('down', () => this.adjustSalary('raise'));
+      keyboard.addKey(SALARY_ADJUST_KEYS.cut).on('down', () => this.adjustSalary('cut'));
       ITEM_BUY_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
       );
@@ -390,9 +413,49 @@ class MainScene extends Phaser.Scene {
     this.engineers = [...result.engineers];
     this.nextEngineerId = result.engineer.id + 1;
     this.engineerCountText?.setText(formatEngineerCount(this.engineers.length, MAX_ENGINEERS));
+    // 選択中のエンジニアがいなければ（0人から雇ったときなど）、雇ったエンジニアを選ぶ。
+    if (this.findSelectedEngineer() === null) {
+      this.selectedEngineerId = result.engineer.id;
+    }
+    this.refreshSelectedEngineer();
     this.changeFunds(result.fundsAfter, 'hire');
     const payload: EngineerHiredPayload = { engineer: result.engineer, cost: result.cost };
     this.events.emit(ENGINEER_HIRED_EVENT, payload);
+  }
+
+  // 選択中のエンジニア。選択なし・名簿にいなければ null。
+  private findSelectedEngineer(): Engineer | null {
+    return this.engineers.find((engineer) => engineer.id === this.selectedEngineerId) ?? null;
+  }
+
+  private refreshSelectedEngineer(): void {
+    this.selectedEngineerText?.setText(formatSelectedEngineer(this.findSelectedEngineer()));
+  }
+
+  // 昇給・減給の対象を前・次のエンジニアに切り替える。ゲームオーバー中は何もしない。
+  private selectEngineer(direction: EngineerSelectDirection): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, this.selectedEngineerId, direction);
+    this.refreshSelectedEngineer();
+  }
+
+  // 仮・要確認(#34): 選択中のエンジニアを昇給・減給する。ゲームオーバー中は何もしない。
+  // 変えた額はすぐ Engineer.salary に入り、次の月次精算（onMonthElapsed → getEngineerSalaries）から支払う。手数料はかけない（changeFunds は呼ばない）。
+  // メッセージは雇用メッセージと同じ場所に出し、直前の雇用・給与メッセージは消す。
+  private adjustSalary(direction: SalaryDirection): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const result = adjustEngineerSalary(this.engineers, this.selectedEngineerId, direction);
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatSalaryMessage(result));
+    if (!result.ok) {
+      return;
+    }
+    this.engineers = [...result.engineers];
+    this.refreshSelectedEngineer();
   }
 
   // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。

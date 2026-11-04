@@ -203,8 +203,15 @@ describe('isPlaceableCell: 置ける場所', () => {
 });
 
 describe('isPlaceableCell: HUD の下', () => {
-  it('行3 col1 は（ルートが無ければ）置ける', () => {
-    expect(isPlaceableCell({ col: 1, row: 3 }, { routes: [], placedItems: [] })).toBe(true);
+  // 行3 は昇給・減給の情報行・ボタン(#34)と重なるため置けない。その下の行4から置ける。
+  it('行3 col1〜6 は置けず、col7 は置ける（ルートが無いとき）', () => {
+    for (let col = 1; col <= 6; col += 1) {
+      expect(isPlaceableCell({ col, row: 3 }, { routes: [], placedItems: [] })).toBe(false);
+    }
+    expect(isPlaceableCell({ col: 7, row: 3 }, { routes: [], placedItems: [] })).toBe(true);
+  });
+  it('行4 col1 は（ルートが無ければ）置ける', () => {
+    expect(isPlaceableCell({ col: 1, row: 4 }, { routes: [], placedItems: [] })).toBe(true);
   });
 });
 
