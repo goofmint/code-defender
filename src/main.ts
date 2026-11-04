@@ -16,6 +16,8 @@ import {
   MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  REFACTORING_RATIO_KEYS,
+  REVENUE_PER_NORMAL_CODE,
   SALARY_ADJUST_KEYS,
   SALARY_SELECT_KEYS,
   TECH_DEBT_INITIAL,
@@ -58,6 +60,7 @@ import {
   drawPlacedItem,
   drawPenaltyText,
   drawPlayer,
+  drawRefactoringRatioControl,
   drawReleasePoint,
   drawRoutes,
   drawSalaryButtons,
@@ -102,6 +105,7 @@ import type { GameOverState } from './gameOver';
 import { NORMAL_CODE_PENALIZED_EVENT, resolveNormalCodePenalty } from './penalty';
 import type { NormalCodePenalizedPayload } from './penalty';
 import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
+import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
@@ -115,6 +119,8 @@ import {
   techDebtSpawnIntervalMs,
 } from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
+import { formatRefactoringAllocation, stepRefactoringRatio } from './refactoringRatioControl';
+import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import {
   adjustEngineerSalary,
   advanceEngineersAttachment,
@@ -182,6 +188,8 @@ class MainScene extends Phaser.Scene {
   private techDebtNeglectMs = 0;
   // リファクタリングの割合（0〜1）。割合を指定するUI（docs/tasks.md 8）が変更する想定。今は初期値のまま。
   private refactoringRatio = DEFAULT_REFACTORING_RATIO;
+  // 割合UI(#40)の割合表示。割合の値そのものは refactoringRatio だけに持つ。
+  private refactoringRatioText?: Phaser.GameObjects.Text;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
   private engineers: Engineer[] = [];
   private nextEngineerId = 0;
@@ -218,6 +226,11 @@ class MainScene extends Phaser.Scene {
     this.techDebtNeglectMs = 0;
     this.refactoringRatio = DEFAULT_REFACTORING_RATIO;
     this.techDebtText = drawTechDebt(this, this.techDebt);
+    this.refactoringRatioText = drawRefactoringRatioControl(
+      this,
+      formatRefactoringAllocation(this.refactoringRatio),
+      (direction) => this.changeRefactoringRatio(direction),
+    );
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
@@ -285,6 +298,8 @@ class MainScene extends Phaser.Scene {
       ITEM_BUY_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
       );
+      keyboard.addKey(REFACTORING_RATIO_KEYS.feature).on('down', () => this.changeRefactoringRatio('feature'));
+      keyboard.addKey(REFACTORING_RATIO_KEYS.refactoring).on('down', () => this.changeRefactoringRatio('refactoring'));
       register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
     }
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
@@ -453,6 +468,20 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  // 機能開発とリファクタリングの割合を1段階寄せる(#40)。ゲームオーバー中と、両端で値が変わらないときは何もしない。
+  // 次のリリースから resolveWorkTechDebt に新しい割合が使われる。
+  private changeRefactoringRatio(direction: RefactoringRatioDirection): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const next = stepRefactoringRatio(this.refactoringRatio, direction);
+    if (next === this.refactoringRatio) {
+      return;
+    }
+    this.refactoringRatio = next;
+    this.refactoringRatioText?.setText(formatRefactoringAllocation(next));
+  }
+
   // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
   // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う。
   private hire(rank: string): void {
@@ -575,6 +604,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
+  // 給料の対象は this.engineers の全員（ルート未割当・休暇中も含む）(#37)。休暇などの状態で this.engineers を絞ってから渡さない。
   private onMonthElapsed(event: MonthElapsedEvent): void {
     const { salary, itemFee } = settleMonthBoundary(
       this.funds,
@@ -585,6 +615,10 @@ class MainScene extends Phaser.Scene {
     );
     this.changeFunds(salary.fundsAfter, 'salary');
     this.events.emit(SALARY_PAID_EVENT, salary);
+    // 給料を払ったあと、ゲームオーバーでなければ月給と初期額の差で愛着心を動かす(#31)。給料で倒産した月とそれ以降は動かさない。
+    if (!this.gameOver.over) {
+      this.engineers = applySalaryToAttachment(this.engineers);
+    }
     // 給料のあとに月額アイテムの費用を引く（給料で倒産していたら itemFee は null）。
     if (itemFee === null) return;
     this.changeFunds(itemFee.fundsAfter, 'itemFee');
@@ -608,12 +642,16 @@ class MainScene extends Phaser.Scene {
   // 正常なコードがリリースされたら売上を加算する。不正コード（売上 0）では売上は変えない。
   // 不正コードのリリースは障害として扱い、損害ぶん資金を減らす。倒産判定は FUNDS_CHANGED_EVENT 経由（onFundsChanged）。
   private onCodeReleased(payload: CodeReleasedPayload): void {
-    if (getReleaseRevenue(payload.kind) > 0) {
-      this.changeFunds(sellReleasedCode(this.funds, payload.kind), 'sales');
-      // 正常なコードのリリース1件を作業1単位として技術的負債を精算する。ゲームオーバー中は精算しない。
-      if (!this.gameOver.over) {
-        this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
-      }
+    // 売上は現在の配分（機能開発の割合）に比例する。リファクタリング100%では売上 0 なので資金は変えない。
+    if (getReleaseRevenue(payload.kind, REVENUE_PER_NORMAL_CODE, this.refactoringRatio) > 0) {
+      this.changeFunds(
+        sellReleasedCode(this.funds, payload.kind, REVENUE_PER_NORMAL_CODE, this.refactoringRatio),
+        'sales',
+      );
+    }
+    // 正常なコードのリリース1件を作業1単位として技術的負債を精算する（売上が 0 でも精算する）。ゲームオーバー中は精算しない。
+    if (payload.kind === 'normal' && !this.gameOver.over) {
+      this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
     }
     const incident = settleIncident(this.funds, payload, this.gameOver);
     if (incident === null) {
@@ -794,7 +832,8 @@ class MainScene extends Phaser.Scene {
   }
 
   // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
-  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。給料(#37)は休暇中も引き続き払う。
+  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。
+  // 休暇中も給料は引く(#37): onMonthElapsed は this.engineers 全員の給料を引くので、ここでは給料の処理をしない。
   // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
   // 休暇中は担当エンジニアの愛着心が時間経過で上がる(#30、update の advanceEngineersAttachment が onVacation から反映)。
   private toggleVacation(routeId: number): void {

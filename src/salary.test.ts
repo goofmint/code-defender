@@ -1,15 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ENGINEER_HIRE_COST,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
   ENGINEER_RANKS,
   ENGINEER_SALARY_MAX,
   ENGINEER_SALARY_MIN,
   ENGINEER_SALARY_STEP,
   MAX_ENGINEERS,
+  MS_PER_GAME_MONTH,
 } from './config';
-import { adjustEngineerSalary, createEngineerParameters, getInitialSalary } from './engineer';
+import {
+  adjustEngineerSalary,
+  assignEngineerRoute,
+  createEngineerParameters,
+  getInitialSalary,
+  hireEngineer,
+  isEngineerOnVacation,
+  setEngineerVacation,
+  toggleEngineerVacation,
+} from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
+import { isBankrupt } from './gameOver';
 import { getCrossedMonths } from './gameTime';
+import { getItemMonthlyFee } from './itemFee';
+import type { PlacedItem } from './itemPlacement';
+import { settleMonthBoundary } from './monthBoundary';
 import {
   createSalaryPaidEvent,
   getEngineerSalaries,
@@ -210,6 +225,7 @@ describe('越えた月ごとに1回ずつ給料を引く（getCrossedMonths と�
     onVacation: false,
     vacationRateReduction: 0,
     salary: getInitialSalary(rank),
+    initialSalary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
 
@@ -253,5 +269,211 @@ describe('昇給・減給の設定値の不変条件(#34)', () => {
     expect(initial).toBeGreaterThanOrEqual(ENGINEER_SALARY_MIN);
     expect(initial).toBeLessThanOrEqual(ENGINEER_SALARY_MAX);
     expect((initial - ENGINEER_SALARY_MIN) % ENGINEER_SALARY_STEP).toBe(0);
+  });
+});
+
+// #37 休暇中も給料を引く。給料の対象は雇っているエンジニア全員（ルート未割当・休暇中も含む）。
+// Engineer の全フィールドを持つフィクスチャ（engineer.test.ts の makeEngineer と同じ形）。salary は既定でランクの初期額。
+const makeEngineer = (
+  id: number,
+  rank: EngineerRank,
+  routeId: number | null,
+  onVacation: boolean = false,
+  salary: number = getInitialSalary(rank),
+): Engineer => ({
+  id,
+  rank,
+  routeId,
+  personality: 'meticulous',
+  onVacation,
+  vacationRateReduction: 0,
+  salary,
+  initialSalary: getInitialSalary(rank),
+  ...createEngineerParameters(rank, 'meticulous'),
+});
+
+const rankAt = (index: number): EngineerRank => ENGINEER_RANKS[index % ENGINEER_RANKS.length].id;
+
+// total 人のうち先頭 count 人を「未割当」または「休暇中」にした編成。
+const makeRoster = (total: number, count: number, state: 'unassigned' | 'vacation'): Engineer[] =>
+  Array.from({ length: total }, (_, id) =>
+    makeEngineer(
+      id,
+      rankAt(id),
+      state === 'unassigned' && id < count ? null : id,
+      state === 'vacation' && id < count,
+    ),
+  );
+
+const sumSalaries = (engineers: readonly Engineer[]): number =>
+  engineers.reduce((sum, engineer) => sum + engineer.salary, 0);
+
+const payrollOf = (engineers: readonly Engineer[]): number => getMonthlyPayroll(getEngineerSalaries(engineers));
+
+describe('休暇中・未割当でも給料対象(#37)', () => {
+  const cases: [string, number, number][] = [
+    ['0人', 3, 0],
+    ['1人', 3, 1],
+    ['全員', 3, 3],
+    [`上限${MAX_ENGINEERS}人全員`, MAX_ENGINEERS, MAX_ENGINEERS],
+  ];
+
+  it.each(cases)('未割当が%sでも全員の給料を引く', (_name, total, count) => {
+    const engineers = makeRoster(total, count, 'unassigned');
+    const salaries = getEngineerSalaries(engineers);
+    expect(engineers.filter((e) => e.routeId === null)).toHaveLength(count);
+    expect(salaries).toHaveLength(total);
+    expect(salaries).toEqual(engineers.map((e) => e.salary));
+    expect(getMonthlyPayroll(salaries)).toBe(sumSalaries(engineers));
+  });
+
+  it.each(cases)('休暇中が%sでも全員の給料を引く', (_name, total, count) => {
+    const engineers = makeRoster(total, count, 'vacation');
+    const salaries = getEngineerSalaries(engineers);
+    expect(engineers.filter(isEngineerOnVacation)).toHaveLength(count);
+    expect(salaries).toHaveLength(total);
+    expect(salaries).toEqual(engineers.map((e) => e.salary));
+    expect(getMonthlyPayroll(salaries)).toBe(sumSalaries(engineers));
+  });
+
+  it('setEngineerVacation で休暇にする前後・戻した後で給料合計は同じ', () => {
+    const working = makeRoster(3, 0, 'vacation');
+    const onVacation = setEngineerVacation(working, 1, true);
+    const back = setEngineerVacation(onVacation, 1, false);
+    expect(isEngineerOnVacation(onVacation[1])).toBe(true);
+    expect(payrollOf(onVacation)).toBe(payrollOf(working));
+    expect(payrollOf(back)).toBe(payrollOf(working));
+  });
+
+  it(`toggleEngineerVacation で${MAX_ENGINEERS}人全員を休暇にしても給料合計は同じ`, () => {
+    const working = makeRoster(MAX_ENGINEERS, 0, 'vacation');
+    const allOff = working.reduce((engineers, engineer) => toggleEngineerVacation(engineers, engineer.id), working);
+    expect(allOff.every(isEngineerOnVacation)).toBe(true);
+    expect(payrollOf(allOff)).toBe(payrollOf(working));
+  });
+
+  it('休暇中のエンジニアの個人の salary（ランクの初期額以外）も合計に入る', () => {
+    const custom = getInitialSalary('senior') + 1;
+    const engineers = setEngineerVacation(
+      [makeEngineer(0, 'junior', 0, false, custom), makeEngineer(1, 'middle', 1)],
+      0,
+      true,
+    );
+    expect(getEngineerSalaries(engineers)).toEqual([custom, getInitialSalary('middle')]);
+    expect(payrollOf(engineers)).toBe(custom + getInitialSalary('middle'));
+  });
+
+  it('休暇中のエンジニアを除くと給料合計はその人の給料の分だけ減る（＝含まれている）', () => {
+    const engineers = setEngineerVacation(makeRoster(3, 0, 'vacation'), 2, true);
+    const vacationer = engineers[2];
+    const others = engineers.filter((e) => e.id !== vacationer.id);
+    expect(payrollOf(engineers) - payrollOf(others)).toBe(vacationer.salary);
+  });
+
+  it('assignEngineerRoute で未割当にした前後・再割当後で給料合計は同じ', () => {
+    const assigned = makeRoster(3, 0, 'unassigned');
+    const unassigned = assignEngineerRoute(assigned, 1, null);
+    const reassigned = assignEngineerRoute(unassigned, 1, 1);
+    expect(unassigned[1].routeId).toBeNull();
+    expect(payrollOf(unassigned)).toBe(payrollOf(assigned));
+    expect(payrollOf(reassigned)).toBe(payrollOf(assigned));
+  });
+
+  it('雇った直後（routeId: null）のエンジニアも、休暇にしても給料対象', () => {
+    const result = hireEngineer(
+      { engineers: makeRoster(2, 0, 'unassigned'), funds: ENGINEER_HIRE_COST.senior, nextId: 2 },
+      'senior',
+      { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST },
+      () => 0,
+    );
+    if (!result.ok) throw new Error(`雇えませんでした: ${result.reason}`);
+    expect(result.engineer.routeId).toBeNull();
+    const before = makeRoster(2, 0, 'unassigned');
+    expect(payrollOf(result.engineers) - payrollOf(before)).toBe(getInitialSalary('senior'));
+    const onVacation = setEngineerVacation(result.engineers, result.engineer.id, true);
+    expect(payrollOf(onVacation)).toBe(payrollOf(result.engineers));
+  });
+});
+
+describe('休暇中・未割当を含む給料と資金の境界（settleMonthBoundary）(#37)', () => {
+  // 通常・未割当・休暇中の3人。P はこの3人の給料合計。
+  const engineers = setEngineerVacation(
+    [makeEngineer(0, 'junior', 0), makeEngineer(1, 'middle', null), makeEngineer(2, 'senior', 2)],
+    2,
+    true,
+  );
+  const salaries = getEngineerSalaries(engineers);
+  const payroll = sumSalaries(engineers);
+  // itemFee.test.ts と同じ形の月額アイテム（CodeRabbit 1個）。
+  const items: PlacedItem[] = [{ id: 0, itemType: 'codeRabbit', cell: { col: 1, row: 3 }, lastAttackTime: null }];
+  const fee = getItemMonthlyFee('codeRabbit');
+
+  it('P は通常・未割当・休暇中の3人全員の給料合計', () => {
+    expect(getMonthlyPayroll(salaries)).toBe(payroll);
+  });
+
+  it('資金 P+1 なら給料後 1 円残り、アイテム費を引く', () => {
+    const { salary, itemFee } = settleMonthBoundary(payroll + 1, 1, salaries, items, false);
+    expect(salary).toEqual({ month: 1, amount: payroll, fundsBefore: payroll + 1, fundsAfter: 1 });
+    expect(isBankrupt(salary.fundsAfter)).toBe(false);
+    expect(itemFee).toEqual({ month: 1, amount: fee, itemCount: 1, fundsBefore: 1, fundsAfter: 1 - fee });
+  });
+
+  it.each([
+    ['P', 0, 0],
+    ['P-1', -1, -1],
+  ])('資金 %s なら給料後 %d 円で倒産し、アイテム費は引かない', (_name, offset, expected) => {
+    const { salary, itemFee } = settleMonthBoundary(payroll + offset, 1, salaries, items, false);
+    expect(salary.amount).toBe(payroll);
+    expect(salary.fundsAfter).toBe(expected);
+    expect(isBankrupt(salary.fundsAfter)).toBe(true);
+    expect(itemFee).toBeNull();
+  });
+});
+
+describe('休暇中・未割当を含む給料を越えた月ごとに引く（getCrossedMonths × settleMonthBoundary）(#37)', () => {
+  const engineers = setEngineerVacation(
+    [makeEngineer(0, 'junior', 0), makeEngineer(1, 'middle', null), makeEngineer(2, 'senior', 2)],
+    2,
+    true,
+  );
+  const salaries = getEngineerSalaries(engineers);
+  const payroll = sumSalaries(engineers);
+
+  const settleAll = (months: readonly number[], initial: number) => {
+    let funds = initial;
+    const settled = [];
+    // MainScene.onMonthElapsed と同じく、倒産したらそれ以降の月は精算しない。
+    for (const month of months) {
+      const { salary } = settleMonthBoundary(funds, month, salaries, [], false);
+      settled.push(salary);
+      funds = salary.fundsAfter;
+      if (isBankrupt(funds)) {
+        break;
+      }
+    }
+    return settled;
+  };
+
+  it.each([
+    [MS_PER_GAME_MONTH - 1, MS_PER_GAME_MONTH, [1]],
+    [MS_PER_GAME_MONTH, MS_PER_GAME_MONTH + 1, []],
+    [0, MS_PER_GAME_MONTH - 1, []],
+    [MS_PER_GAME_MONTH - 1, 3 * MS_PER_GAME_MONTH, [1, 2, 3]],
+  ])('%d → %d ms は月 %j の分だけ P ずつ引く', (prev, next, expectedMonths) => {
+    const months = getCrossedMonths(prev, next);
+    expect(months).toEqual(expectedMonths);
+    const initial = payroll * (months.length + 1);
+    const paid = settleAll(months, initial);
+    expect(paid.map((p) => p.month)).toEqual(expectedMonths);
+    expect(paid.map((p) => p.amount)).toEqual(months.map(() => payroll));
+    expect(paid.map((p) => p.fundsAfter)).toEqual(months.map((_, i) => initial - payroll * (i + 1)));
+  });
+
+  it('複数月の途中で倒産した月の fundsAfter は倒産の値', () => {
+    const paid = settleAll(getCrossedMonths(MS_PER_GAME_MONTH - 1, 3 * MS_PER_GAME_MONTH), payroll * 2 - 1);
+    expect(paid.map((p) => p.month)).toEqual([1, 2]);
+    expect(paid[1].fundsAfter).toBe(-1);
+    expect(isBankrupt(paid[1].fundsAfter)).toBe(true);
   });
 });

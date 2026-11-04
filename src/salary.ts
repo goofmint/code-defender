@@ -20,6 +20,8 @@ export const getMonthlyPayroll = (salaries: readonly number[]): number =>
 
 // エンジニアそれぞれの月給（Engineer.salary）の一覧。入力と同じ順序・同じ長さ。値は加工しない（不正な値は getMonthlyPayroll が 0 として扱う）。
 // 初期額はランクで決まる(#33、getInitialSalary)。昇給・減給(#34)で変わった額もそのまま使う。
+// 対象は雇っているエンジニア全員(#37)。ルート未割当（routeId: null）・休暇中（onVacation: true）のエンジニアも含め、状態で除外しない。
+// 休暇中も給与は引かれる（docs/game_plan.md「休暇」、docs/tasks.md「7. 休暇」）。呼び出し側も給料計算の前に配列を絞らないこと。
 export const getEngineerSalaries = (engineers: readonly { readonly salary: number }[]): number[] =>
   engineers.map((engineer) => engineer.salary);
 

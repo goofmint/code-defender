@@ -282,6 +282,7 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     onVacation: false,
     vacationRateReduction: 0,
     salary: getInitialSalary(rank),
+    initialSalary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
   // ルート 0〜2 に別ランクの担当者、ルート 3 は担当者なし。routeId: null の人はどのルートにも影響しない。
@@ -591,6 +592,7 @@ describe('vacationMaliciousRateModifiers（休暇による補正・境界値）'
     onVacation,
     vacationRateReduction,
     salary: getInitialSalary(rank),
+    initialSalary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
 

@@ -16,6 +16,13 @@ import {
   ITEM_BUY_KEYS,
   ITEM_MESSAGE_POSITION,
   ITEM_UI_POSITION,
+  REFACTORING_RATIO_BUTTON_SIZE,
+  REFACTORING_RATIO_FONT_SIZE,
+  REFACTORING_RATIO_LABEL_WIDTH,
+  REFACTORING_RATIO_STEP_PERCENT,
+  REFACTORING_RATIO_UI_GAP,
+  REFACTORING_RATIO_UI_HIRE_MIN_GAP,
+  REFACTORING_RATIO_UI_POSITION,
   RELEASE_POINT_CELL,
   SALARY_BUTTON_ORDER,
   SALARY_BUTTON_SIZE,
@@ -25,9 +32,10 @@ import {
   TECH_DEBT_MAX,
   TECH_DEBT_POSITION,
 } from './config';
-import { createEngineerParameters, formatSelectedEngineer } from './engineer';
+import { createEngineerParameters, formatSelectedEngineer, getInitialSalary } from './engineer';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import { ITEM_TYPES } from './item';
+import { formatRefactoringAllocation } from './refactoringRatioControl';
 import { SPAWN_MARKER_STYLE } from './route';
 import { formatTechDebt } from './techDebt';
 
@@ -193,6 +201,101 @@ describe('休暇マーカーとボタンのレイアウト（#35）', () => {
   });
 });
 
+describe('機能開発とリファクタリングの割合UIのレイアウト（#40）', () => {
+  // 枠線の分だけ広げた矩形（枠線は辺の上に描かれるため、太さぶん広げて過大に見積もる）。
+  const expand = (rect: Rect, strokeWidth: number): Rect => ({
+    x: rect.x - strokeWidth,
+    y: rect.y - strokeWidth,
+    width: rect.width + strokeWidth * 2,
+    height: rect.height + strokeWidth * 2,
+  });
+  // render.ts の drawHireButtons の枠線の太さ（setStrokeStyle(2, ...)）と同じ。
+  const HIRE_BUTTON_STROKE_WIDTH = 2;
+  // drawRefactoringRatioControl と同じ計算。
+  const { width, height, strokeWidth } = REFACTORING_RATIO_BUTTON_SIZE;
+  const { x, y } = REFACTORING_RATIO_UI_POSITION;
+  const labelRect: Rect = { x: x + width + REFACTORING_RATIO_UI_GAP, y, width: REFACTORING_RATIO_LABEL_WIDTH, height };
+  const featureButtonRect: Rect = expand({ x, y, width, height }, strokeWidth);
+  const refactoringButtonRect: Rect = expand(
+    { x: labelRect.x + labelRect.width + REFACTORING_RATIO_UI_GAP, y, width, height },
+    strokeWidth,
+  );
+  const controlRects: readonly { readonly name: string; readonly rect: Rect }[] = [
+    { name: '機能開発へ寄せるボタン', rect: featureButtonRect },
+    { name: '割合の表示', rect: labelRect },
+    { name: 'リファクタリングへ寄せるボタン', rect: refactoringButtonRect },
+  ];
+  // UI 全体（両ボタンの枠線を含む外接矩形）。
+  const controlBounds: Rect = {
+    x: featureButtonRect.x,
+    y: featureButtonRect.y,
+    width: refactoringButtonRect.x + refactoringButtonRect.width - featureButtonRect.x,
+    height: featureButtonRect.height,
+  };
+  const hireButtonsWithStroke = hireButtonRects.map((rect) => expand(rect, HIRE_BUTTON_STROKE_WIDTH));
+  const labelFontPx = parseInt(REFACTORING_RATIO_FONT_SIZE, 10);
+  const steps = 100 / REFACTORING_RATIO_STEP_PERCENT;
+  const gridRatios = Array.from({ length: steps + 1 }, (_, k) => k / steps);
+  // 行0の上端・下端と、HUD 1行目の上端（HUD_TOP_Y = 経過日数の y）。
+  const row0Bottom = CELL_SIZE;
+  const hudTopY = ELAPSED_DAYS_POSITION.y;
+
+  it('刻みのすべての割合（11通り）のラベルが割合の表示の領域に収まる', () => {
+    expect(gridRatios).toHaveLength(11);
+    for (const ratio of gridRatios) {
+      const rect = textRect(labelRect, formatRefactoringAllocation(ratio), labelFontPx);
+      expect(rect.width).toBeLessThanOrEqual(labelRect.width);
+      expect(rect.height).toBeLessThanOrEqual(labelRect.height);
+    }
+  });
+
+  it.each(controlRects)('$name はフィールド内・行0（y<60）内に収まる', ({ rect }) => {
+    expect(rect.x).toBeGreaterThanOrEqual(0);
+    expect(rect.y).toBeGreaterThanOrEqual(0);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(row0Bottom);
+  });
+
+  it('UI 全体の右端は、雇うボタン（枠線を含む）の左端から間隔をあけた位置以下', () => {
+    const hireLeft = Math.min(...hireButtonsWithStroke.map((rect) => rect.x));
+    expect(controlBounds.x + controlBounds.width).toBeLessThanOrEqual(hireLeft - REFACTORING_RATIO_UI_HIRE_MIN_GAP);
+  });
+
+  it.each(controlRects)('$name は雇うボタン（枠線を含む）・エンジニア数・雇用メッセージと交差しない', ({ rect }) => {
+    for (const other of [...hireButtonsWithStroke, ...hireTextRects]) {
+      expect(intersects(rect, other)).toBe(false);
+    }
+  });
+
+  it.each(controlRects)('$name は出現列の全行のセル・休暇マーカー（枠線を含む）と交差しない', ({ rect }) => {
+    const { radius, strokeWidth: markerStroke } = SPAWN_MARKER_STYLE;
+    for (let row = 0; row < FIELD_ROWS; row += 1) {
+      expect(intersects(rect, cellRect(ENGINEER_SPAWN_COL, row))).toBe(false);
+      const marker = expand(
+        {
+          x: ENGINEER_SPAWN_COL * CELL_SIZE + CELL_SIZE / 2 - radius,
+          y: row * CELL_SIZE + CELL_SIZE / 2 - radius,
+          width: radius * 2,
+          height: radius * 2,
+        },
+        markerStroke,
+      );
+      expect(intersects(rect, marker)).toBe(false);
+    }
+  });
+
+  it.each(controlRects)('$name は HUD の4行と交差しない', ({ rect }) => {
+    for (const hud of hudRects) {
+      expect(intersects(rect, hud.rect)).toBe(false);
+    }
+  });
+
+  it('UI 全体の下端は、雇うボタンの下端（y=36、枠線を除く）と HUD_TOP_Y 以下', () => {
+    expect(y + height).toBeLessThanOrEqual(HIRE_UI_POSITION.y + HIRE_BUTTON_SIZE.height);
+    expect(controlBounds.y + controlBounds.height).toBeLessThanOrEqual(hudTopY);
+  });
+});
+
 // 昇給・減給(#34)の情報行とボタン。
 // 情報行は最長想定（id 2桁・最長のランク名・月給の上限）を全角相当で過大に見積もる。
 const longestSelectedEngineer = formatSelectedEngineer({
@@ -203,6 +306,7 @@ const longestSelectedEngineer = formatSelectedEngineer({
   onVacation: false,
   vacationRateReduction: 0,
   salary: ENGINEER_SALARY_MAX,
+  initialSalary: getInitialSalary('junior'),
   ...createEngineerParameters('junior'),
 });
 const selectedEngineerRect = textRect(

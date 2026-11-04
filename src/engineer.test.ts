@@ -82,6 +82,7 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): E
   onVacation: false,
   vacationRateReduction: 0,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
+  initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
   ...createEngineerParameters(rank, 'meticulous'),
 });
 const makeEngineers = (count: number): Engineer[] =>
@@ -1217,7 +1218,7 @@ describe('性格の付与', () => {
       );
       if (!hired.ok) throw new Error('雇えるはず');
       expect(hired.engineer.personality).toBe(id);
-      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, onVacation: _onVacation, vacationRateReduction: _vacationRateReduction, salary: _salary, ...parameters } = hired.engineer;
+      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, onVacation: _onVacation, vacationRateReduction: _vacationRateReduction, salary: _salary, initialSalary: _initialSalary, ...parameters } = hired.engineer;
       expect(parameters).toEqual(createEngineerParameters('middle', id));
     }
   });
@@ -1925,5 +1926,32 @@ describe('愛着心の時間変化(#30): 休暇の開始・終了との組み合
     expect(onVacation[0].attachment).toBeCloseTo(50 - LOSS + GAIN, 10);
     const back = advanceEngineersAttachment(setEngineerVacation(onVacation, 0, false), MS_PER_GAME_DAY);
     expect(back[0].attachment).toBeCloseTo(50 - LOSS + GAIN - LOSS, 10);
+  });
+});
+
+describe('月給の初期額 initialSalary(#31)', () => {
+  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+  const ranks: EngineerRank[] = ['junior', 'middle', 'senior'];
+
+  it('初期エンジニアの initialSalary と salary はランクの月給と同じ', () => {
+    const engineers = createInitialEngineers(routes, ranks);
+    engineers.forEach((engineer, index) => {
+      expect(engineer.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[ranks[index]]);
+      expect(engineer.salary).toBe(engineer.initialSalary);
+    });
+  });
+  it.each(ranks)('雇った %s の initialSalary と salary はランクの月給と同じ', (rank) => {
+    const result = hireEngineer({ engineers: [], funds: ENGINEER_HIRE_COST[rank], nextId: 0 }, rank, rules, () => 0.5);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.engineer.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+    expect(result.engineer.salary).toBe(result.engineer.initialSalary);
+    expect(result.engineer.initialSalary).toBe(getInitialSalary(rank));
+  });
+  it.each(['raise', 'cut'] as const)('adjustEngineerSalary(%s) は initialSalary を変えない', (direction) => {
+    const engineer = makeEngineer(0, 'middle', 0);
+    const result = adjustEngineerSalary([engineer], 0, direction);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.engineer.salary).not.toBe(engineer.salary);
+    expect(result.engineer.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK.middle);
   });
 });
