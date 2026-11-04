@@ -51,6 +51,24 @@ describe('stepRefactoringRatio', () => {
     expect(stepRefactoringRatio(0.31, 'feature')).toBe(0.3);
   });
 
+  it('境界値: 整数パーセントへ丸める前の値で向きを決める（0.299→0.3、0.201→0.2）', () => {
+    expect(stepRefactoringRatio(0.299, 'refactoring')).toBe(0.3);
+    expect(stepRefactoringRatio(0.299, 'feature')).toBe(0.2);
+    expect(stepRefactoringRatio(0.201, 'feature')).toBe(0.2);
+    expect(stepRefactoringRatio(0.201, 'refactoring')).toBe(0.3);
+    expect(stepRefactoringRatio(0.3 - 1e-7, 'refactoring')).toBe(0.3);
+    expect(stepRefactoringRatio(0.2 + 1e-7, 'feature')).toBe(0.2);
+  });
+
+  it('境界値: 刻みから浮動小数点の誤差程度（±1e-9）ずれた値は刻みの上として1段階進む', () => {
+    for (const ratio of [0.2 + 1e-9, 0.2 - 1e-9]) {
+      expect(stepRefactoringRatio(ratio, 'refactoring')).toBe(0.3);
+      expect(stepRefactoringRatio(ratio, 'feature')).toBe(0.1);
+    }
+    expect(stepRefactoringRatio(0.1 + 0.2, 'refactoring')).toBe(0.4);
+    expect(stepRefactoringRatio(0.1 + 0.2, 'feature')).toBe(0.2);
+  });
+
   it('正規化との接続: 範囲外は 0 / 1、NaN は DEFAULT_REFACTORING_RATIO から寄せる', () => {
     expect(stepRefactoringRatio(-0.5, 'feature')).toBe(0);
     expect(stepRefactoringRatio(-0.5, 'refactoring')).toBe(0.1);

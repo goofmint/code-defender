@@ -546,6 +546,17 @@ export const drawRefactoringRatioControl = (
     // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
     button.on('pointerdown', () => onChange(entry.direction));
   });
+  // 割合の表示の領域（x=labelX〜+REFACTORING_RATIO_LABEL_WIDTH、ボタンと同じ高さ）に当たり判定を置く。
+  // 表示の上で押し続けても主人公が動かないよう、ボタンと同じく currentlyOver に入れる（main.ts が移動・攻撃を止める）。
+  // 文字列の幅は割合で変わるため、Text ではなく領域と同じ大きさの Zone に当たり判定を持たせる。押下時の処理はない。
+  scene.add
+    .zone(labelX, y, REFACTORING_RATIO_LABEL_WIDTH, height)
+    .setOrigin(0)
+    .setDepth(ELAPSED_DAYS_DEPTH)
+    .setInteractive(
+      new Phaser.Geom.Rectangle(0, 0, REFACTORING_RATIO_LABEL_WIDTH, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
   return scene.add
     .text(labelX + REFACTORING_RATIO_LABEL_WIDTH / 2, y + height / 2, initialLabel, {
       fontSize: REFACTORING_RATIO_FONT_SIZE,
