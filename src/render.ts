@@ -53,6 +53,12 @@ import {
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
   PENALTY_TEXT_RISE_PX,
+  REFACTORING_RATIO_BUTTON_LABELS,
+  REFACTORING_RATIO_BUTTON_SIZE,
+  REFACTORING_RATIO_FONT_SIZE,
+  REFACTORING_RATIO_LABEL_WIDTH,
+  REFACTORING_RATIO_UI_GAP,
+  REFACTORING_RATIO_UI_POSITION,
   SALARY_ADJUST_KEYS,
   SALARY_BUTTON_FONT_SIZE,
   SALARY_BUTTON_LABELS,
@@ -95,6 +101,7 @@ import {
 import { formatItemButton } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import type { ItemType } from './item';
+import type { RefactoringRatioDirection } from './refactoringRatioControl';
 
 // 後続オブジェクトより常に下に描画する。
 const FIELD_DEPTH = -1;
@@ -148,21 +155,35 @@ export const drawReleasePoint = (scene: Phaser.Scene): void => {
 // 仮: フィールド(-1)より上、リリース地点(0)より下。
 const ROUTE_DEPTH = -0.5;
 
-export const drawRoutes = (scene: Phaser.Scene, routes: readonly Route[]): void => {
-  const g = scene.add.graphics();
-  g.setDepth(ROUTE_DEPTH);
-  for (const route of routes) {
+// ルート1本ぶんの描画（線と出現場所の円）(#32)。退職でルートが消えるときに destroy() する。
+export type RouteDrawing = {
+  readonly line: Phaser.GameObjects.Graphics;
+  readonly spawnMarker: Phaser.GameObjects.Arc;
+};
+
+// ルートごとに線の Graphics と出現場所の円を1個ずつ作り、routeId をキーにして返す。
+// 重なり順を変えないよう、先に全ルートの線を作ってから円を作る（線の上に円が来る）。
+export const drawRoutes = (scene: Phaser.Scene, routes: readonly Route[]): Map<number, RouteDrawing> => {
+  const lines = routes.map((route) => {
+    const g = scene.add.graphics();
+    g.setDepth(ROUTE_DEPTH);
     g.lineStyle(ROUTE_STYLE.width, ROUTE_STYLE.color, ROUTE_STYLE.alpha);
     const points = routePixelPoints(route);
     for (let i = 1; i < points.length; i++) {
       g.lineBetween(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
     }
-    const { x, y } = cellCenter(route.spawn);
-    scene.add
-      .circle(x, y, SPAWN_MARKER_STYLE.radius, SPAWN_MARKER_STYLE.fillColor)
-      .setStrokeStyle(SPAWN_MARKER_STYLE.strokeWidth, SPAWN_MARKER_STYLE.strokeColor)
-      .setDepth(ROUTE_DEPTH);
-  }
+    return g;
+  });
+  return new Map(
+    routes.map((route, index): [number, RouteDrawing] => {
+      const { x, y } = cellCenter(route.spawn);
+      const spawnMarker = scene.add
+        .circle(x, y, SPAWN_MARKER_STYLE.radius, SPAWN_MARKER_STYLE.fillColor)
+        .setStrokeStyle(SPAWN_MARKER_STYLE.strokeWidth, SPAWN_MARKER_STYLE.strokeColor)
+        .setDepth(ROUTE_DEPTH);
+      return [route.id, { line: lines[index], spawnMarker }];
+    }),
+  );
 };
 
 // 仮: ルート(-0.5)より上、リリース地点(0)より下。出現場所の円の上に重ねる。
@@ -525,6 +546,68 @@ export const drawHireButtons = (
     button.on('pointerdown', () => onHire(entry.rank));
     return button;
   });
+
+// 機能開発とリファクタリングの割合UI(#40)。左から [機能開発へ寄せるボタン][割合の表示][リファクタリングへ寄せるボタン]。
+// ボタンは drawHireButtons と同じ構成（Rectangle と Text の Container、当たり判定は半分ずらす、深さは HUD と同じ）。
+// 返した割合表示の Text を MainScene が setText() で更新する。
+export const drawRefactoringRatioControl = (
+  scene: Phaser.Scene,
+  initialLabel: string,
+  onChange: (direction: RefactoringRatioDirection) => void,
+): Phaser.GameObjects.Text => {
+  const { width, height, strokeWidth } = REFACTORING_RATIO_BUTTON_SIZE;
+  const { x, y } = REFACTORING_RATIO_UI_POSITION;
+  const labelX = x + width + REFACTORING_RATIO_UI_GAP;
+  const buttons: readonly { readonly direction: RefactoringRatioDirection; readonly x: number }[] = [
+    { direction: 'feature', x },
+    { direction: 'refactoring', x: labelX + REFACTORING_RATIO_LABEL_WIDTH + REFACTORING_RATIO_UI_GAP },
+  ];
+  buttons.forEach((entry) => {
+    const background = scene.add
+      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+      .setOrigin(0)
+      .setStrokeStyle(strokeWidth, HIRE_BUTTON_COLORS.stroke);
+    const label = scene.add
+      .text(width / 2, height / 2, REFACTORING_RATIO_BUTTON_LABELS[entry.direction], {
+        fontSize: REFACTORING_RATIO_FONT_SIZE,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: HIRE_BUTTON_COLORS.text,
+      })
+      .setOrigin(0.5);
+    const button = scene.add
+      .container(entry.x, y, [background, label])
+      .setSize(width, height)
+      .setDepth(ELAPSED_DAYS_DEPTH);
+    // drawHireButtons と同じく、矩形を半分ずらして表示範囲と当たり判定を一致させる。
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
+    button.on('pointerdown', () => onChange(entry.direction));
+  });
+  // 割合の表示の領域（x=labelX〜+REFACTORING_RATIO_LABEL_WIDTH、ボタンと同じ高さ）に当たり判定を置く。
+  // 表示の上で押し続けても主人公が動かないよう、ボタンと同じく currentlyOver に入れる（main.ts が移動・攻撃を止める）。
+  // 文字列の幅は割合で変わるため、Text ではなく領域と同じ大きさの Zone に当たり判定を持たせる。押下時の処理はない。
+  scene.add
+    .zone(labelX, y, REFACTORING_RATIO_LABEL_WIDTH, height)
+    .setOrigin(0)
+    .setDepth(ELAPSED_DAYS_DEPTH)
+    .setInteractive(
+      new Phaser.Geom.Rectangle(0, 0, REFACTORING_RATIO_LABEL_WIDTH, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+  return scene.add
+    .text(labelX + REFACTORING_RATIO_LABEL_WIDTH / 2, y + height / 2, initialLabel, {
+      fontSize: REFACTORING_RATIO_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ELAPSED_DAYS_STYLE.color,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setOrigin(0.5)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+};
 
 export const drawEngineerCount = (
   scene: Phaser.Scene,

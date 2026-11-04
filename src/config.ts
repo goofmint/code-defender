@@ -162,6 +162,8 @@ export const INITIAL_FUNDS = 1000000;
 // 根拠: 1ルートは2秒に1件=ゲーム内1か月(60秒)に30件出る。正常率は70%→50%（#14）なので月21〜15件。
 // 20000円なら正常コードを全部通したとき月420000〜300000円で、ジュニア1人の給料(300000円/月、ENGINEER_MONTHLY_SALARY_BY_RANK)を上回る〜同等になる。
 // 10000円だと全部通しても給料に届かず常に赤字になる。ミドル・シニアは月給が上がるぶん、正常率が高い間でないと黒字にならない（仮）。
+// 仮・要確認(#42): この値は既定の配分（DEFAULT_REFACTORING_RATIO）のときの単価。実際の売上は機能開発の割合 (1 − r) に比例する
+// （getFeatureRevenueMultiplier）。リファクタリング 0%（r=0）で 25000円、100%（r=1）で 0円。
 export const REVENUE_PER_NORMAL_CODE = 20000;
 // 仮・要確認: 企画書に記載なし。資金の表示書式。「資金: 1,000,000円」。数値部分は3桁区切り。
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
@@ -184,8 +186,10 @@ export const TECH_DEBT_MAX = 100;
 export const TECH_DEBT_PER_FEATURE_WORK = 10;
 // 仮・要確認(#43): 作業1単位をすべてリファクタリングに充てたときに返す負債。
 export const TECH_DEBT_REPAY_PER_REFACTORING_WORK = 20;
-// 仮・要確認(#43): リファクタリングの割合（0〜1）の初期値。割合を指定するUIは別タスク（docs/tasks.md 8）。
+// 仮・要確認(#43): リファクタリングの割合（0〜1）の初期値。割合はプレイ中に画面左上の割合UI（REFACTORING_RATIO_UI_POSITION、#40）で変えられる。
+// 初期値は REFACTORING_RATIO_STEP_PERCENT の刻み（10%）の上に置く（UI の段階変更で同じ値に戻れるようにする）。
 // 0.2 なら作業1単位で 0.8×10 溜まり 0.2×20 返すので、正味 +4。リファクタリング 1/3 で増減 0 になる。
+// 売上の基準配分でもある（#42）。この割合のとき正常コード1件の売上は REVENUE_PER_NORMAL_CODE ちょうど（倍率 1）。
 export const DEFAULT_REFACTORING_RATIO = 0.2;
 // 仮・要確認(#44): 企画書(7)は「技術的負債が増えると、開発スピードが低下する」とだけで、下がり方は未定。
 // 開発スピードはコードの生成頻度と解釈し、生成間隔（CODE_SPAWN_INTERVAL_MS）に倍率を掛けて延ばす。コードの移動速度には掛けない。
@@ -395,6 +399,18 @@ export const ENGINEER_FATIGUE_RATE_MULTIPLIERS: Readonly<Record<EngineerTendency
   normal: 1,
   low: 0.5,
 };
+// 仮・要確認(#30): 愛着心の時間変化。企画書(6)は「休暇で愛着心が上がり、疲労度が高いまま働かせると下がる」とだけで、数値の記載はない。
+// highFatigueThreshold: 疲労度がこの値以上（境界を含む）で配属中かつ休暇中でないと愛着心が下がる。
+// *PerGameDay: ゲーム内1日（MS_PER_GAME_DAY = 2000ms）あたりの愛着心の変化量。経過ミリ秒に比例して連続的に変える（フレームの分け方に依存しない）。
+export const ENGINEER_ATTACHMENT_CHANGE: {
+  readonly highFatigueThreshold: number;
+  readonly vacationAttachmentGainPerGameDay: number;
+  readonly highFatigueAttachmentLossPerGameDay: number;
+} = {
+  highFatigueThreshold: 70,
+  vacationAttachmentGainPerGameDay: 1,
+  highFatigueAttachmentLossPerGameDay: 1,
+};
 // 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
 export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
 // 仮・要確認(#23): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。
@@ -412,6 +428,30 @@ export const HIRE_BUTTON_FONT_SIZE = '16px';
 export const HIRE_COUNT_POSITION = { x: 300, y: 42 } as const;
 export const HIRE_MESSAGE_POSITION = { x: 480, y: 42 } as const;
 export const HIRE_MESSAGE_DURATION_MS = 2000;
+// 仮・要確認(#40): 企画書(7)は「プレイヤーが機能開発とリファクタリングの割合を指定できる」とだけで、操作方法・刻み・表示は未記載。以下はすべて仮の値。
+// 割合UIの1回の操作で変えるリファクタリングの割合（パーセント、整数）。100 を割り切れる値にする（0% と 100% に止まれるように）。
+export const REFACTORING_RATIO_STEP_PERCENT = 10;
+// 仮・要確認(#40): 割合を変えるキー（Phaser の KeyCodes のキー名）。feature は機能開発へ寄せる、refactoring はリファクタリングへ寄せる。
+// 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給（#34 の Q/E/R/F）と重ならない。
+export const REFACTORING_RATIO_KEYS = { feature: 'Z', refactoring: 'X' } as const;
+// 仮・要確認(#40): 割合UIのボタンの文字。左（機能開発へ寄せる）は左向き、右（リファクタリングへ寄せる）は右向きの矢印とキー名。
+export const REFACTORING_RATIO_BUTTON_LABELS = {
+  feature: `◀${REFACTORING_RATIO_KEYS.feature}`,
+  refactoring: `${REFACTORING_RATIO_KEYS.refactoring}▶`,
+} as const;
+// 仮・要確認(#40): 割合の表示書式。「機能80:リファ20」。両方の割合（整数パーセント、合計100）を出す。
+export const REFACTORING_ALLOCATION_FORMAT = { feature: '機能', separator: ':', refactoring: 'リファ' } as const;
+// 仮・要確認(#40): 割合UIの配置。上端の行（行0）で、HUD と同じ左端（出現列 x<60 の右、x=72）、雇うボタンと同じ上端（y=8）。
+// 左から [機能開発へ寄せるボタン][割合の表示][リファクタリングへ寄せるボタン] の順に横に並べる。
+export const REFACTORING_RATIO_UI_POSITION = { x: HUD_LEFT_X, y: HIRE_UI_POSITION.y } as const;
+// 仮・要確認(#40): ボタンの幅・高さ・枠線の太さ、割合表示の幅、要素間の間隔（ピクセル）。高さは雇うボタンと同じ。
+// 全体の幅は 32+4+140+4+32 = 212 で x=72〜284。割合表示の幅は最長の「機能100:リファ0」（10文字×14px=140）が収まる幅。
+export const REFACTORING_RATIO_BUTTON_SIZE = { width: 32, height: HIRE_BUTTON_SIZE.height, strokeWidth: 2 } as const;
+export const REFACTORING_RATIO_LABEL_WIDTH = 140;
+export const REFACTORING_RATIO_UI_GAP = 4;
+export const REFACTORING_RATIO_FONT_SIZE = '14px';
+// 仮・要確認(#40): 割合UI全体（枠線を含む）の右端と、雇うボタン（枠線を含む）の左端との最小の間隔（ピクセル）。
+export const REFACTORING_RATIO_UI_HIRE_MIN_GAP = 8;
 // 仮・要確認(#34): 昇給・減給の操作。企画書には操作方法の記載なし。「選択中のエンジニア」の情報行と、前へ・次へ・昇給・減給の4つのボタン・キーで操作する。
 // キーは移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・アイテム購入(4〜9)・リスタート(ENTER/SPACE)と重ならない。Phaser の KeyCodes のキー名。
 export const SALARY_SELECT_KEYS = { previous: 'Q', next: 'E' } as const;

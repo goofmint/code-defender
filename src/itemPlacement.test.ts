@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINEER_SPAWN_CELLS, ITEM_ATTACK_COOLDOWN_MS, RELEASE_POINT_CELL } from './config';
+import { ENGINEER_SPAWN_CELLS, ITEM_ATTACK_COOLDOWN_MS, ITEM_RANGE_RATIOS, RELEASE_POINT_CELL } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
-import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES, itemTargetsNormalCode } from './item';
+import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES, isTargetInItemRange, itemTargetsNormalCode } from './item';
 import type { ItemType } from './item';
 import {
   canItemAttack,
@@ -485,5 +485,76 @@ describe('canItemAttack: クールダウン', () => {
     [ITEM_ATTACK_COOLDOWN_MS + 1, true],
   ])('前回から %i ms 後 → %s', (elapsed, expected) => {
     expect(canItemAttack(5000 + elapsed, 5000)).toBe(expected);
+  });
+});
+
+describe('CodeRabbit(#52): 長距離の射程と標的の選び方', () => {
+  const item = placed(0, { col: 8, row: 2 }, 'codeRabbit');
+  const center = cellCenter(item.cell);
+  const range = ITEM_RANGE_RATIOS.long * CELL_SIZE;
+  const code = (id: number, dx: number, kind: 'malicious' | 'normal' = 'malicious', dy = 0) => ({
+    id,
+    kind,
+    position: { x: center.x + dx, y: center.y + dy },
+  });
+
+  it('射程は長距離（ITEM_RANGE_RATIOS.long × CELL_SIZE）', () => {
+    expect(ITEM_DEFINITIONS.codeRabbit.range).toBe('long');
+    expect(getItemRange('codeRabbit')).toBe(range);
+  });
+
+  it.each([
+    ['射程 - 1px', range - 1, true],
+    ['射程ちょうど', range, true],
+    ['射程 + 1px', range + 1, false],
+  ])('%s の不正なコードを標的にするか: %s', (_name, dx, expected) => {
+    expect(findItemTarget(item, [code(1, dx)])?.id ?? null).toBe(expected ? 1 : null);
+  });
+
+  it('縦方向でも射程ちょうどは範囲内、+1px は範囲外', () => {
+    expect(findItemTarget(item, [code(1, 0, 'malicious', range)])?.id).toBe(1);
+    expect(findItemTarget(item, [code(1, 0, 'malicious', range + 1)])).toBeNull();
+  });
+
+  it('距離 0 の不正なコードを標的にする', () => {
+    expect(findItemTarget(item, [code(1, 0)])?.id).toBe(1);
+  });
+
+  it('射程内に正常なコードしかなければ null', () => {
+    expect(findItemTarget(item, [code(1, 0, 'normal'), code(2, range - 1, 'normal'), code(3, range, 'normal')])).toBeNull();
+  });
+
+  it('正常なコードのほうが近くても不正なコードを選ぶ', () => {
+    expect(findItemTarget(item, [code(1, 0, 'normal'), code(2, range)])?.id).toBe(2);
+  });
+
+  it('等距離の不正なコードが 2 つなら配列の先頭を選ぶ', () => {
+    expect(findItemTarget(item, [code(1, range), code(2, -range)])?.id).toBe(1);
+    expect(findItemTarget(item, [code(2, -range), code(1, range)])?.id).toBe(2);
+  });
+});
+
+describe('CodeRabbit(#52): ルート脇に置いてルートを守る', () => {
+  const price = getItemPrice('codeRabbit');
+  // ルートは行 5 を通る（col 5〜最終列）。col 7・行 4 は HUD・昇給減給ボタンと重ならないルート隣接セル。
+  const beside: GridCell = { col: 7, row: 4 };
+  const routeCell: GridCell = { col: 7, row: 5 };
+
+  it('ルート上のセルは notPlaceable で、資金と配置配列は変わらない', () => {
+    const input = state({ funds: price });
+    expect(getRouteCells(route)).toContainEqual(routeCell);
+    expect(purchaseItem(input, 'codeRabbit', routeCell, options)).toEqual({ ok: false, reason: 'notPlaceable' });
+    expect(input.funds).toBe(price);
+    expect(input.placedItems).toEqual([]);
+  });
+
+  it('HUD と重ならないルート隣接セルには置け、隣のルートのセル中心が射程内に入る', () => {
+    const result = purchaseItem(state({ funds: price }), 'codeRabbit', beside, options);
+    if (!result.ok) throw new Error(`購入に失敗しました: ${result.reason}`);
+    expect(result.item).toEqual({ id: 0, itemType: 'codeRabbit', cell: beside, lastAttackTime: null });
+    expect(result.fundsAfter).toBe(0);
+    expect(isTargetInItemRange('codeRabbit', cellCenter(result.item.cell), cellCenter(routeCell))).toBe(true);
+    const onRoute = { id: 1, kind: 'malicious' as const, position: cellCenter(routeCell) };
+    expect(findItemTarget(result.item, [onRoute])?.id).toBe(1);
   });
 });

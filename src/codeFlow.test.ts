@@ -4,6 +4,7 @@ import {
   advanceCode,
   initialSpawnElapsed,
   moveDistanceUnlessPaused,
+  partitionCodesByRoute,
   pickCodeKind,
   spawnCode,
   stepSpawnTimer,
@@ -309,5 +310,54 @@ describe('pickCodeKind（境界値）', () => {
 
   it('rate = 1 は常に不正', () => {
     expect(pickCodeKind(() => 1 - 1e-9, 1)).toBe('malicious');
+  });
+});
+
+describe('partitionCodesByRoute（退職でルートが消える #32）', () => {
+  const codeOn = (id: number, routeIndex: number): FlowingCode => spawnCode(id, 'normal', routes[routeIndex]);
+
+  it('空配列なら両方とも空', () => {
+    expect(partitionCodesByRoute([], 0)).toEqual({ remaining: [], removed: [] });
+  });
+
+  it('該当するコードがなければ全部残る', () => {
+    const codes = [codeOn(0, 1), codeOn(1, 2)];
+    const result = partitionCodesByRoute(codes, 0);
+    expect(result.removed).toEqual([]);
+    expect(result.remaining).toEqual(codes);
+    expect(result.remaining).not.toBe(codes);
+  });
+
+  it('全部が該当すれば全部消える', () => {
+    const codes = [codeOn(0, 0), codeOn(1, 0)];
+    const result = partitionCodesByRoute(codes, routes[0].id);
+    expect(result.remaining).toEqual([]);
+    expect(result.removed.map((code) => code.id)).toEqual([0, 1]);
+  });
+
+  it('複数ルートが混ざっていても該当ルートだけを、元の順序と参照のまま分ける', () => {
+    const codes = [codeOn(0, 0), codeOn(1, 1), codeOn(2, 0), codeOn(3, 2), codeOn(4, 1)];
+    const result = partitionCodesByRoute(codes, routes[1].id);
+    expect(result.removed.map((code) => code.id)).toEqual([1, 4]);
+    expect(result.remaining.map((code) => code.id)).toEqual([0, 2, 3]);
+    expect(result.removed[0]).toBe(codes[1]);
+    expect(result.remaining[2]).toBe(codes[3]);
+  });
+
+  it('入力の配列とコードを変更しない', () => {
+    const codes = [codeOn(0, 0), codeOn(1, 1)];
+    const before = [...codes];
+    const snapshot = structuredClone(codes);
+    partitionCodesByRoute(codes, routes[0].id);
+    expect(codes).toEqual(snapshot);
+    codes.forEach((code, i) => expect(code).toBe(before[i]));
+  });
+
+  it('routeId を持つ別の型（シーン側の Graphics 付きなど）にも使え、追加の項目を保つ', () => {
+    const items = [
+      { routeId: 0, label: 'a' },
+      { routeId: 1, label: 'b' },
+    ];
+    expect(partitionCodesByRoute(items, 1)).toEqual({ remaining: [items[0]], removed: [items[1]] });
   });
 });
