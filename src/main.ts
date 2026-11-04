@@ -27,7 +27,7 @@ import {
   isInsideTapArea,
 } from './attack';
 import type { CodeHitEvent } from './attack';
-import { codeSpeedAt, maliciousRateForRank } from './difficulty';
+import { codeSpeedAt, effectiveMaliciousRate } from './difficulty';
 import {
   clampToField,
   getMoveDirection,
@@ -619,6 +619,13 @@ class MainScene extends Phaser.Scene {
     this.events.emit(CODE_DEFEATED_EVENT, payload);
   }
 
+  // 不正コード率の補正（パーセントポイントの差分）の一覧(#13)。effectiveMaliciousRate に渡す。
+  // 今は補正がないので空配列。後続で差分を追加する: #39 休暇（担当エンジニア単位の減少）、
+  // #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
+  private maliciousRateModifiersFor(_engineer: Engineer | undefined): readonly number[] {
+    return [];
+  }
+
   private updateCodes(delta: number): void {
     for (const route of this.routes) {
       const step = stepSpawnTimer(
@@ -628,9 +635,11 @@ class MainScene extends Phaser.Scene {
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
-        // 担当エンジニアのランクに応じた割合(#12)。担当者がいないルートは既定の割合を使う。
-        const rank = findEngineerByRoute(this.engineers, route.id)?.rank;
-        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, maliciousRateForRank(rank, this.elapsedMs)), route);
+        // 担当エンジニアのランクに応じた割合(#12)に補正(#13)を加える。担当者がいないルートは既定の割合を使う。
+        const engineer = findEngineerByRoute(this.engineers, route.id);
+        const rank = engineer?.rank;
+        const rate = effectiveMaliciousRate(rank, this.elapsedMs, this.maliciousRateModifiersFor(engineer));
+        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, rate), route);
         if (code.kind === 'malicious') {
           this.codeHp.set(code.id, getInitialHp());
         }
