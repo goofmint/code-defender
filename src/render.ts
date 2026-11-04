@@ -52,11 +52,13 @@ import {
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
   PENALTY_TEXT_RISE_PX,
+  TECH_DEBT_POSITION,
 } from './config';
 import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
 import { formatCumulativeSales } from './score';
+import { formatTechDebt } from './techDebt';
 import { buildGameOverLines } from './gameOver';
 import { formatEngineerCount, formatHireButton } from './engineer';
 import type { EngineerRank } from './engineer';
@@ -346,6 +348,18 @@ export const drawFunds = (scene: Phaser.Scene, funds: number): Phaser.GameObject
 export const drawCumulativeSales = (scene: Phaser.Scene, score: number): Phaser.GameObjects.Text =>
   scene.add
     .text(CUMULATIVE_SALES_POSITION.x, CUMULATIVE_SALES_POSITION.y, formatCumulativeSales(score), {
+      fontSize: ELAPSED_DAYS_STYLE.fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ELAPSED_DAYS_STYLE.color,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
+// 技術的負債（HUD 4行目）。値が変わったら MainScene が setText() で更新する。
+export const drawTechDebt = (scene: Phaser.Scene, debt: number): Phaser.GameObjects.Text =>
+  scene.add
+    .text(TECH_DEBT_POSITION.x, TECH_DEBT_POSITION.y, formatTechDebt(debt), {
       fontSize: ELAPSED_DAYS_STYLE.fontSize,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: ELAPSED_DAYS_STYLE.color,

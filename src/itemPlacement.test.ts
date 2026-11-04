@@ -150,6 +150,9 @@ describe('isPlaceableCell: 置ける場所', () => {
     [{ col: 7, row: 1 }, true], // HUD の右隣（行1）
     [{ col: 6, row: 2 }, false], // HUD と重なるセルの右端（行2）
     [{ col: 7, row: 2 }, true], // HUD の右隣（行2）
+    [{ col: 1, row: 3 }, false], // HUD の最下行（行3、技術的負債）の左端
+    [{ col: 6, row: 3 }, false], // HUD と重なるセルの右端（行3）
+    [{ col: 7, row: 3 }, true], // HUD の右隣（行3）
     [{ col: 1, row: 1 }, false], // HUD の左端
     [{ col: 0, row: 1 }, true], // 出現列（ルートが無ければ置ける）
     [{ col: 3, row: lastRow - 1 }, true], // UI の行の1つ内側
@@ -203,8 +206,12 @@ describe('isPlaceableCell: 置ける場所', () => {
 });
 
 describe('isPlaceableCell: HUD の下', () => {
-  it('行3 col1 は（ルートが無ければ）置ける', () => {
-    expect(isPlaceableCell({ col: 1, row: 3 }, { routes: [], placedItems: [] })).toBe(true);
+  it('行3 col1 は HUD（技術的負債の行）と重なるため置けない', () => {
+    expect(isPlaceableCell({ col: 1, row: 3 }, { routes: [], placedItems: [] })).toBe(false);
+  });
+
+  it('行4 col1 は（ルートが無ければ）置ける', () => {
+    expect(isPlaceableCell({ col: 1, row: 4 }, { routes: [], placedItems: [] })).toBe(true);
   });
 });
 
