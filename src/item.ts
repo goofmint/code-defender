@@ -36,6 +36,10 @@ export type ItemPower = 'weak' | 'medium' | 'strong';
 // 支払い区分（企画書 8 の「支払い」列）。monthly は月額払い、oneTime は購入時の1回払い。
 export type ItemPayment = 'monthly' | 'oneTime';
 
+// 効果の発動方式。nearestTarget は範囲内で最も近い対象を自動攻撃する（main.ts の updateItems）。
+// releaseGate はリリース直前の減速と確率阻止（CI #55。ci.ts と main.ts の updateCodes）で、汎用攻撃はしない。
+export type ItemActivation = 'nearestTarget' | 'releaseGate';
+
 type ItemDefinition = {
   readonly label: string;
   readonly payment: ItemPayment;
@@ -45,6 +49,7 @@ type ItemDefinition = {
   // このアイテムが正常なコードも攻撃対象にするか。
   // true にしてよいのは猫だけ（企画書 8 の例外）。猫は #57 で追加する。それ以外は false（正常なコードは攻撃しない）。
   readonly targetsNormalCode: boolean;
+  readonly activation: ItemActivation;
 };
 
 export const ITEM_DEFINITIONS = {
@@ -55,6 +60,7 @@ export const ITEM_DEFINITIONS = {
     range: 'long',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
   },
   linter: {
     label: '静的解析ツール（Linter）',
@@ -63,6 +69,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'weak',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
   },
   testTool: {
     label: 'テストツール',
@@ -71,6 +78,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'weak',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
   },
   ci: {
     label: 'CI',
@@ -79,6 +87,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'releaseGate',
   },
   securityScanner: {
     label: 'セキュリティスキャナー',
@@ -90,6 +99,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'strong',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
   },
   pairProgrammer: {
     label: 'ペアプロ相棒',
@@ -98,12 +108,16 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
   },
 } as const satisfies Record<ItemType, ItemDefinition>;
 
 // このアイテムが正常なコードも攻撃対象にするか（企画書 8。猫だけが true になる予定）。
 export const itemTargetsNormalCode = (itemType: ItemType): boolean =>
   ITEM_DEFINITIONS[itemType].targetsNormalCode;
+
+// アイテムの発動方式（nearestTarget は汎用の自動攻撃、releaseGate は CI のリリース直前の効果）。
+export const getItemActivation = (itemType: ItemType): ItemActivation => ITEM_DEFINITIONS[itemType].activation;
 
 // 範囲の段階をピクセルに変換する。設定値は引数で差し替えられる（既定値は config.ts）。
 export const getItemRange = (

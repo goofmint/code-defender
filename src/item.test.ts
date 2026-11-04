@@ -7,6 +7,7 @@ import {
 } from './config';
 import {
   calculateItemDamage,
+  getItemActivation,
   getItemDamage,
   getItemRange,
   ITEM_DEFINITIONS,
@@ -15,7 +16,7 @@ import {
   isTargetInItemRange,
   isWithinRange,
 } from './item';
-import type { ItemPower, ItemRange, ItemType } from './item';
+import type { ItemActivation, ItemPower, ItemRange, ItemType } from './item';
 import { applyHit, getInitialHp } from './defeat';
 import { MALICIOUS_CODE_TYPES } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
@@ -75,6 +76,20 @@ describe('アイテムのデータ', () => {
     } else {
       expect(def.strongAgainst).toEqual({ kind: 'types', types: strong });
     }
+  });
+});
+
+describe('発動方式（CI #55）', () => {
+  it.each<[ItemType, ItemActivation]>([
+    ['codeRabbit', 'nearestTarget'],
+    ['linter', 'nearestTarget'],
+    ['testTool', 'nearestTarget'],
+    ['ci', 'releaseGate'],
+    ['securityScanner', 'nearestTarget'],
+    ['pairProgrammer', 'nearestTarget'],
+  ])('%s の発動方式は %s', (itemType, activation) => {
+    expect(getItemActivation(itemType)).toBe(activation);
+    expect(ITEM_DEFINITIONS[itemType].activation).toBe(activation);
   });
 });
 
