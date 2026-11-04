@@ -36,13 +36,18 @@ import {
   DEFEAT_EFFECT_DURATION_MS,
   DEFEAT_EFFECT_END_RADIUS_RATIO,
   DEFEAT_EFFECT_START_RADIUS_RATIO,
+  CUMULATIVE_SALES_POSITION,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
   FUNDS_POSITION,
-  GAME_OVER_FONT_SIZES,
   GAME_OVER_OVERLAY,
-  GAME_OVER_RESTART_TEXT,
-  GAME_OVER_TEXT,
+  HIRE_BUTTON_COLORS,
+  HIRE_BUTTON_FONT_SIZE,
+  HIRE_BUTTON_SIZE,
+  HIRE_COUNT_POSITION,
+  HIRE_MESSAGE_DURATION_MS,
+  HIRE_MESSAGE_POSITION,
+  HIRE_UI_POSITION,
   PENALTY_TEXT_COLOR,
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
@@ -51,7 +56,29 @@ import {
 import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
+import { formatCumulativeSales } from './score';
+import { buildGameOverLines } from './gameOver';
+import { formatEngineerCount, formatHireButton } from './engineer';
+import type { EngineerRank } from './engineer';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
+import {
+  ITEM_ATTACK_LINE,
+  ITEM_BOX_RATIO,
+  ITEM_BUTTON_COLORS,
+  ITEM_BUTTON_FILL_ALPHA,
+  ITEM_BUTTON_FONT_SIZE,
+  ITEM_BUTTON_SIZE,
+  ITEM_COLORS,
+  ITEM_MARK_STYLE,
+  ITEM_MARKS,
+  ITEM_MESSAGE_COLOR,
+  ITEM_MESSAGE_DURATION_MS,
+  ITEM_MESSAGE_POSITION,
+  ITEM_UI_POSITION,
+} from './config';
+import { formatItemButton } from './itemPlacement';
+import type { PlacedItem } from './itemPlacement';
+import type { ItemType } from './item';
 
 // 後続オブジェクトより常に下に描画する。
 const FIELD_DEPTH = -1;
@@ -316,13 +343,25 @@ export const drawFunds = (scene: Phaser.Scene, funds: number): Phaser.GameObject
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
 
+export const drawCumulativeSales = (scene: Phaser.Scene, score: number): Phaser.GameObjects.Text =>
+  scene.add
+    .text(CUMULATIVE_SALES_POSITION.x, CUMULATIVE_SALES_POSITION.y, formatCumulativeSales(score), {
+      fontSize: ELAPSED_DAYS_STYLE.fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ELAPSED_DAYS_STYLE.color,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
 // 仮: HUD(2)より上。
 const GAME_OVER_DEPTH = 3;
-// 仮: タイトルと案内の縦の間隔（タイトル中心を画面中央から上に、案内を下にずらす量）。
-const GAME_OVER_TEXT_OFFSET_Y = 30;
-
-// ゲームオーバー表示（全面の半透明オーバーレイと中央の2行テキスト）。返した Container を destroy すると消える。
-export const drawGameOver = (scene: Phaser.Scene): Phaser.GameObjects.Container => {
+// ゲームオーバー表示（全面の半透明オーバーレイと中央のタイトル・スコア・経過日数・案内の4行テキスト）。返した Container を destroy すると消える。
+export const drawGameOver = (
+  scene: Phaser.Scene,
+  score: number,
+  elapsedDays: number,
+): Phaser.GameObjects.Container => {
   const centerX = FIELD_WIDTH / 2;
   const centerY = FIELD_HEIGHT / 2;
   const overlay = scene.add.rectangle(
@@ -333,21 +372,158 @@ export const drawGameOver = (scene: Phaser.Scene): Phaser.GameObjects.Container 
     GAME_OVER_OVERLAY.color,
     GAME_OVER_OVERLAY.alpha,
   );
-  const makeText = (y: number, text: string, fontSize: string): Phaser.GameObjects.Text =>
+  const texts = buildGameOverLines(score, elapsedDays).map((line) =>
     scene.add
-      .text(centerX, y, text, {
-        fontSize,
+      .text(centerX, line.y, line.text, {
+        fontSize: `${line.fontSize}px`,
         fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
         color: ELAPSED_DAYS_STYLE.color,
         stroke: ELAPSED_DAYS_STYLE.strokeColor,
         strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
       })
-      .setOrigin(0.5);
-  const title = makeText(centerY - GAME_OVER_TEXT_OFFSET_Y, GAME_OVER_TEXT, GAME_OVER_FONT_SIZES.title);
-  const restart = makeText(
-    centerY + GAME_OVER_TEXT_OFFSET_Y,
-    GAME_OVER_RESTART_TEXT,
-    GAME_OVER_FONT_SIZES.restart,
+      .setOrigin(0.5),
   );
-  return scene.add.container(0, 0, [overlay, title, restart]).setDepth(GAME_OVER_DEPTH);
+  return scene.add.container(0, 0, [overlay, ...texts]).setDepth(GAME_OVER_DEPTH);
+};
+
+// 雇う画面の文字スタイル。既存 HUD と同じ（サイズだけ指定可）。
+const hireTextStyle = (fontSize: string): Phaser.Types.GameObjects.Text.TextStyle => ({
+  fontSize,
+  fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+  color: ELAPSED_DAYS_STYLE.color,
+  stroke: ELAPSED_DAYS_STYLE.strokeColor,
+  strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+});
+
+// ランク別の「雇う」ボタン（HUD と同じ深さ）。クリックで onHire(rank) を呼ぶ。
+// ボタン上の pointerdown でフィールドの移動・攻撃が起きないようにする処理は main.ts 側（currentlyOver で判定）。
+export const drawHireButtons = (
+  scene: Phaser.Scene,
+  entries: readonly { readonly rank: EngineerRank; readonly cost: number }[],
+  onHire: (rank: EngineerRank) => void,
+): Phaser.GameObjects.Container[] =>
+  entries.map((entry, index) => {
+    const { width, height, gap } = HIRE_BUTTON_SIZE;
+    const x = HIRE_UI_POSITION.x + index * (width + gap);
+    const background = scene.add
+      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+      .setOrigin(0)
+      .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
+    const label = scene.add
+      .text(width / 2, height / 2, formatHireButton(index, entry.rank, entry.cost), {
+        fontSize: HIRE_BUTTON_FONT_SIZE,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: HIRE_BUTTON_COLORS.text,
+      })
+      .setOrigin(0.5);
+    const button = scene.add
+      .container(x, HIRE_UI_POSITION.y, [background, label])
+      .setSize(width, height)
+      .setDepth(ELAPSED_DAYS_DEPTH);
+    // コンテナの表示位置は左上、原点は中心。InputManager は判定時に local 座標へ displayOrigin（幅・高さの半分）を加算するため、
+    // 矩形を半分ずらして、表示範囲（左上 0,0〜width,height）と当たり判定を一致させる。
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
+    button.on('pointerdown', () => onHire(entry.rank));
+    return button;
+  });
+
+export const drawEngineerCount = (
+  scene: Phaser.Scene,
+  count: number,
+  max: number,
+): Phaser.GameObjects.Text =>
+  scene.add
+    .text(HIRE_COUNT_POSITION.x, HIRE_COUNT_POSITION.y, formatEngineerCount(count, max), hireTextStyle('20px'))
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
+// 雇った結果のメッセージ。一定時間後に消す。置き換えるときは前のものを破棄してから呼ぶ。
+export const drawHireMessage = (scene: Phaser.Scene, message: string): Phaser.GameObjects.Text => {
+  const text = scene.add
+    .text(HIRE_MESSAGE_POSITION.x, HIRE_MESSAGE_POSITION.y, message, hireTextStyle('20px'))
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  scene.time.delayedCall(HIRE_MESSAGE_DURATION_MS, () => text.destroy());
+  return text;
+};
+
+// 置いたアイテム（セル内の色付き四角と短い文字）。主人公(1)より下、コード(0.5)と同じ深さ。
+const ITEM_DEPTH = 0.4;
+
+export const drawPlacedItem = (scene: Phaser.Scene, item: PlacedItem): void => {
+  const { x, y } = cellCenter(item.cell);
+  const size = CELL_SIZE * ITEM_BOX_RATIO;
+  scene.add.rectangle(x, y, size, size, ITEM_COLORS[item.itemType]).setStrokeStyle(2, 0xffffff).setDepth(ITEM_DEPTH);
+  scene.add
+    .text(x, y, ITEM_MARKS[item.itemType], {
+      fontSize: ITEM_MARK_STYLE.fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ITEM_MARK_STYLE.color,
+      stroke: ITEM_MARK_STYLE.strokeColor,
+      strokeThickness: ITEM_MARK_STYLE.strokeThickness,
+    })
+    .setOrigin(0.5)
+    .setDepth(ITEM_DEPTH);
+};
+
+// アイテムの攻撃演出（アイテムから対象への線）。一定時間表示して消す。
+export const drawItemAttackEffect = (scene: Phaser.Scene, from: Point, to: Point): void => {
+  const line = scene.add
+    .line(0, 0, from.x, from.y, to.x, to.y, ITEM_ATTACK_LINE.color)
+    .setOrigin(0)
+    .setLineWidth(ITEM_ATTACK_LINE.width)
+    .setDepth(ATTACK_EFFECT_DEPTH);
+  // 倒産すると tweens.pauseAll() で Tween が止まるため、破棄は Tween の onComplete ではなく delayedCall で行う（drawItemMessage と同じ）。
+  scene.time.delayedCall(ITEM_ATTACK_LINE.durationMs, () => line.destroy());
+};
+
+// 仮: 購入ボタンはコード(0.5)より下に描く。下端の行を流れるコードを隠さないため。コードは当たり判定を持たないのでクリックはボタンに届く。
+const ITEM_BUTTON_DEPTH = 0.45;
+
+// アイテム購入ボタン（画面下端）。クリックで onBuy(itemType) を呼ぶ。
+// ボタン上の pointerdown で移動・攻撃が起きないようにする処理は main.ts 側（currentlyOver で判定）。
+export const drawItemButtons = (
+  scene: Phaser.Scene,
+  itemTypes: readonly ItemType[],
+  onBuy: (itemType: ItemType) => void,
+): Phaser.GameObjects.Container[] =>
+  itemTypes.map((itemType, index) => {
+    const { width, height, gap } = ITEM_BUTTON_SIZE;
+    const x = ITEM_UI_POSITION.x + index * (width + gap);
+    const background = scene.add
+      .rectangle(0, 0, width, height, ITEM_BUTTON_COLORS.fill, ITEM_BUTTON_FILL_ALPHA)
+      .setOrigin(0)
+      .setStrokeStyle(2, ITEM_BUTTON_COLORS.stroke);
+    const label = scene.add
+      .text(width / 2, height / 2, formatItemButton(index, itemType), {
+        fontSize: ITEM_BUTTON_FONT_SIZE,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: ITEM_BUTTON_COLORS.text,
+      })
+      .setOrigin(0.5);
+    const button = scene.add
+      .container(x, ITEM_UI_POSITION.y, [background, label])
+      .setSize(width, height)
+      .setDepth(ITEM_BUTTON_DEPTH);
+    // drawHireButtons と同じ。表示範囲と当たり判定を一致させるため矩形を半分ずらす。
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    button.on('pointerdown', () => onBuy(itemType));
+    return button;
+  });
+
+// アイテム購入の結果メッセージ。一定時間後に消す。置き換えるときは前のものを破棄してから呼ぶ。
+export const drawItemMessage = (scene: Phaser.Scene, message: string): Phaser.GameObjects.Text => {
+  const text = scene.add
+    .text(ITEM_MESSAGE_POSITION.x, ITEM_MESSAGE_POSITION.y, message, {
+      ...hireTextStyle('20px'),
+      color: ITEM_MESSAGE_COLOR,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  scene.time.delayedCall(ITEM_MESSAGE_DURATION_MS, () => text.destroy());
+  return text;
 };

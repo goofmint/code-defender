@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { GAME_OVER_RESTART_DELAY_MS, INITIAL_FUNDS } from './config';
 import {
+  GAME_OVER_RESTART_DELAY_MS,
+  GAME_OVER_RESTART_TEXT,
+  GAME_OVER_TEXT,
+  INITIAL_FUNDS,
+} from './config';
+import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
+import {
+  buildGameOverLines,
   canRestart,
   checkBankruptcy,
   createGameOverEvent,
@@ -122,5 +129,65 @@ describe('createGameOverEvent', () => {
       funds: -800000,
       elapsedMs: 120000,
     });
+  });
+});
+
+describe('buildGameOverLines（行の文言）', () => {
+  it.each([
+    [0, 'スコア: 0円'],
+    [1, 'スコア: 1円'],
+    [999, 'スコア: 999円'],
+    [1000, 'スコア: 1,000円'],
+    [Number.MAX_SAFE_INTEGER, 'スコア: 9,007,199,254,740,991円'],
+  ])('スコア %i → %s', (score, expected) => {
+    expect(buildGameOverLines(score, 0)[1].text).toBe(expected);
+  });
+
+  it.each([
+    [0, '経過日数: 0日'],
+    [1, '経過日数: 1日'],
+    [123456, '経過日数: 123456日'],
+  ])('経過日数 %i → %s', (days, expected) => {
+    expect(buildGameOverLines(0, days)[2].text).toBe(expected);
+  });
+
+  it('タイトル→スコア→経過日数→案内の順で並ぶ', () => {
+    const lines = buildGameOverLines(20000, 12);
+    expect(lines.map((line) => line.text)).toEqual([
+      GAME_OVER_TEXT,
+      'スコア: 20,000円',
+      '経過日数: 12日',
+      GAME_OVER_RESTART_TEXT,
+    ]);
+  });
+});
+
+describe('buildGameOverLines（レイアウト）', () => {
+  const worstCase = buildGameOverLines(Number.MAX_SAFE_INTEGER, 999999);
+  // 全角相当（文字数×文字サイズ）に過大見積もりした幅、高さは文字サイズの1.25倍。
+  const rectOf = (line: { text: string; fontSize: number; y: number }) => {
+    const halfWidth = (line.text.length * line.fontSize) / 2;
+    const halfHeight = (line.fontSize * 1.25) / 2;
+    return {
+      left: FIELD_WIDTH / 2 - halfWidth,
+      right: FIELD_WIDTH / 2 + halfWidth,
+      top: line.y - halfHeight,
+      bottom: line.y + halfHeight,
+    };
+  };
+
+  it.each(worstCase.map((line, index) => [index, line] as const))(
+    '行%i は画面内に収まる',
+    (_index, line) => {
+      const rect = rectOf(line);
+      expect(rect.left).toBeGreaterThanOrEqual(0);
+      expect(rect.right).toBeLessThanOrEqual(FIELD_WIDTH);
+      expect(rect.top).toBeGreaterThanOrEqual(0);
+      expect(rect.bottom).toBeLessThanOrEqual(FIELD_HEIGHT);
+    },
+  );
+
+  it.each([0, 1, 2])('行%i と次の行は縦に重ならない', (index) => {
+    expect(rectOf(worstCase[index]).bottom).toBeLessThanOrEqual(rectOf(worstCase[index + 1]).top);
   });
 });

@@ -1,4 +1,13 @@
-import { BANKRUPT_INCLUDES_ZERO, GAME_OVER_RESTART_DELAY_MS } from './config';
+import {
+  BANKRUPT_INCLUDES_ZERO,
+  GAME_OVER_LAYOUT,
+  GAME_OVER_RESTART_DELAY_MS,
+  GAME_OVER_RESTART_TEXT,
+  GAME_OVER_TEXT,
+} from './config';
+import { FIELD_HEIGHT } from './field';
+import { formatElapsedDays } from './gameTime';
+import { formatScore } from './score';
 
 // ゲームオーバー（倒産）の判定。Phaser に依存しない純粋関数だけを置く。
 
@@ -54,3 +63,27 @@ export const canRestart = (
   now: number,
   delayMs: number = GAME_OVER_RESTART_DELAY_MS,
 ): boolean => state.over && state.at !== null && now - state.at >= delayMs;
+
+export type GameOverLine = {
+  readonly text: string;
+  // 文字サイズ(px)。
+  readonly fontSize: number;
+  // 行の中心の y 座標。
+  readonly y: number;
+};
+
+// ゲームオーバー画面の行（タイトル→スコア→経過日数→案内）を上から順に返す。
+export const buildGameOverLines = (score: number, elapsedDays: number): GameOverLine[] => {
+  const centerY = FIELD_HEIGHT / 2;
+  const line = (text: string, layout: { readonly fontSize: number; readonly offsetY: number }): GameOverLine => ({
+    text,
+    fontSize: layout.fontSize,
+    y: centerY + layout.offsetY,
+  });
+  return [
+    line(GAME_OVER_TEXT, GAME_OVER_LAYOUT.title),
+    line(formatScore(score), GAME_OVER_LAYOUT.score),
+    line(formatElapsedDays(elapsedDays), GAME_OVER_LAYOUT.elapsedDays),
+    line(GAME_OVER_RESTART_TEXT, GAME_OVER_LAYOUT.restart),
+  ];
+};

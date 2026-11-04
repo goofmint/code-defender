@@ -5,12 +5,14 @@ import {
   ATTACK_DAMAGE,
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MS,
-  ENGINEER_MONTHLY_SALARY,
-  ENGINEER_SPAWN_CELLS,
+  ENGINEER_HIRE_COST,
   GAME_OVER_RESTART_KEYS,
+  HIRE_KEYS,
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
+  ITEM_BUY_KEYS,
+  MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
 } from './config';
@@ -37,8 +39,16 @@ import {
   drawDefeatEffect,
   drawElapsedDays,
   drawField,
+  drawCumulativeSales,
   drawFunds,
+  drawEngineerCount,
   drawGameOver,
+  drawHireButtons,
+  drawHireMessage,
+  drawItemAttackEffect,
+  drawItemButtons,
+  drawItemMessage,
+  drawPlacedItem,
   drawPenaltyText,
   drawPlayer,
   drawReleasePoint,
@@ -67,6 +77,7 @@ import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFat
 import type { CodeDefeatedPayload } from './defeat';
 import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
+import { accumulateScore, formatCumulativeSales, INITIAL_SCORE } from './score';
 import {
   canRestart,
   checkBankruptcy,
@@ -77,10 +88,35 @@ import {
 import type { GameOverState } from './gameOver';
 import { NORMAL_CODE_PENALIZED_EVENT, resolveNormalCodePenalty } from './penalty';
 import type { NormalCodePenalizedPayload } from './penalty';
-import { getEngineerSalaries, SALARY_PAID_EVENT, settleMonthlySalary } from './salary';
+import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
+import { ITEM_FEE_PAID_EVENT } from './itemFee';
+import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
-import { addRoute, createRoutes } from './route';
+import {
+  assignEngineerRoute,
+  createInitialFleet,
+  ENGINEER_HIRED_EVENT,
+  ENGINEER_RANKS,
+  formatEngineerCount,
+  formatHireMessage,
+  hireEngineer,
+  shouldAddRouteOnHire,
+} from './engineer';
+import type { Engineer, EngineerHiredPayload } from './engineer';
+import { addRoute, cellCenter } from './route';
+import { getItemDamage, ITEM_TYPES } from './item';
+import type { ItemType } from './item';
+import {
+  canItemAttack,
+  createItemState,
+  findItemTarget,
+  formatItemMessage,
+  ITEM_PLACED_EVENT,
+  pointToCell,
+  purchaseItem,
+} from './itemPlacement';
+import type { ItemPlacedPayload, PlacedItem } from './itemPlacement';
 import type { Route } from './route';
 
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics };
@@ -105,7 +141,16 @@ class MainScene extends Phaser.Scene {
   private displayedDays = 0;
   private funds = 0;
   private fundsText?: Phaser.GameObjects.Text;
+  private score = INITIAL_SCORE;
+  private salesText?: Phaser.GameObjects.Text;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
+  private engineers: Engineer[] = [];
+  private nextEngineerId = 0;
+  private engineerCountText?: Phaser.GameObjects.Text;
+  private hireMessageText?: Phaser.GameObjects.Text;
+  private placedItems: readonly PlacedItem[] = [];
+  private nextItemId = 0;
+  private itemMessageText?: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -123,22 +168,41 @@ class MainScene extends Phaser.Scene {
     this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
     this.funds = INITIAL_FUNDS;
     this.fundsText = drawFunds(this, this.funds);
+    this.score = INITIAL_SCORE;
+    this.salesText = drawCumulativeSales(this, this.score);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
     this.events.on(CODE_RELEASED_EVENT, this.onCodeReleased, this);
+    this.events.on(ENGINEER_HIRED_EVENT, this.onEngineerHired, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.events.off(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
       this.events.off(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
       this.events.off(CODE_HIT_EVENT, this.onCodeHit, this);
       this.events.off(CODE_RELEASED_EVENT, this.onCodeReleased, this);
+      this.events.off(ENGINEER_HIRED_EVENT, this.onEngineerHired, this);
     });
-    this.routes = createRoutes(ENGINEER_SPAWN_CELLS, Math.random);
+    const fleet = createInitialFleet(Math.random);
+    this.routes = fleet.routes;
     this.codes = [];
     this.spawnElapsed = new Map();
     this.nextCodeId = 0;
     this.codeHp = new Map();
     drawRoutes(this, this.routes);
+    this.engineers = fleet.engineers;
+    this.nextEngineerId = fleet.nextEngineerId;
+    this.hireMessageText = undefined;
+    this.engineerCountText = drawEngineerCount(this, this.engineers.length, MAX_ENGINEERS);
+    drawHireButtons(
+      this,
+      ENGINEER_RANKS.map((entry) => ({ rank: entry.id, cost: ENGINEER_HIRE_COST[entry.id] })),
+      (rank) => this.hire(rank),
+    );
+    const itemState = createItemState();
+    this.placedItems = itemState.placedItems;
+    this.nextItemId = itemState.nextId;
+    this.itemMessageText = undefined;
+    drawItemButtons(this, ITEM_TYPES, (itemType) => this.buyItem(itemType));
     drawReleasePoint(this);
     this.player = drawPlayer(this);
     const keyboard = this.input.keyboard;
@@ -153,11 +217,22 @@ class MainScene extends Phaser.Scene {
       };
       // 'down' イベントで発動する（短い押下の取りこぼし防止）。emitOnRepeat は既定 false なので押しっぱなしでは連発しない。
       register(ATTACK_KEYS).forEach((key) => key.on('down', () => this.tryAttack()));
+      HIRE_KEYS.forEach((name, index) =>
+        keyboard.addKey(name).on('down', () => this.hire(ENGINEER_RANKS[index].id)),
+      );
+      ITEM_BUY_KEYS.forEach((name, index) =>
+        keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
+      );
       register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
     }
-    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
       if (this.gameOver.over) {
         this.tryRestart();
+        return;
+      }
+      // 雇うボタン上の押下では、離すまで主人公の移動・攻撃をしない。
+      if (currentlyOver.length > 0) {
+        this.attackPointerHeld = true;
         return;
       }
       const player = this.player;
@@ -216,6 +291,7 @@ class MainScene extends Phaser.Scene {
     }
     this.updatePlayer(delta);
     this.updateCodes(delta);
+    this.updateItems(this.time.now);
   }
 
   private updatePlayer(delta: number): void {
@@ -294,26 +370,115 @@ class MainScene extends Phaser.Scene {
     this.events.emit(FUNDS_CHANGED_EVENT, createFundsChangedEvent(previous, next, reason));
   }
 
-  // 月の境界ごとに給料を引く。エンジニア数は仮に現在のルート数とする（主人公の給料は含めない）。
+  // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う。
+  private hire(rank: string): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const result = hireEngineer(
+      { engineers: this.engineers, funds: this.funds, nextId: this.nextEngineerId },
+      rank,
+      { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST },
+    );
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatHireMessage(result, rank));
+    if (!result.ok) {
+      return;
+    }
+    this.engineers = [...result.engineers];
+    this.nextEngineerId = result.engineer.id + 1;
+    this.engineerCountText?.setText(formatEngineerCount(this.engineers.length, MAX_ENGINEERS));
+    this.changeFunds(result.fundsAfter, 'hire');
+    const payload: EngineerHiredPayload = { engineer: result.engineer, cost: result.cost };
+    this.events.emit(ENGINEER_HIRED_EVENT, payload);
+  }
+
+  // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  private buyItem(itemType: ItemType): void {
+    const player = this.player;
+    if (this.gameOver.over || !player) {
+      return;
+    }
+    const result = purchaseItem(
+      { funds: this.funds, placedItems: this.placedItems, nextId: this.nextItemId, gameOver: this.gameOver.over },
+      itemType,
+      pointToCell({ x: player.x, y: player.y }),
+      { routes: this.routes },
+    );
+    this.itemMessageText?.destroy();
+    this.itemMessageText = drawItemMessage(this, formatItemMessage(result, itemType));
+    if (!result.ok) {
+      return;
+    }
+    this.placedItems = result.placedItems;
+    this.nextItemId = result.item.id + 1;
+    drawPlacedItem(this, result.item);
+    this.changeFunds(result.fundsAfter, 'item');
+    const payload: ItemPlacedPayload = { item: result.item, price: result.price };
+    this.events.emit(ITEM_PLACED_EVENT, payload);
+  }
+
+  // 置いたアイテムが、範囲内で最も近い不正なコードを自動で攻撃する。ゲームオーバー中はしない。
+  private updateItems(now: number): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    this.placedItems = this.placedItems.map((item) => {
+      if (!canItemAttack(now, item.lastAttackTime)) {
+        return item;
+      }
+      const target = findItemTarget(item, this.codes);
+      if (!target) {
+        return item;
+      }
+      drawItemAttackEffect(this, cellCenter(item.cell), target.position);
+      flashCode(this, target.graphics);
+      this.damageMaliciousCode(target, getItemDamage(item.itemType, target.maliciousType));
+      return { ...item, lastAttackTime: now };
+    });
+  }
+
+  // 雇ったらルートと出現場所を追加し、雇ったエンジニアに割り当てる。ゲームオーバー中・追加できないときは routeId を null のままにする。
+  private onEngineerHired(payload: EngineerHiredPayload): void {
+    if (!shouldAddRouteOnHire(this.gameOver.over)) {
+      return;
+    }
+    const route = this.addEngineerRoute();
+    if (route === undefined) {
+      return;
+    }
+    this.engineers = assignEngineerRoute(this.engineers, payload.engineer.id, route.id);
+  }
+
+  // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
   private onMonthElapsed(event: MonthElapsedEvent): void {
-    const paid = settleMonthlySalary(
+    const { salary, itemFee } = settleMonthBoundary(
       this.funds,
       event.month,
-      getEngineerSalaries(this.routes.length, ENGINEER_MONTHLY_SALARY),
+      getEngineerSalaries(this.engineers),
+      this.placedItems,
+      this.gameOver.over,
     );
-    this.changeFunds(paid.fundsAfter, 'salary');
-    this.events.emit(SALARY_PAID_EVENT, paid);
+    this.changeFunds(salary.fundsAfter, 'salary');
+    this.events.emit(SALARY_PAID_EVENT, salary);
+    // 給料のあとに月額アイテムの費用を引く（給料で倒産していたら itemFee は null）。
+    if (itemFee === null) return;
+    this.changeFunds(itemFee.fundsAfter, 'itemFee');
+    this.events.emit(ITEM_FEE_PAID_EVENT, itemFee);
   }
 
   // 資金の変化ごとに倒産を判定する。倒産したら Tween を止めてゲームオーバー表示を出す。
   private onFundsChanged(event: FundsChangedEvent): void {
+    this.score = accumulateScore(this.score, event, this.gameOver.over);
+    this.salesText?.setText(formatCumulativeSales(this.score));
     const result = checkBankruptcy(this.gameOver, event.current, this.time.now);
     this.gameOver = result.state;
     if (!result.triggered) {
       return;
     }
     this.tweens.pauseAll();
-    drawGameOver(this);
+    drawGameOver(this, this.score, getElapsedDays(this.elapsedMs));
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
   }
 
@@ -364,11 +529,19 @@ class MainScene extends Phaser.Scene {
       }
       return;
     }
-    const hp = this.codeHp.get(event.code.id);
-    if (!target || target.kind !== 'malicious' || hp === undefined) {
+    if (!target) {
       return;
     }
-    const result = applyHit(hp, ATTACK_DAMAGE);
+    this.damageMaliciousCode(target, ATTACK_DAMAGE);
+  }
+
+  // 不正なコードの hp を減らし、0以下なら撃破する（主人公・アイテム共通）。正常なコードや hp を持たないコードは何もしない。
+  private damageMaliciousCode(target: ActiveCode, damage: number): void {
+    const hp = this.codeHp.get(target.id);
+    if (target.kind !== 'malicious' || hp === undefined) {
+      return;
+    }
+    const result = applyHit(hp, damage);
     this.codeHp.set(target.id, result.hp);
     if (!result.defeated) {
       return;
