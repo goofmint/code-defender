@@ -2,6 +2,7 @@ import {
   CODE_MALICIOUS_RATE,
   CODE_MALICIOUS_RATE_INCREMENT,
   CODE_MALICIOUS_RATE_MAX,
+  CODE_MALICIOUS_RATE_MIN,
   CODE_SPEED,
   CODE_SPEED_INCREMENT,
   CODE_SPEED_MAX,
@@ -52,4 +53,19 @@ export const maliciousRateForRank = (rank: EngineerRank | undefined, elapsedMs: 
     entry.maliciousRateMax,
     DIFFICULTY_STEP_MS,
   );
+};
+
+// 補正を加えた、最終的な不正コードの割合（0〜1）(#13)。コードの種類を決めるときはこの値を使う。
+// 基礎率は maliciousRateForRank（ランク・経過時間で決まる）。modifiers はパーセントポイントの差分（0.1 で +10 ポイント）で、
+// 正は増加（例: 技術的負債）、負は減少（例: 休暇・リファクタリング）。有限でない差分は 0 として扱う。
+// 基礎率に差分の合計を加え、[CODE_MALICIOUS_RATE_MIN, 1] に収める。ランク表の上限（maliciousRateMax）は補正後には適用しない。
+// 基礎率は CODE_MALICIOUS_RATE_MIN 以上（config の不変条件）なので、modifiers が空なら maliciousRateForRank と同じ値になる。
+export const effectiveMaliciousRate = (
+  rank: EngineerRank | undefined,
+  elapsedMs: number,
+  modifiers: readonly number[] = [],
+): number => {
+  const base = maliciousRateForRank(rank, elapsedMs);
+  const delta = modifiers.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
+  return Math.min(Math.max(base + delta, CODE_MALICIOUS_RATE_MIN), 1);
 };
