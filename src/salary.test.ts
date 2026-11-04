@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_RANKS, MAX_ENGINEERS } from './config';
+import type { EngineerRank } from './engineer';
 import { getCrossedMonths } from './gameTime';
 import {
   createSalaryPaidEvent,
@@ -23,13 +25,67 @@ describe('getMonthlyPayroll', () => {
   });
 });
 
+const staff = (...ranks: EngineerRank[]) => ranks.map((rank) => ({ rank }));
+
+describe('ENGINEER_MONTHLY_SALARY_BY_RANK', () => {
+  it('全ランクが定義され、正の有限値', () => {
+    expect(Object.keys(ENGINEER_MONTHLY_SALARY_BY_RANK).sort()).toEqual(ENGINEER_RANKS.map((r) => r.id).sort());
+    for (const rank of ENGINEER_RANKS) {
+      const salary = ENGINEER_MONTHLY_SALARY_BY_RANK[rank.id];
+      expect(Number.isFinite(salary)).toBe(true);
+      expect(salary).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('getEngineerSalaries', () => {
+  it.each(ENGINEER_RANKS.map((r) => r.id))('%s 単独の額は設定表どおり', (rank) => {
+    expect(getEngineerSalaries(staff(rank))).toEqual([ENGINEER_MONTHLY_SALARY_BY_RANK[rank]]);
+  });
+
+  it('0人は空配列で、給料合計は0・資金は変わらない', () => {
+    expect(getEngineerSalaries([])).toEqual([]);
+    expect(settleMonthlySalary(1000, 1, getEngineerSalaries([]))).toEqual({
+      month: 1,
+      amount: 0,
+      fundsBefore: 1000,
+      fundsAfter: 1000,
+    });
+  });
+
+  it('ランク混在は入力と同じ順序で、合計は各ランクの月給の和', () => {
+    const salaries = getEngineerSalaries(staff('senior', 'junior', 'middle', 'junior'));
+    const { junior, middle, senior } = ENGINEER_MONTHLY_SALARY_BY_RANK;
+    expect(salaries).toEqual([senior, junior, middle, junior]);
+    expect(getMonthlyPayroll(salaries)).toBe(senior + middle + junior * 2);
+  });
+
+  it(`${MAX_ENGINEERS}人（上限）の合計`, () => {
+    const ranks: EngineerRank[] = Array.from({ length: MAX_ENGINEERS }, (_, i) => ENGINEER_RANKS[i % ENGINEER_RANKS.length].id);
+    const salaries = getEngineerSalaries(staff(...ranks));
+    expect(salaries).toHaveLength(MAX_ENGINEERS);
+    expect(getMonthlyPayroll(salaries)).toBe(ranks.reduce((sum, rank) => sum + ENGINEER_MONTHLY_SALARY_BY_RANK[rank], 0));
+  });
+
+  it('全員ジュニア9人は 300000×9 円', () => {
+    expect(getMonthlyPayroll(getEngineerSalaries(staff(...Array<EngineerRank>(9).fill('junior'))))).toBe(2700000);
+  });
+
+  it('入力を変更しない', () => {
+    const input = staff('junior', 'senior');
+    getEngineerSalaries(input);
+    expect(input).toEqual([{ rank: 'junior' }, { rank: 'senior' }]);
+  });
+
   it.each([
-    [0, []],
-    [1, [300]],
-    [3, [300, 300, 300]],
-  ])('%d人', (count, expected) => {
-    expect(getEngineerSalaries(count, 300)).toEqual(expected);
+    ['ちょうど0円', 1200000, 0],
+    ['1円残る', 1200001, 1],
+    ['マイナスになる', 1199999, -1],
+  ])('ランク混在の支払後の資金が%s', (_name, funds, expected) => {
+    // junior + middle + senior = 1,200,000 円
+    const paid = settleMonthlySalary(funds, 1, getEngineerSalaries(staff('junior', 'middle', 'senior')));
+    expect(paid.amount).toBe(1200000);
+    expect(paid.fundsAfter).toBe(expected);
   });
 });
 
