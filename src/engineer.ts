@@ -16,6 +16,8 @@ import {
   ENGINEER_TENDENCY_OFFSETS,
   FUNDS_FORMAT,
   INITIAL_ENGINEER_RANKS,
+  VACATION_MALICIOUS_RATE_REDUCTION,
+  VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
 import type { EngineerTendency } from './config';
 import { createRoutes } from './route';
@@ -56,11 +58,20 @@ export type Engineer = {
   readonly personality: EngineerPersonalityId;
   // 休暇中か(#35)。数値パラメータではないので EngineerParameters には入れない（clamp の対象外）。
   // 仮・要確認(#35): 開始も終了もプレイヤーの操作だけで切り替える（期間・自動復帰・回数制限なし）。変えるのは setEngineerVacation / toggleEngineerVacation だけ。
-  // 休暇中のコード停止(#36)・給料(#37)・不正コード率への効果はそれぞれの issue で実装する。
+  // 不正コード率への効果(#39)は vacationRateReduction に、休暇を始めたときに累積する（復帰後も維持する）。
+  // 休暇中のコード停止(#36)・給料(#37)はそれぞれの issue で実装する。
   readonly onVacation: boolean;
+  // 休暇による不正コード率の低下量（0 以上のパーセントポイント。0.1 で -10 ポイント）(#39)。雇ったとき・初期編成のときは 0。
+  // 仮・要確認(#39): 休暇を始める（onVacation が false→true）たびに VACATION_MALICIOUS_RATE_REDUCTION を加え、
+  // VACATION_MALICIOUS_RATE_REDUCTION_MAX で止める。休暇中・復帰後も維持する。変えるのは setEngineerVacation だけ。
+  // 率への反映は difficulty.ts の vacationMaliciousRateModifiers → effectiveMaliciousRate。
+  readonly vacationRateReduction: number;
   // 月給（円）(#33)。雇ったとき・初期編成のときにランクの初期額(getInitialSalary)が入る。ゲーム内1か月ごとにこの額を引く。
   // パラメータ（疲労度・集中力・技術力・愛着心）とは別。昇給・減給(#34)は adjustEngineerSalary でこの値を置き換える。
   readonly salary: number;
+  // 月給の初期額（円）(#31)。雇ったとき・初期編成のときに salary と同じ額（getInitialSalary）が入り、その後は変えない。
+  // 昇給・減給(#34)は salary だけを置き換える。愛着心への影響（salaryAttachment.ts）は salary とこの値の差額で決める。
+  readonly initialSalary: number;
 } & EngineerParameters;
 
 export type EngineerHiredPayload = {
@@ -253,7 +264,9 @@ export const createInitialEngineers = (
       routeId: route.id,
       personality,
       onVacation: false,
+      vacationRateReduction: 0,
       salary: getInitialSalary(ranks[index]),
+      initialSalary: getInitialSalary(ranks[index]),
       ...createEngineerParameters(ranks[index], personality),
     };
   });
@@ -267,14 +280,35 @@ export const assignEngineerRoute = (
 ): Engineer[] =>
   engineers.map((engineer) => (engineer.id === engineerId ? { ...engineer, routeId } : engineer));
 
+// 休暇を始めたときの低下量(#39)。現在値に VACATION_MALICIOUS_RATE_REDUCTION を加え、VACATION_MALICIOUS_RATE_REDUCTION_MAX で止める。
+// 現在値が有限でない・負なら 0 として扱ってから加える。
+const addVacationRateReduction = (current: number): number =>
+  Math.min(
+    (Number.isFinite(current) && current > 0 ? current : 0) + VACATION_MALICIOUS_RATE_REDUCTION,
+    VACATION_MALICIOUS_RATE_REDUCTION_MAX,
+  );
+
 // 対象のエンジニアだけ休暇状態を onVacation にした新しい配列を返す(#35)。他のエンジニアは同じ参照のまま。入力は変更しない。
 // routeId・性格・パラメータは変えない（資金・スコアにも触れない）。該当 id がなければ同じ内容の配列。
+// 休暇を始める（休暇中でない → 休暇）ときだけ、不正コード率の低下量(vacationRateReduction)を加える(#39)。それ以外の切り替えでは変えない。
 export const setEngineerVacation = (
   engineers: readonly Engineer[],
   engineerId: number,
   onVacation: boolean,
 ): Engineer[] =>
-  engineers.map((engineer) => (engineer.id === engineerId ? { ...engineer, onVacation } : engineer));
+  engineers.map((engineer) => {
+    if (engineer.id !== engineerId) {
+      return engineer;
+    }
+    const starting = !engineer.onVacation && onVacation;
+    return {
+      ...engineer,
+      onVacation,
+      vacationRateReduction: starting
+        ? addVacationRateReduction(engineer.vacationRateReduction)
+        : engineer.vacationRateReduction,
+    };
+  });
 
 // 対象のエンジニアの休暇を切り替える（休暇中なら終了、そうでなければ開始）。該当 id がなければ同じ内容の配列。入力は変更しない。
 export const toggleEngineerVacation = (engineers: readonly Engineer[], engineerId: number): Engineer[] => {
@@ -347,7 +381,9 @@ export const hireEngineer = (
     routeId: null,
     personality,
     onVacation: false,
+    vacationRateReduction: 0,
     salary: getInitialSalary(rank),
+    initialSalary: getInitialSalary(rank),
     ...createEngineerParameters(rank, personality),
   };
   return {

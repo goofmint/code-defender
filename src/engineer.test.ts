@@ -20,6 +20,8 @@ import {
   INITIAL_ENGINEER_RANKS,
   MAX_ENGINEER_ROUTES,
   MAX_ENGINEERS,
+  VACATION_MALICIOUS_RATE_REDUCTION,
+  VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
 import {
   adjustEngineerParameter,
@@ -73,12 +75,16 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): E
   routeId,
   personality: 'meticulous',
   onVacation: false,
+  vacationRateReduction: 0,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
+  initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
   ...createEngineerParameters(rank, 'meticulous'),
 });
 const makeEngineers = (count: number): Engineer[] =>
   Array.from({ length: count }, (_, id) => makeEngineer(id, 'junior', id));
 const RICH = 100_000_000;
+// 休暇による低下量(#39)以外の項目。休暇の切り替えで低下量だけが変わることを確かめるのに使う。
+const withoutVacationRateReduction = ({ vacationRateReduction: _reduction, ...rest }: Engineer): Omit<Engineer, 'vacationRateReduction'> => rest;
 
 describe('hireEngineer: ランクごとに雇える', () => {
   it.each<[EngineerRank, number]>([
@@ -370,7 +376,9 @@ describe('休暇(#35): setEngineerVacation', () => {
     const start = setEngineerVacation(engineers, 1, before);
     const result = setEngineerVacation(start, 1, onVacation);
     expect(result.map(isEngineerOnVacation)).toEqual([false, onVacation, false]);
-    expect(result[1]).toEqual({ ...engineers[1], onVacation });
+    expect(withoutVacationRateReduction(result[1])).toEqual(withoutVacationRateReduction({ ...engineers[1], onVacation }));
+    // 休暇中にした時点（before=true の準備、または今回の開始）で1回分の低下量が付く(#39)。
+    expect(result[1].vacationRateReduction).toBeCloseTo(before || onVacation ? VACATION_MALICIOUS_RATE_REDUCTION : 0, 12);
   });
   it('対象以外のエンジニアは同じ参照のまま', () => {
     const result = setEngineerVacation(engineers, 1, true);
@@ -400,7 +408,11 @@ describe('休暇(#35): setEngineerVacation', () => {
   });
   it('routeId が null（ルートなし）のエンジニアも休暇にでき、routeId は null のまま', () => {
     const [result] = setEngineerVacation([makeEngineer(0, 'senior', null)], 0, true);
-    expect(result).toEqual({ ...makeEngineer(0, 'senior', null), onVacation: true });
+    expect(result).toEqual({
+      ...makeEngineer(0, 'senior', null),
+      onVacation: true,
+      vacationRateReduction: VACATION_MALICIOUS_RATE_REDUCTION,
+    });
   });
 });
 
@@ -423,11 +435,14 @@ describe('休暇(#35): パラメータ・ルートの保持', () => {
   ];
   it.each(edges.map((edge, index) => [index, edge] as const))('境界値の組 %i: 開始しても休暇以外は変わらない', (_index, edge) => {
     const [result] = setEngineerVacation([edge], 0, true);
-    expect(result).toEqual({ ...edge, onVacation: true });
+    expect(withoutVacationRateReduction(result)).toEqual(withoutVacationRateReduction({ ...edge, onVacation: true }));
+    expect(result.vacationRateReduction).toBe(VACATION_MALICIOUS_RATE_REDUCTION);
   });
   it.each(edges.map((edge, index) => [index, edge] as const))('境界値の組 %i: 開始→終了で元に戻る', (_index, edge) => {
     const [result] = setEngineerVacation(setEngineerVacation([edge], 0, true), 0, false);
-    expect(result).toEqual(edge);
+    expect(withoutVacationRateReduction(result)).toEqual(withoutVacationRateReduction(edge));
+    // 低下量は復帰後も維持する(#39)。
+    expect(result.vacationRateReduction).toBe(VACATION_MALICIOUS_RATE_REDUCTION);
   });
 });
 
@@ -446,8 +461,11 @@ describe('休暇(#35): toggleEngineerVacation', () => {
     }
     expect(result.map(isEngineerOnVacation)).toEqual([false, expected, false]);
   });
-  it('2 回切り替えると元と同じ内容', () => {
-    expect(toggleEngineerVacation(toggleEngineerVacation(engineers, 2), 2)).toEqual(engineers);
+  it('2 回切り替えると低下量以外は元と同じ内容', () => {
+    const result = toggleEngineerVacation(toggleEngineerVacation(engineers, 2), 2);
+    expect(result.map(withoutVacationRateReduction)).toEqual(engineers.map(withoutVacationRateReduction));
+    // 低下量は1回分（開始1回）が残る(#39)。対象以外は 0 のまま。
+    expect(result.map((engineer) => engineer.vacationRateReduction)).toEqual([0, 0, VACATION_MALICIOUS_RATE_REDUCTION]);
   });
   it('対象以外のエンジニアは同じ参照のまま', () => {
     const result = toggleEngineerVacation(engineers, 1);
@@ -470,6 +488,137 @@ describe('休暇(#35): toggleEngineerVacation', () => {
   it('別々のエンジニアを独立して切り替えられる', () => {
     const result = toggleEngineerVacation(toggleEngineerVacation(engineers, 0), 2);
     expect(result.map(isEngineerOnVacation)).toEqual([true, false, true]);
+  });
+});
+
+// 休暇を与えると不正コード率が下がる(#39): 低下量(vacationRateReduction)の境界値。
+describe('休暇(#39): 低下量の初期値', () => {
+  it('初期フリートの全員の低下量は 0', () => {
+    const { engineers } = createInitialFleet(() => 0.5);
+    expect(engineers.length).toBeGreaterThan(0);
+    expect(engineers.map((engineer) => engineer.vacationRateReduction)).toEqual(engineers.map(() => 0));
+  });
+  it.each(['junior', 'middle', 'senior'] as const)('%s を雇った直後の低下量は 0', (rank) => {
+    const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, rank, rules, () => 0.5);
+    if (!hired.ok) throw new Error('雇えるはず');
+    expect(hired.engineer.vacationRateReduction).toBe(0);
+  });
+});
+
+describe('休暇(#39): setEngineerVacation の低下量', () => {
+  const REDUCTION = VACATION_MALICIOUS_RATE_REDUCTION;
+  const MAX = VACATION_MALICIOUS_RATE_REDUCTION_MAX;
+  const EPS = 1e-9;
+  const withState = (onVacation: boolean, vacationRateReduction: number): Engineer => ({
+    ...makeEngineer(0, 'junior', 0),
+    onVacation,
+    vacationRateReduction,
+  });
+
+  // 遷移の全4通り（低下量 0 から）。加えるのは休暇中でない → 休暇 のときだけ。
+  it.each<[string, boolean, boolean, number]>([
+    ['休暇中でない → 開始', false, true, REDUCTION],
+    ['休暇中でない → 休暇中でない', false, false, 0],
+    ['休暇中 → 終了', true, false, 0],
+    ['休暇中 → 休暇中', true, true, 0],
+  ])('%s', (_name, before, onVacation, expected) => {
+    const [result] = setEngineerVacation([withState(before, 0)], 0, onVacation);
+    expect(result.onVacation).toBe(onVacation);
+    expect(result.vacationRateReduction).toBe(expected);
+  });
+
+  // 正の低下量を持つ場合も、開始以外の遷移では変えない。
+  it.each<[boolean, boolean]>([
+    [false, false],
+    [true, false],
+    [true, true],
+  ])('低下量が正のとき %s→%s では変わらない', (before, onVacation) => {
+    const [result] = setEngineerVacation([withState(before, REDUCTION)], 0, onVacation);
+    expect(result.vacationRateReduction).toBe(REDUCTION);
+  });
+
+  // 上限の境界。開始前の値に REDUCTION を加え、MAX で止める。
+  it.each<[string, number, number]>([
+    ['MAX - REDUCTION - ε', MAX - REDUCTION - EPS, MAX - REDUCTION - EPS + REDUCTION],
+    ['MAX - REDUCTION', MAX - REDUCTION, MAX],
+    ['MAX - REDUCTION + ε', MAX - REDUCTION + EPS, MAX],
+    ['MAX - ε', MAX - EPS, MAX],
+    ['MAX', MAX, MAX],
+  ])('上限の境界: 開始前 %s', (_label, current, expected) => {
+    const [result] = setEngineerVacation([withState(false, current)], 0, true);
+    expect(result.vacationRateReduction).toBeCloseTo(expected, 12);
+    expect(result.vacationRateReduction).toBeLessThanOrEqual(MAX);
+  });
+  it('上限の境界: MAX - REDUCTION - ε は MAX 未満、MAX - REDUCTION + ε は MAX ちょうど', () => {
+    const [below] = setEngineerVacation([withState(false, MAX - REDUCTION - EPS)], 0, true);
+    const [above] = setEngineerVacation([withState(false, MAX - REDUCTION + EPS)], 0, true);
+    expect(below.vacationRateReduction).toBeLessThan(MAX);
+    expect(above.vacationRateReduction).toBe(MAX);
+  });
+
+  // 不正な現在値は 0 として扱ってから加える。
+  it.each([NaN, Infinity, -Infinity, -EPS, -REDUCTION, -1])('現在値 %s は 0 として扱い、開始で REDUCTION', (current) => {
+    const [result] = setEngineerVacation([withState(false, current)], 0, true);
+    expect(result.vacationRateReduction).toBe(REDUCTION);
+  });
+
+  it('対象以外の参照・対象 id なし・空配列・入力の不変性', () => {
+    const engineers: Engineer[] = [
+      { ...makeEngineer(0, 'junior', 0), vacationRateReduction: REDUCTION },
+      makeEngineer(1, 'middle', 1),
+      makeEngineer(2, 'senior', 2),
+    ];
+    const snapshot = structuredClone(engineers);
+    const result = setEngineerVacation(engineers, 1, true);
+    expect(result[0]).toBe(engineers[0]);
+    expect(result[2]).toBe(engineers[2]);
+    expect(result[1].vacationRateReduction).toBe(REDUCTION);
+    expect(engineers).toEqual(snapshot);
+    expect(setEngineerVacation(engineers, 99, true)).toEqual(engineers);
+    expect(setEngineerVacation([], 0, true)).toEqual([]);
+  });
+
+  it('低下量と onVacation 以外の項目は変わらない', () => {
+    const before = withState(false, 0);
+    const [result] = setEngineerVacation([before], 0, true);
+    expect(withoutVacationRateReduction(result)).toEqual(withoutVacationRateReduction({ ...before, onVacation: true }));
+  });
+});
+
+describe('休暇(#39): toggleEngineerVacation の低下量', () => {
+  const engineers: Engineer[] = makeEngineers(3);
+  // 0〜5 回切り替え。開始回数は ceil(回数 / 2)。低下量は min(開始回数 × REDUCTION, MAX)。
+  it.each([0, 1, 2, 3, 4, 5])('%i 回切り替え', (times) => {
+    let result: readonly Engineer[] = engineers;
+    for (let i = 0; i < times; i++) {
+      result = toggleEngineerVacation(result, 1);
+    }
+    const starts = Math.ceil(times / 2);
+    expect(result[1].vacationRateReduction).toBeCloseTo(
+      Math.min(starts * VACATION_MALICIOUS_RATE_REDUCTION, VACATION_MALICIOUS_RATE_REDUCTION_MAX),
+      12,
+    );
+    expect(result[1].vacationRateReduction).toBeLessThanOrEqual(VACATION_MALICIOUS_RATE_REDUCTION_MAX);
+    expect(result[0].vacationRateReduction).toBe(0);
+    expect(result[2].vacationRateReduction).toBe(0);
+  });
+});
+
+describe('休暇(#39): 他の操作では低下量が変わらない', () => {
+  const edge: Engineer = { ...makeEngineer(0, 'middle', 2), vacationRateReduction: VACATION_MALICIOUS_RATE_REDUCTION };
+  it('ルートの割当・null への解除', () => {
+    const [assigned] = assignEngineerRoute([edge], 0, 5);
+    const [cleared] = assignEngineerRoute([assigned], 0, null);
+    expect(assigned.vacationRateReduction).toBe(VACATION_MALICIOUS_RATE_REDUCTION);
+    expect(cleared.vacationRateReduction).toBe(VACATION_MALICIOUS_RATE_REDUCTION);
+  });
+  it('updateEngineerParameters', () => {
+    const result = updateEngineerParameters(edge, { fatigue: ENGINEER_PARAMETER_MAX, skill: ENGINEER_PARAMETER_MIN });
+    expect(result.vacationRateReduction).toBe(VACATION_MALICIOUS_RATE_REDUCTION);
+  });
+  it('adjustEngineerParameter', () => {
+    const result = adjustEngineerParameter(edge, 'concentration', 10);
+    expect(result.vacationRateReduction).toBe(VACATION_MALICIOUS_RATE_REDUCTION);
   });
 });
 
@@ -1064,7 +1213,7 @@ describe('性格の付与', () => {
       );
       if (!hired.ok) throw new Error('雇えるはず');
       expect(hired.engineer.personality).toBe(id);
-      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, onVacation: _onVacation, salary: _salary, ...parameters } = hired.engineer;
+      const { personality: _personality, id: _id, rank: _rank, routeId: _routeId, onVacation: _onVacation, vacationRateReduction: _vacationRateReduction, salary: _salary, initialSalary: _initialSalary, ...parameters } = hired.engineer;
       expect(parameters).toEqual(createEngineerParameters('middle', id));
     }
   });
@@ -1615,5 +1764,32 @@ describe('formatSelectedEngineer / formatSalaryButton(#34)', () => {
   });
   it('ボタンのラベル', () => {
     expect(formatSalaryButton('Q', '前へ')).toBe('[Q] 前へ');
+  });
+});
+
+describe('月給の初期額 initialSalary(#31)', () => {
+  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+  const ranks: EngineerRank[] = ['junior', 'middle', 'senior'];
+
+  it('初期エンジニアの initialSalary と salary はランクの月給と同じ', () => {
+    const engineers = createInitialEngineers(routes, ranks);
+    engineers.forEach((engineer, index) => {
+      expect(engineer.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[ranks[index]]);
+      expect(engineer.salary).toBe(engineer.initialSalary);
+    });
+  });
+  it.each(ranks)('雇った %s の initialSalary と salary はランクの月給と同じ', (rank) => {
+    const result = hireEngineer({ engineers: [], funds: ENGINEER_HIRE_COST[rank], nextId: 0 }, rank, rules, () => 0.5);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.engineer.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+    expect(result.engineer.salary).toBe(result.engineer.initialSalary);
+    expect(result.engineer.initialSalary).toBe(getInitialSalary(rank));
+  });
+  it.each(['raise', 'cut'] as const)('adjustEngineerSalary(%s) は initialSalary を変えない', (direction) => {
+    const engineer = makeEngineer(0, 'middle', 0);
+    const result = adjustEngineerSalary([engineer], 0, direction);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.engineer.salary).not.toBe(engineer.salary);
+    expect(result.engineer.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK.middle);
   });
 });
