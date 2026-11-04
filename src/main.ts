@@ -16,6 +16,7 @@ import {
   MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  REFACTORING_RATIO_KEYS,
   REVENUE_PER_NORMAL_CODE,
   SALARY_ADJUST_KEYS,
   SALARY_SELECT_KEYS,
@@ -59,6 +60,7 @@ import {
   drawPlacedItem,
   drawPenaltyText,
   drawPlayer,
+  drawRefactoringRatioControl,
   drawReleasePoint,
   drawRoutes,
   drawSalaryButtons,
@@ -117,6 +119,8 @@ import {
   techDebtSpawnIntervalMs,
 } from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
+import { formatRefactoringAllocation, stepRefactoringRatio } from './refactoringRatioControl';
+import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import {
   adjustEngineerSalary,
   assignEngineerRoute,
@@ -183,6 +187,8 @@ class MainScene extends Phaser.Scene {
   private techDebtNeglectMs = 0;
   // リファクタリングの割合（0〜1）。割合を指定するUI（docs/tasks.md 8）が変更する想定。今は初期値のまま。
   private refactoringRatio = DEFAULT_REFACTORING_RATIO;
+  // 割合UI(#40)の割合表示。割合の値そのものは refactoringRatio だけに持つ。
+  private refactoringRatioText?: Phaser.GameObjects.Text;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
   private engineers: Engineer[] = [];
   private nextEngineerId = 0;
@@ -219,6 +225,11 @@ class MainScene extends Phaser.Scene {
     this.techDebtNeglectMs = 0;
     this.refactoringRatio = DEFAULT_REFACTORING_RATIO;
     this.techDebtText = drawTechDebt(this, this.techDebt);
+    this.refactoringRatioText = drawRefactoringRatioControl(
+      this,
+      formatRefactoringAllocation(this.refactoringRatio),
+      (direction) => this.changeRefactoringRatio(direction),
+    );
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
@@ -286,6 +297,8 @@ class MainScene extends Phaser.Scene {
       ITEM_BUY_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
       );
+      keyboard.addKey(REFACTORING_RATIO_KEYS.feature).on('down', () => this.changeRefactoringRatio('feature'));
+      keyboard.addKey(REFACTORING_RATIO_KEYS.refactoring).on('down', () => this.changeRefactoringRatio('refactoring'));
       register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
     }
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
@@ -450,6 +463,20 @@ class MainScene extends Phaser.Scene {
     if (event.delta !== 0) {
       this.events.emit(TECH_DEBT_CHANGED_EVENT, event);
     }
+  }
+
+  // 機能開発とリファクタリングの割合を1段階寄せる(#40)。ゲームオーバー中と、両端で値が変わらないときは何もしない。
+  // 次のリリースから resolveWorkTechDebt に新しい割合が使われる。
+  private changeRefactoringRatio(direction: RefactoringRatioDirection): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const next = stepRefactoringRatio(this.refactoringRatio, direction);
+    if (next === this.refactoringRatio) {
+      return;
+    }
+    this.refactoringRatio = next;
+    this.refactoringRatioText?.setText(formatRefactoringAllocation(next));
   }
 
   // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
