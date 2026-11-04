@@ -272,6 +272,7 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     personality: 'meticulous',
     onVacation: false,
     salary: getInitialSalary(rank),
+    initialSalary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
   // ルート 0〜2 に別ランクの担当者、ルート 3 は担当者なし。routeId: null の人はどのルートにも影響しない。

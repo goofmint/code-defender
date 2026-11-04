@@ -61,6 +61,9 @@ export type Engineer = {
   // 月給（円）(#33)。雇ったとき・初期編成のときにランクの初期額(getInitialSalary)が入る。ゲーム内1か月ごとにこの額を引く。
   // パラメータ（疲労度・集中力・技術力・愛着心）とは別。昇給・減給(#34)は adjustEngineerSalary でこの値を置き換える。
   readonly salary: number;
+  // 月給の初期額（円）(#31)。雇ったとき・初期編成のときに salary と同じ額（getInitialSalary）が入り、その後は変えない。
+  // 昇給・減給(#34)は salary だけを置き換える。愛着心への影響（salaryAttachment.ts）は salary とこの値の差額で決める。
+  readonly initialSalary: number;
 } & EngineerParameters;
 
 export type EngineerHiredPayload = {
@@ -254,6 +257,7 @@ export const createInitialEngineers = (
       personality,
       onVacation: false,
       salary: getInitialSalary(ranks[index]),
+      initialSalary: getInitialSalary(ranks[index]),
       ...createEngineerParameters(ranks[index], personality),
     };
   });
@@ -348,6 +352,7 @@ export const hireEngineer = (
     personality,
     onVacation: false,
     salary: getInitialSalary(rank),
+    initialSalary: getInitialSalary(rank),
     ...createEngineerParameters(rank, personality),
   };
   return {
