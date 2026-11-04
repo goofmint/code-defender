@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { initialSpawnElapsed, stepSpawnTimer } from './codeFlow';
 import {
+  CODE_SPAWN_INTERVAL_MS,
   DEFAULT_REFACTORING_RATIO,
   TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
   TECH_DEBT_PER_FEATURE_WORK,
   TECH_DEBT_REPAY_PER_REFACTORING_WORK,
+  TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER,
 } from './config';
 import {
   accumulateTechDebt,
@@ -16,6 +19,7 @@ import {
   sanitizeRefactoringRatio,
   TECH_DEBT_CHANGED_EVENT,
   techDebtMaliciousRateModifier,
+  techDebtSpawnIntervalMs,
 } from './techDebt';
 
 // テストは引数で上限を渡して config の仮の値に依存しないようにする。
@@ -283,5 +287,166 @@ describe('techDebtMaliciousRateModifier（技術的負債による不正コー�
     expect(techDebtMaliciousRateModifier(TECH_DEBT_MAX)).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
     expect(techDebtMaliciousRateModifier(TECH_DEBT_MAX / 2)).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS / 2, 12);
     expect(techDebtMaliciousRateModifier(TECH_DEBT_MAX + 1)).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
+  });
+});
+
+describe('techDebtSpawnIntervalMs', () => {
+  // 基準間隔・倍率・上限は引数で固定し、config の仮の値に依存しないようにする。
+  const BASE = 2000;
+  const MULT = 2;
+  const opts = { maxMultiplier: MULT, max: MAX };
+
+  it.each([
+    [-1, 2000],
+    [-0.01, 2000],
+    [0, 2000],
+    [1, 2020],
+    [50, 3000],
+    [MAX - 1, 3980],
+    [MAX, 4000],
+    [MAX + 1, 4000],
+    [Number.NaN, 2000],
+    [Number.POSITIVE_INFINITY, 4000],
+    [Number.NEGATIVE_INFINITY, 2000],
+  ])('負債 %d → %d ms', (debt, expected) => {
+    expect(techDebtSpawnIntervalMs(debt, BASE, opts)).toBeCloseTo(expected, 9);
+  });
+
+  it.each([1, 0.99, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    '倍率 %d は1として扱う（負債上限でも基準間隔のまま）',
+    (maxMultiplier) => {
+      expect(techDebtSpawnIntervalMs(MAX, BASE, { maxMultiplier, max: MAX })).toBe(BASE);
+      expect(techDebtSpawnIntervalMs(50, BASE, { maxMultiplier, max: MAX })).toBe(BASE);
+    },
+  );
+
+  it.each([
+    [2, 4000],
+    [3, 6000],
+  ])('倍率 %d: 負債上限で %d ms、負債0で基準間隔', (maxMultiplier, expected) => {
+    expect(techDebtSpawnIntervalMs(MAX, BASE, { maxMultiplier, max: MAX })).toBeCloseTo(expected, 9);
+    expect(techDebtSpawnIntervalMs(0, BASE, { maxMultiplier, max: MAX })).toBe(BASE);
+  });
+
+  it.each([0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    '上限 %d は不正なので基準間隔のまま',
+    (max) => {
+      expect(techDebtSpawnIntervalMs(50, BASE, { maxMultiplier: MULT, max })).toBe(BASE);
+    },
+  );
+
+  it('単調非減少', () => {
+    let prev = techDebtSpawnIntervalMs(-1, BASE, opts);
+    for (let debt = -1; debt <= MAX + 3; debt += 1 / 3) {
+      const v = techDebtSpawnIntervalMs(debt, BASE, opts);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+  });
+
+  it('引数省略時は config の既定値（倍率・上限）を使う', () => {
+    expect(techDebtSpawnIntervalMs(0, BASE)).toBe(BASE);
+    expect(techDebtSpawnIntervalMs(TECH_DEBT_MAX, BASE)).toBeCloseTo(BASE * TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER, 9);
+    expect(techDebtSpawnIntervalMs(TECH_DEBT_MAX / 2, BASE)).toBeCloseTo(
+      BASE * (1 + (TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER - 1) / 2),
+      9,
+    );
+  });
+});
+
+// main.ts の updateCodes と同じ手順を再現する合成テスト（Phaser は使わない）。
+// フレーム開始時の負債で実効間隔を1回計算し、初期値（initialSpawnElapsed）と stepSpawnTimer の両方に渡す。
+describe('技術的負債と生成タイマーの合成（main.ts の updateCodes と同じ手順）', () => {
+  const BASE = 2000;
+  const opts = { maxMultiplier: 2, max: MAX };
+
+  // 1フレーム分。elapsed が undefined なら新規ルート（initialSpawnElapsed を使う）。
+  const frame = (elapsed: number | undefined, delta: number, debt: number) => {
+    const intervalMs = techDebtSpawnIntervalMs(debt, BASE, opts);
+    return stepSpawnTimer(elapsed ?? initialSpawnElapsed(intervalMs), delta, intervalMs);
+  };
+
+  it.each([0, 50, MAX])('新規ルートは負債 %d でも最初の更新ですぐ1個生成する', (debt) => {
+    expect(frame(undefined, 0, debt)).toEqual({ elapsedMs: 0, spawn: true });
+  });
+
+  it.each([
+    [0, 1999, false],
+    [0, 2000, true],
+    [0, 2001, true],
+    [50, 2999, false],
+    [50, 3000, true],
+    [50, 3001, true],
+    [MAX, 3999, false],
+    [MAX, 4000, true],
+    [MAX, 4001, true],
+  ])('負債 %d: 生成後 %d ms 経過で生成=%s', (debt, elapsed, spawn) => {
+    expect(frame(0, elapsed, debt).spawn).toBe(spawn);
+  });
+
+  it('負債0では既存の挙動（CODE_SPAWN_INTERVAL_MS をそのまま渡す）と一致する', () => {
+    let current: number | undefined;
+    let existing: number | undefined;
+    for (let i = 0; i < 1000; i += 1) {
+      const a = stepSpawnTimer(
+        current ?? initialSpawnElapsed(techDebtSpawnIntervalMs(0, CODE_SPAWN_INTERVAL_MS)),
+        16.7,
+        techDebtSpawnIntervalMs(0, CODE_SPAWN_INTERVAL_MS),
+      );
+      const b = stepSpawnTimer(
+        existing ?? initialSpawnElapsed(CODE_SPAWN_INTERVAL_MS),
+        16.7,
+        CODE_SPAWN_INTERVAL_MS,
+      );
+      expect(a).toEqual(b);
+      current = a.elapsedMs;
+      existing = b.elapsedMs;
+    }
+  });
+
+  it.each([
+    // 16.7ms × 1200 = 20040ms。初回の即生成 + floor(20040 / 間隔)。端数は持ち越す。
+    [0, 1 + 10],
+    [50, 1 + 6],
+    [MAX, 1 + 5],
+  ])('負債 %d: 16.7ms 刻みで 1200 フレーム回すと %d 個生成する', (debt, expected) => {
+    let elapsed: number | undefined;
+    let count = 0;
+    for (let i = 0; i < 1200; i += 1) {
+      const step = frame(elapsed, 16.7, debt);
+      elapsed = step.elapsedMs;
+      if (step.spawn) count += 1;
+    }
+    expect(count).toBe(expected);
+  });
+
+  it('負債が増えて間隔が延びたら、累積時間を保ったまま新しい間隔まで生成しない', () => {
+    // 負債0で 1500ms 溜める。
+    const a = frame(0, 1500, 0);
+    expect(a).toEqual({ elapsedMs: 1500, spawn: false });
+    // 負債上限（間隔 4000ms）に増えた。2000ms を超えても生成しない。
+    const b = frame(a.elapsedMs, 2499, MAX);
+    expect(b.spawn).toBe(false);
+    expect(b.elapsedMs).toBeCloseTo(3999, 9);
+    const c = frame(b.elapsedMs, 1, MAX);
+    expect(c.spawn).toBe(true);
+    expect(c.elapsedMs).toBeCloseTo(0, 9);
+  });
+
+  it('負債を返して間隔が縮み、累積時間が新しい間隔以上なら次の更新で1個だけ生成する', () => {
+    // 負債上限で 3500ms 溜める（間隔 4000ms なので生成しない）。
+    const a = frame(0, 3500, MAX);
+    expect(a.spawn).toBe(false);
+    // 負債0（間隔 2000ms）に戻った。delta 0 でも累積 3500 ≥ 2000 なので1個だけ生成し、端数 1500 を持ち越す。
+    const b = frame(a.elapsedMs, 0, 0);
+    expect(b).toEqual({ elapsedMs: 1500, spawn: true });
+    const c = frame(b.elapsedMs, 0, 0);
+    expect(c.spawn).toBe(false);
+  });
+
+  it.each([0, 50, MAX])('負債 %d: 巨大な delta でも1回の更新で1個だけ生成する', (debt) => {
+    const step = frame(0, 1_000_000, debt);
+    expect(step.spawn).toBe(true);
+    expect(step.elapsedMs).toBeLessThan(techDebtSpawnIntervalMs(debt, BASE, opts));
   });
 });

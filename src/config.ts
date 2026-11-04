@@ -162,6 +162,8 @@ export const INITIAL_FUNDS = 1000000;
 // 根拠: 1ルートは2秒に1件=ゲーム内1か月(60秒)に30件出る。正常率は70%→50%（#14）なので月21〜15件。
 // 20000円なら正常コードを全部通したとき月420000〜300000円で、ジュニア1人の給料(300000円/月、ENGINEER_MONTHLY_SALARY_BY_RANK)を上回る〜同等になる。
 // 10000円だと全部通しても給料に届かず常に赤字になる。ミドル・シニアは月給が上がるぶん、正常率が高い間でないと黒字にならない（仮）。
+// 仮・要確認(#42): この値は既定の配分（DEFAULT_REFACTORING_RATIO）のときの単価。実際の売上は機能開発の割合 (1 − r) に比例する
+// （getFeatureRevenueMultiplier）。リファクタリング 0%（r=0）で 25000円、100%（r=1）で 0円。
 export const REVENUE_PER_NORMAL_CODE = 20000;
 // 仮・要確認: 企画書に記載なし。資金の表示書式。「資金: 1,000,000円」。数値部分は3桁区切り。
 export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
@@ -186,12 +188,17 @@ export const TECH_DEBT_PER_FEATURE_WORK = 10;
 export const TECH_DEBT_REPAY_PER_REFACTORING_WORK = 20;
 // 仮・要確認(#43): リファクタリングの割合（0〜1）の初期値。割合を指定するUIは別タスク（docs/tasks.md 8）。
 // 0.2 なら作業1単位で 0.8×10 溜まり 0.2×20 返すので、正味 +4。リファクタリング 1/3 で増減 0 になる。
+// 売上の基準配分でもある（#42）。この割合のとき正常コード1件の売上は REVENUE_PER_NORMAL_CODE ちょうど（倍率 1）。
 export const DEFAULT_REFACTORING_RATIO = 0.2;
 // 仮・要確認(#45): 技術的負債が TECH_DEBT_MAX のときに不正コード率へ加える量（0〜1 のパーセントポイントの差分。0.2 で +20 ポイント）。
 // 倍率ではなく割合への加算差分。負債 0 で 0、TECH_DEBT_MAX でこの値になるよう負債に比例させる（techDebt.ts の techDebtMaliciousRateModifier）。
 // 企画書(7)「技術的負債が増えると、不具合率（不正コード率）が徐々に増えていく」(docs/game_plan.md) に対応する。関数形（線形）と数値は企画書に記載がなく叩き台。
 // 補正後の割合は [CODE_MALICIOUS_RATE_MIN, 1] に収める（difficulty.ts の effectiveMaliciousRate）。
 export const TECH_DEBT_MALICIOUS_RATE_MAX_BONUS = 0.2;
+// 仮・要確認(#44): 企画書(7)は「技術的負債が増えると、開発スピードが低下する」とだけで、下がり方は未定。
+// 開発スピードはコードの生成頻度と解釈し、生成間隔（CODE_SPAWN_INTERVAL_MS）に倍率を掛けて延ばす。コードの移動速度には掛けない。
+// 倍率は負債に比例し、負債0で1（既存の挙動と同じ）、負債が上限（TECH_DEBT_MAX）でこの値。2 なら上限で生成間隔が2倍（2000ms→4000ms）。
+export const TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER = 2;
 // 仮・要確認(#43): 技術的負債の表示書式。「技術的負債: 40」。数値は四捨五入した整数。
 export const TECH_DEBT_FORMAT = { prefix: '技術的負債: ', suffix: '' } as const;
 // 仮・要確認(#43): 技術的負債の表示位置（HUD 4行目）。累計売上の1行下（y=176〜約206）。文字スタイルは ELAPSED_DAYS_STYLE（24px）。
@@ -296,6 +303,15 @@ export const ENGINEER_SALARY_STEP = 50000;
 // パラメータ（ENGINEER_PARAMETER_MIN〜MAX の 0〜100）とは別の範囲。
 export const ENGINEER_SALARY_MIN = 100000;
 export const ENGINEER_SALARY_MAX = 1000000;
+// 仮・要確認(#31): 給料が愛着心に与える影響。企画書(6)は「昇給は飽和曲線（例: 1 - e^(-k × 昇給額)）、減給は大きめの係数をかけた直線」とだけで、係数は未記載。以下はすべて仮の値。
+// 差額 = 現在の月給（Engineer.salary）− 初期額（Engineer.initialSalary）。ゲーム内1か月ごとに、差額に応じた量を愛着心（0〜100）に足す。
+// 昇給時の1か月あたりの愛着心の最大増加量。差額が大きくなるほどこの値に近づくが、超えない。
+export const SALARY_ATTACHMENT_RAISE_MAX_GAIN = 5;
+// 昇給時の飽和係数 k（1円あたり）。増加量 = 最大増加量 × (1 − e^(−k × 差額))。1/100000 なら +100000円で約 3.16、+200000円で約 4.32。
+export const SALARY_ATTACHMENT_RAISE_SATURATION_PER_YEN = 1 / 100000;
+// 減給時の係数（1円あたり）。減少量 = 係数 × |差額|。10/100000 なら −50000円で 5、−100000円で 10 下がる。
+// 同じ差額なら、減給の減少量が昇給の増加量より大きくなるようにする（最大増加量 × k ≦ この係数なら、どの差額でも成り立つ）。
+export const SALARY_ATTACHMENT_CUT_PER_YEN = 10 / 100000;
 // 仮・要確認(#28): 企画書(8)はパラメータ（疲労度・集中力・技術力・愛着心）の効果だけで、範囲・初期値・刻みは未記載。以下はすべて仮の値。
 // パラメータの範囲（両端を含む）。
 export const ENGINEER_PARAMETER_MIN = 0;
@@ -430,6 +446,26 @@ export const INCIDENT_DEFAULT_DAMAGE_POINTS = 10;
 // 仮・要確認(#18): 障害の演出（画面全体の短い点滅）の継続時間（ミリ秒）と色（0xRRGGBB）。企画書には演出の記載なし。
 export const INCIDENT_FLASH_DURATION_MS = 250;
 export const INCIDENT_FLASH_COLOR = 0xff0000;
+
+// 仮・要確認(#46): 企画書(7)は「技術的負債が一定量を超えて放置すると、大障害が起きる」とだけで、閾値・放置時間・損害額は未定
+// （docs/tasks.md の「技術的負債の具体的な数値」）。以下はすべて仮の値。
+// 仮・要確認(#46): 大障害の閾値。技術的負債がこの値を「超えて」いる間（ちょうどは含まない）を放置とみなす。0〜TECH_DEBT_MAX の内側。
+export const TECH_DEBT_OUTAGE_THRESHOLD = 80;
+// 仮・要確認(#46): 閾値を超えたまま続けて放置できる時間（ミリ秒）。ゲーム内1か月。これ以上続くと大障害が1回起き、放置時間は 0 に戻る。
+// 閾値以下に下がったら放置時間は 0 に戻る（累積しない）。
+export const TECH_DEBT_OUTAGE_GRACE_MS = MS_PER_GAME_MONTH;
+// 仮・要確認(#46): 大障害の損害ポイント。損害額 = この値 × INCIDENT_DAMAGE_UNIT_YEN。種別なしの不正コード(INCIDENT_DEFAULT_DAMAGE_POINTS)より大きくする。
+export const TECH_DEBT_OUTAGE_DAMAGE_POINTS = 100;
+// 仮・要確認(#46): 大障害の損害額（円）。
+export const TECH_DEBT_OUTAGE_DAMAGE = TECH_DEBT_OUTAGE_DAMAGE_POINTS * INCIDENT_DAMAGE_UNIT_YEN;
+// 仮・要確認(#46): 大障害の演出（画面全体の点滅）。通常の障害(INCIDENT_FLASH_DURATION_MS)より長くする。企画書には演出の記載なし。
+export const TECH_DEBT_OUTAGE_FLASH_DURATION_MS = 600;
+export const TECH_DEBT_OUTAGE_FLASH_COLOR = 0xff0000;
+// 仮・要確認(#46): 大障害の通知（フィールド中央に出てフェードアウトする文字）の文言・文字サイズ・色・表示時間（ミリ秒）。
+export const TECH_DEBT_OUTAGE_TEXT = '大障害発生!';
+export const TECH_DEBT_OUTAGE_TEXT_FONT_SIZE = '48px';
+export const TECH_DEBT_OUTAGE_TEXT_COLOR = '#ff1744';
+export const TECH_DEBT_OUTAGE_TEXT_DURATION_MS = 1500;
 
 // 仮・要確認(#50): 企画書(8, 10)ではアイテムの範囲・攻撃力は「段階」だけで、具体的な数値は未定。以下はすべて仮の値。
 // 範囲(段階→距離): CELL_SIZE に対する比率。近距離=1.5(90px)、中距離=2.5(150px)、長距離=4(240px)。主人公の攻撃範囲(60px)より大きい。

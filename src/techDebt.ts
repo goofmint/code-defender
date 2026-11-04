@@ -5,12 +5,13 @@ import {
   TECH_DEBT_MAX,
   TECH_DEBT_PER_FEATURE_WORK,
   TECH_DEBT_REPAY_PER_REFACTORING_WORK,
+  TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER,
 } from './config';
 
 // 技術的負債の状態。Phaser に依存しない純粋関数だけを置く（funds.ts と同じ構成）。
 // 負債は 0〜上限の数値。資金や借入ではない（資金には影響しない）。
-// 負債の影響のうち、不具合率の増加(#45)は techDebtMaliciousRateModifier で実装済み（不正コード率の補正として生成時に合成する）。
-// 開発スピードの低下(#44)と大障害(#46)は別 PR で実装中。
+// 負債の影響のうち、開発スピード低下（コードの生成間隔が延びる、#44）は techDebtSpawnIntervalMs で実装済み。
+// 不具合率の増加(#45)は techDebtMaliciousRateModifier で実装済み（不正コード率の補正として生成時に合成する）。
 
 // 技術的負債が変化したときに scene.events で発行するイベント名。
 export const TECH_DEBT_CHANGED_EVENT = 'tech-debt-changed';
@@ -114,6 +115,32 @@ export const techDebtMaliciousRateModifier = (
   }
   return (clampTechDebt(debt, max) / max) * bonus;
 };
+
+// 負債から生成間隔の倍率を求める（#44）。1 + 負債 / max × (maxMultiplier − 1)。負債0で1、上限で maxMultiplier。
+// maxMultiplier が NaN・±Infinity・1未満なら1として扱う（負債で開発が速くならないようにする）。
+// max が0以下・非有限なら倍率1（負債の割合が定まらないため）。負債は clampTechDebt で 0〜max に丸める。
+const techDebtSpawnIntervalMultiplier = (debt: number, maxMultiplier: number, max: number): number => {
+  if (!Number.isFinite(max) || max <= 0) {
+    return 1;
+  }
+  if (!Number.isFinite(maxMultiplier) || maxMultiplier < 1) {
+    return 1;
+  }
+  return 1 + (clampTechDebt(debt, max) / max) * (maxMultiplier - 1);
+};
+
+// 負債に応じて延ばしたコードの生成間隔（ミリ秒）。開発スピードの低下（#44）。負債0なら基準の間隔のまま。
+export const techDebtSpawnIntervalMs = (
+  debt: number,
+  baseIntervalMs: number,
+  {
+    maxMultiplier = TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER,
+    max = TECH_DEBT_MAX,
+  }: {
+    readonly maxMultiplier?: number;
+    readonly max?: number;
+  } = {},
+): number => baseIntervalMs * techDebtSpawnIntervalMultiplier(debt, maxMultiplier, max);
 
 export const createTechDebtChangedEvent = (
   previous: number,
