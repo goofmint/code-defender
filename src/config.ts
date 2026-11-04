@@ -106,6 +106,12 @@ export const CODE_MALICIOUS_RATE_MAX = 0.5;
 // 休暇・リファクタリング等の補正（difficulty.ts の effectiveMaliciousRate）を加えた後の割合にだけ適用し、
 // maliciousRateForRank の基礎率には適用しない。全ランクの maliciousRate と CODE_MALICIOUS_RATE 以下にする。
 export const CODE_MALICIOUS_RATE_MIN = 0.05;
+// 仮・要確認(#39): 休暇を1回始めるごとに、担当エンジニアの不正コード率を下げる量（0〜1 のパーセントポイントの差分。0.1 で -10 ポイント）。
+// 企画書(6)「休暇を与えると不正コード率が下がる」(docs/game_plan.md) に対応する。数値は企画書に記載がなく叩き台。
+// 低下量は休暇中・復帰後も維持する。補正後の割合の下限は CODE_MALICIOUS_RATE_MIN で守る（difficulty.ts の effectiveMaliciousRate）。
+export const VACATION_MALICIOUS_RATE_REDUCTION = 0.1;
+// 仮・要確認(#39): 休暇による低下量の累積の上限（0〜1 のパーセントポイントの差分）。VACATION_MALICIOUS_RATE_REDUCTION 以上 1 以下にする。
+export const VACATION_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
 // 移動キーではないので、移動のキーボード優先判定には含めない。
@@ -275,12 +281,20 @@ export const ENGINEER_RANKS = [
 // ゲーム内1か月（60秒）ごとに、雇っている全員の月給（Engineer.salary）の合計を引く。
 // ジュニアは従来の月給300000円を維持（REVENUE_PER_NORMAL_CODE の釣り合いの根拠と同じ）。
 // ミドル400000円・シニア500000円は CodeRabbit の計画どおりの仮値（ジュニア＋100000円ずつ）。
-// 雇用費(ENGINEER_HIRE_COST: 100000/200000/300000円、雇うときの一時費用)と同じ順序で高くなる。昇給・減給(#34)は別 issue。
+// 雇用費(ENGINEER_HIRE_COST: 100000/200000/300000円、雇うときの一時費用)と同じ順序で高くなる。
+// 雇ったあとはプレイヤーが昇給・減給(#34、engineer.ts の adjustEngineerSalary)で個人の月給を変えられる。
 export const ENGINEER_MONTHLY_SALARY_BY_RANK: Readonly<Record<(typeof ENGINEER_RANKS)[number]['id'], number>> = {
   junior: 300000,
   middle: 400000,
   senior: 500000,
 };
+// 仮・要確認(#34): 企画書(6)は「プレイヤーはいつでも昇給・減給できる」とだけで、刻み・上限・下限は未記載。以下はすべて仮の値。
+// 1回の昇給・減給で変わる額（円）。全ランクの初期額との差が、この額の倍数になるようにする（初期額から刻みどおりに上下できる）。
+export const ENGINEER_SALARY_STEP = 50000;
+// 月給の下限・上限（円、両端を含む）。昇給・減給の結果はこの範囲に収める。全ランクの初期額はこの範囲に入る。
+// パラメータ（ENGINEER_PARAMETER_MIN〜MAX の 0〜100）とは別の範囲。
+export const ENGINEER_SALARY_MIN = 100000;
+export const ENGINEER_SALARY_MAX = 1000000;
 // 仮・要確認(#28): 企画書(8)はパラメータ（疲労度・集中力・技術力・愛着心）の効果だけで、範囲・初期値・刻みは未記載。以下はすべて仮の値。
 // パラメータの範囲（両端を含む）。
 export const ENGINEER_PARAMETER_MIN = 0;
@@ -387,6 +401,26 @@ export const HIRE_BUTTON_FONT_SIZE = '16px';
 export const HIRE_COUNT_POSITION = { x: 300, y: 42 } as const;
 export const HIRE_MESSAGE_POSITION = { x: 480, y: 42 } as const;
 export const HIRE_MESSAGE_DURATION_MS = 2000;
+// 仮・要確認(#34): 昇給・減給の操作。企画書には操作方法の記載なし。「選択中のエンジニア」の情報行と、前へ・次へ・昇給・減給の4つのボタン・キーで操作する。
+// キーは移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・アイテム購入(4〜9)・リスタート(ENTER/SPACE)と重ならない。Phaser の KeyCodes のキー名。
+export const SALARY_SELECT_KEYS = { previous: 'Q', next: 'E' } as const;
+export const SALARY_ADJUST_KEYS = { raise: 'R', cut: 'F' } as const;
+// 仮・要確認(#34): ボタンの並び順（左から）とラベル。ラベルの前にキー名を「[Q] 前へ」の形で付ける。
+export const SALARY_BUTTON_ORDER = ['previous', 'next', 'raise', 'cut'] as const;
+export const SALARY_BUTTON_LABELS = { previous: '前へ', next: '次へ', raise: '昇給', cut: '減給' } as const;
+// 仮・要確認(#34): 選択中のエンジニアの情報行（HUD 4行目=技術的負債の1行下、左端は HUD と同じ）と文字サイズ。
+// 重ならない根拠: HUD 4行目（技術的負債）は y=176〜約206、情報行は y=208〜約233。出現列 x<60 の右、リリース地点 x≥900 の左。
+export const SELECTED_ENGINEER_POSITION = { x: HUD_LEFT_X, y: HUD_TOP_Y + HUD_ROW_HEIGHT * 4 } as const;
+export const SELECTED_ENGINEER_FONT_SIZE = '20px';
+// 仮・要確認(#34): 前へ・次へ・昇給・減給ボタンの配置（情報行の下、y=238〜266、x=72〜416）。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+// 情報行（20px、行高さ約25px）の上端からボタン上端までの間隔。
+const SELECTED_ENGINEER_ROW_HEIGHT = 30;
+export const SALARY_UI_POSITION = {
+  x: SELECTED_ENGINEER_POSITION.x,
+  y: SELECTED_ENGINEER_POSITION.y + SELECTED_ENGINEER_ROW_HEIGHT,
+} as const;
+export const SALARY_BUTTON_SIZE = { width: 80, height: 28, gap: 8 } as const;
+export const SALARY_BUTTON_FONT_SIZE = '14px';
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
@@ -427,19 +461,27 @@ export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
 const ITEM_HUD_WIDTH = 300;
 const ITEM_HUD_LINE_HEIGHT = 30;
 // 仮・要確認(#48, #43): アイテムを置けないセル。HUD は x=ELAPSED_DAYS_POSITION.x（72）〜372、y=80〜約206 で、行1〜3 × col 1〜6 と重なる。
-// 範囲は ELAPSED_DAYS_POSITION / TECH_DEBT_POSITION / CELL_SIZE から計算する（右端・下端ちょうどがセル境界なら次のセルは含めない）。
+// 仮・要確認(#34): 昇給・減給の情報行・ボタン（y=208〜266、ボタンは x=72〜416）も含め、行1〜4 × col 1〜6 にする。
+// 範囲は ELAPSED_DAYS_POSITION / TECH_DEBT_POSITION / SALARY_UI_POSITION / CELL_SIZE から計算する（右端・下端ちょうどがセル境界なら次のセルは含めない）。
 // col 0 は出現列（ルートがあれば元々置けない）なので含めない。
+const salaryUiRight =
+  SALARY_UI_POSITION.x +
+  SALARY_BUTTON_ORDER.length * SALARY_BUTTON_SIZE.width +
+  (SALARY_BUTTON_ORDER.length - 1) * SALARY_BUTTON_SIZE.gap;
 const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
-const itemHudMaxCol = Math.ceil((ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH) / CELL_SIZE) - 1;
+const itemHudMaxCol = Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight) / CELL_SIZE) - 1;
 const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
-const itemHudMaxRow = Math.ceil((TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT) / CELL_SIZE) - 1;
+const itemHudMaxRow =
+  Math.ceil(
+    Math.max(TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT, SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height) / CELL_SIZE,
+  ) - 1;
 export const ITEM_BLOCKED_CELLS = Array.from(
   { length: itemHudMaxRow - itemHudMinRow + 1 },
   (_, r) => itemHudMinRow + r,
 ).flatMap((row) =>
   Array.from({ length: itemHudMaxCol - itemHudMinCol + 1 }, (_, c) => ({ col: itemHudMinCol + c, row })),
 );
-// 仮・要確認(#48): アイテム購入キー（ITEM_TYPES の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・リスタートと重ならない。Phaser の KeyCodes のキー名。
+// 仮・要確認(#48): アイテム購入キー（ITEM_TYPES の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・昇給・減給(Q/E/R/F)・リスタートと重ならない。Phaser の KeyCodes のキー名。
 export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
 export const ITEM_SHORT_NAMES = {

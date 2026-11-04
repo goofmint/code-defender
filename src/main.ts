@@ -16,6 +16,8 @@ import {
   MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  SALARY_ADJUST_KEYS,
+  SALARY_SELECT_KEYS,
   TECH_DEBT_INITIAL,
 } from './config';
 import {
@@ -27,7 +29,7 @@ import {
   isInsideTapArea,
 } from './attack';
 import type { CodeHitEvent } from './attack';
-import { codeSpeedAt, effectiveMaliciousRate } from './difficulty';
+import { codeSpeedAt, effectiveMaliciousRate, vacationMaliciousRateModifiers } from './difficulty';
 import {
   clampToField,
   getMoveDirection,
@@ -55,6 +57,8 @@ import {
   drawPlayer,
   drawReleasePoint,
   drawRoutes,
+  drawSalaryButtons,
+  drawSelectedEngineer,
   drawTechDebt,
   drawVacationMarker,
   flashCode,
@@ -64,9 +68,10 @@ import {
   CODE_RELEASED_EVENT,
   advanceCode,
   initialSpawnElapsed,
+  moveDistanceUnlessPaused,
   pickCodeKind,
   spawnCode,
-  stepSpawnTimer,
+  stepSpawnTimerUnlessPaused,
 } from './codeFlow';
 import type { CodeReleasedPayload, FlowingCode } from './codeFlow';
 import {
@@ -107,6 +112,7 @@ import {
 } from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
 import {
+  adjustEngineerSalary,
   assignEngineerRoute,
   createInitialFleet,
   ENGINEER_HIRED_EVENT,
@@ -114,12 +120,17 @@ import {
   findEngineerByRoute,
   formatEngineerCount,
   formatHireMessage,
+  formatSalaryMessage,
+  formatSelectedEngineer,
   hireEngineer,
+  isAssigneeOnVacation,
+  selectAdjacentEngineerId,
   isEngineerOnVacation,
+  isRouteOnVacation,
   shouldAddRouteOnHire,
   toggleEngineerVacation,
 } from './engineer';
-import type { Engineer, EngineerHiredPayload } from './engineer';
+import type { Engineer, EngineerHiredPayload, EngineerSelectDirection, SalaryDirection } from './engineer';
 import { addRoute, cellCenter } from './route';
 import { getItemDamage, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
@@ -151,7 +162,7 @@ class MainScene extends Phaser.Scene {
   private lastAttackTime: number | null = null;
   // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
   private attackPointerHeld = false;
-  // ゲーム内の経過ミリ秒（累積）。一時停止・休暇中に止めるかは未決定。止める場合は加算をやめるだけでよい。
+  // ゲーム内の経過ミリ秒（累積）。個別の休暇(#36)ではゲーム時計を止めない。一時停止で止めるかは未決定で、止める場合は加算をやめるだけでよい。
   private elapsedMs = 0;
   private elapsedDaysText?: Phaser.GameObjects.Text;
   private displayedDays = 0;
@@ -169,6 +180,9 @@ class MainScene extends Phaser.Scene {
   private nextEngineerId = 0;
   private engineerCountText?: Phaser.GameObjects.Text;
   private hireMessageText?: Phaser.GameObjects.Text;
+  // 昇給・減給(#34)の対象。名簿の並びではなく id で持つ（assignEngineerRoute などで配列が置き換わっても選択を保つ）。
+  private selectedEngineerId: number | null = null;
+  private selectedEngineerText?: Phaser.GameObjects.Text;
   private placedItems: readonly PlacedItem[] = [];
   private nextItemId = 0;
   private itemMessageText?: Phaser.GameObjects.Text;
@@ -226,6 +240,14 @@ class MainScene extends Phaser.Scene {
       ENGINEER_RANKS.map((entry) => ({ rank: entry.id, cost: ENGINEER_HIRE_COST[entry.id] })),
       (rank) => this.hire(rank),
     );
+    // scene.restart() でも前回の選択を残さない。初期値は先頭のエンジニア（名簿が空なら null）。
+    this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, null, 'next');
+    this.selectedEngineerText = drawSelectedEngineer(this, this.findSelectedEngineer());
+    drawSalaryButtons(
+      this,
+      (direction) => this.selectEngineer(direction),
+      (direction) => this.adjustSalary(direction),
+    );
     const itemState = createItemState();
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;
@@ -248,6 +270,10 @@ class MainScene extends Phaser.Scene {
       HIRE_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.hire(ENGINEER_RANKS[index].id)),
       );
+      keyboard.addKey(SALARY_SELECT_KEYS.previous).on('down', () => this.selectEngineer('previous'));
+      keyboard.addKey(SALARY_SELECT_KEYS.next).on('down', () => this.selectEngineer('next'));
+      keyboard.addKey(SALARY_ADJUST_KEYS.raise).on('down', () => this.adjustSalary('raise'));
+      keyboard.addKey(SALARY_ADJUST_KEYS.cut).on('down', () => this.adjustSalary('cut'));
       ITEM_BUY_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
       );
@@ -429,9 +455,49 @@ class MainScene extends Phaser.Scene {
     this.engineers = [...result.engineers];
     this.nextEngineerId = result.engineer.id + 1;
     this.engineerCountText?.setText(formatEngineerCount(this.engineers.length, MAX_ENGINEERS));
+    // 選択中のエンジニアがいなければ（0人から雇ったときなど）、雇ったエンジニアを選ぶ。
+    if (this.findSelectedEngineer() === null) {
+      this.selectedEngineerId = result.engineer.id;
+    }
+    this.refreshSelectedEngineer();
     this.changeFunds(result.fundsAfter, 'hire');
     const payload: EngineerHiredPayload = { engineer: result.engineer, cost: result.cost };
     this.events.emit(ENGINEER_HIRED_EVENT, payload);
+  }
+
+  // 選択中のエンジニア。選択なし・名簿にいなければ null。
+  private findSelectedEngineer(): Engineer | null {
+    return this.engineers.find((engineer) => engineer.id === this.selectedEngineerId) ?? null;
+  }
+
+  private refreshSelectedEngineer(): void {
+    this.selectedEngineerText?.setText(formatSelectedEngineer(this.findSelectedEngineer()));
+  }
+
+  // 昇給・減給の対象を前・次のエンジニアに切り替える。ゲームオーバー中は何もしない。
+  private selectEngineer(direction: EngineerSelectDirection): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, this.selectedEngineerId, direction);
+    this.refreshSelectedEngineer();
+  }
+
+  // 仮・要確認(#34): 選択中のエンジニアを昇給・減給する。ゲームオーバー中は何もしない。
+  // 変えた額はすぐ Engineer.salary に入り、次の月次精算（onMonthElapsed → getEngineerSalaries）から支払う。手数料はかけない（changeFunds は呼ばない）。
+  // メッセージは雇用メッセージと同じ場所に出し、直前の雇用・給与メッセージは消す。
+  private adjustSalary(direction: SalaryDirection): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const result = adjustEngineerSalary(this.engineers, this.selectedEngineerId, direction);
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatSalaryMessage(result));
+    if (!result.ok) {
+      return;
+    }
+    this.engineers = [...result.engineers];
+    this.refreshSelectedEngineer();
   }
 
   // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
@@ -600,10 +666,10 @@ class MainScene extends Phaser.Scene {
   }
 
   // 不正コード率の補正（パーセントポイントの差分）の一覧(#13)。effectiveMaliciousRate に渡す。
-  // 今は補正がないので空配列。後続で差分を追加する: #39 休暇（担当エンジニア単位の減少）、
-  // #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
-  private maliciousRateModifiersFor(_engineer: Engineer | undefined): readonly number[] {
-    return [];
+  // 実装済み: #39 休暇（担当エンジニア単位の減少。vacationMaliciousRateModifiers）。
+  // 今後の補正はこの配列に差分を追加して合成する: #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
+  private maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[] {
+    return vacationMaliciousRateModifiers(engineer);
   }
 
   private updateCodes(delta: number): void {
@@ -612,15 +678,19 @@ class MainScene extends Phaser.Scene {
     // 新規ルートの初期値にも同じ間隔を渡し、負債があっても最初の更新ですぐ1個生成されるようにする（既存の挙動を維持）。
     const spawnIntervalMs = techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS);
     for (const route of this.routes) {
-      const step = stepSpawnTimer(
+      // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
+      const engineer = findEngineerByRoute(this.engineers, route.id);
+      // 担当者の休暇中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
+      // 生成間隔は技術的負債で延びた実効間隔(#44)を使う。
+      const step = stepSpawnTimerUnlessPaused(
         this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(spawnIntervalMs),
         delta,
         spawnIntervalMs,
+        isAssigneeOnVacation(engineer),
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
         // 担当エンジニアのランクに応じた割合(#12)に補正(#13)を加える。担当者がいないルートは既定の割合を使う。
-        const engineer = findEngineerByRoute(this.engineers, route.id);
         const rank = engineer?.rank;
         const rate = effectiveMaliciousRate(rank, this.elapsedMs, this.maliciousRateModifiersFor(engineer));
         const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, rate), route);
@@ -639,7 +709,9 @@ class MainScene extends Phaser.Scene {
         flowing.push(...this.codes.slice(index));
         break;
       }
-      const next: ActiveCode = { ...advanceCode(active, distance), graphics: active.graphics };
+      // 担当者の休暇中はそのルートのコードを進めない(#36)。流れたまま残るので攻撃はできる。
+      const moved = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId));
+      const next: ActiveCode = { ...advanceCode(active, moved), graphics: active.graphics };
       // hp を持つのは不正なコードだけ。正常なコードは撃破されない。
       const hp = this.codeHp.get(next.id);
       const fate = resolveCodeFate(hp !== undefined && isDefeated(hp), next.released);
@@ -683,7 +755,8 @@ class MainScene extends Phaser.Scene {
   }
 
   // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
-  // 資金・スコアは変えない。コードの停止(#36)・給料(#37)・不正コード率はこの issue では変えない。
+  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。給料(#37)は休暇中も引き続き払う。
+  // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
   private toggleVacation(routeId: number): void {
     if (this.gameOver.over) {
       return;

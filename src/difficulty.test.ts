@@ -8,12 +8,30 @@ import {
   CODE_SPEED_INCREMENT,
   CODE_SPEED_MAX,
   DIFFICULTY_STEP_MS,
+  ENGINEER_HIRE_COST,
   ENGINEER_RANKS,
+  MAX_ENGINEERS,
   PLAYER_SPEED,
+  VACATION_MALICIOUS_RATE_REDUCTION,
+  VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
 import { pickCodeKind } from './codeFlow';
-import { codeSpeedAt, effectiveMaliciousRate, maliciousRateAt, maliciousRateForRank } from './difficulty';
-import { createEngineerParameters, findEngineerByRoute, getInitialSalary } from './engineer';
+import {
+  codeSpeedAt,
+  effectiveMaliciousRate,
+  maliciousRateAt,
+  maliciousRateForRank,
+  vacationMaliciousRateModifiers,
+} from './difficulty';
+import {
+  assignEngineerRoute,
+  createEngineerParameters,
+  createInitialFleet,
+  findEngineerByRoute,
+  getInitialSalary,
+  hireEngineer,
+  setEngineerVacation,
+} from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
 
 const STEP = DIFFICULTY_STEP_MS;
@@ -189,7 +207,7 @@ describe('maliciousRateForRank（ランク別の不正コード率・境界値�
     expect(maliciousRateForRank(id, ms)).toBeCloseTo(expected);
   });
 
-  it.each(RANKS.flatMap(([id, rank]) => [-1, NaN, Infinity].map((ms) => [id, ms, rank] as const)))(
+  it.each(RANKS.flatMap(([id, rank]) => [-1, -STEP, NaN, Infinity, -Infinity].map((ms) => [id, ms, rank] as const)))(
     '%s: %s ms は開始値',
     (id, ms, rank) => {
       expect(maliciousRateForRank(id, ms)).toBeCloseTo(rank.maliciousRate);
@@ -208,12 +226,27 @@ describe('maliciousRateForRank（ランク別の不正コード率・境界値�
     expect(middle).toBeGreaterThan(senior);
   });
 
-  it.each([0, STEP - 1, STEP, STEP * rateCapStep - 1, STEP * rateCapStep, STEP * (rateCapStep + 1), -1, NaN, Infinity])(
+  it.each([
+    0,
+    STEP - 1,
+    STEP,
+    STEP * rateCapStep - 1,
+    STEP * rateCapStep,
+    STEP * (rateCapStep + 1),
+    -1,
+    NaN,
+    Infinity,
+    -Infinity,
+  ])(
     'ランクなし（担当者がいない）: %s ms は既定の maliciousRateAt と同じ',
     (ms) => {
       expect(maliciousRateForRank(undefined, ms)).toBe(maliciousRateAt(ms));
     },
   );
+
+  it('ランク表に存在しないランクは例外（共通率へフォールバックしない）', () => {
+    expect(() => maliciousRateForRank('x' as never, 0)).toThrow(new Error('ランク表に存在しないランクです: x'));
+  });
 });
 
 describe('ランク別の不正コード率で種類を決める（pickCodeKind との接続・境界値）', () => {
@@ -226,12 +259,28 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     expect(pickCodeKind(() => rate + 1e-9, rate)).toBe('normal');
   });
 
+  // 時間軸上の境界。期待値は叩き台の値（企画書 6）。値を変えたらこの表も見直す。
+  it.each([
+    ['junior', '段階の切替の直前(間隔-1ms)', STEP - 1, 0.4],
+    ['junior', '段階の切替ちょうど', STEP, 0.42],
+    ...ENGINEER_RANKS.map(
+      (rank) => [rank.id, '上限到達後', STEP * (rankCapStep(rank) + 1), rank.maliciousRateMax] as const,
+    ),
+  ] as const)('%s: %s（%s ms、率 %s）で rate - ε は不正、rate・rate + ε は正常', (id, _label, ms, expected) => {
+    const rate = maliciousRateForRank(id, ms);
+    expect(rate).toBeCloseTo(expected);
+    expect(pickCodeKind(() => rate - 1e-9, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
+    expect(pickCodeKind(() => rate + 1e-9, rate)).toBe('normal');
+  });
+
   const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): Engineer => ({
     id,
     rank,
     routeId,
     personality: 'meticulous',
     onVacation: false,
+    vacationRateReduction: 0,
     salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
@@ -261,6 +310,134 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     const rate = rateOfRoute(3);
     expect(pickCodeKind(() => rate - 1e-9, rate)).toBe('malicious');
     expect(pickCodeKind(() => rate, rate)).toBe('normal');
+    expect(pickCodeKind(() => rate + 1e-9, rate)).toBe('normal');
+  });
+});
+
+// 生成経路（main.ts の updateCodes）と同じ順で既存関数を組み合わせる接続テスト。
+// findEngineerByRoute → maliciousRateForRank → pickCodeKind の順に呼ぶ。
+// 制限: main.ts（Phaser のシーン）自体がこの順で呼ぶことまでは保証しない。
+describe('生成経路の接続（初期配置・追加雇用・割当解除）', () => {
+  const EPS = 1e-9;
+  // 乱数列ヘルパー（engineer.test.ts と同じ形式）。
+  const sequence = (values: readonly number[]): (() => number) => {
+    let index = 0;
+    return () => values[index++ % values.length];
+  };
+  const rules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
+  const RICH = 100_000_000;
+  // 0ms と、全ランク・共通率が上限に達した後の2点。
+  const capMs = STEP * (Math.max(rateCapStep, ...ENGINEER_RANKS.map(rankCapStep)) + 1);
+  const TIMES = [
+    ['0ms', 0],
+    ['上限到達後', capMs],
+  ] as const;
+
+  // ルートの割合を生成経路と同じ順で求め、rate - ε / rate / rate + ε の乱数列で種類を3回決める。
+  const spawnKinds = (engineers: readonly Engineer[], routeId: number, elapsedMs: number) => {
+    const rate = maliciousRateForRank(findEngineerByRoute(engineers, routeId)?.rank, elapsedMs);
+    const random = sequence([rate - EPS, rate, rate + EPS]);
+    return { rate, kinds: [pickCodeKind(random, rate), pickCodeKind(random, rate), pickCodeKind(random, rate)] };
+  };
+
+  // 新しいルート id は初期ルートと重複させない。エンジニア id とも一致させない。
+  const hireAndAssign = () => {
+    const fleet = createInitialFleet(() => 0);
+    const maxRouteId = Math.max(...fleet.routes.map((route) => route.id));
+    const middle = hireEngineer(
+      { engineers: fleet.engineers, funds: RICH, nextId: fleet.nextEngineerId },
+      'middle',
+      rules,
+      () => 0,
+    );
+    if (!middle.ok) throw new Error('middle を雇えない');
+    const senior = hireEngineer(
+      { engineers: middle.engineers, funds: middle.fundsAfter, nextId: middle.engineer.id + 1 },
+      'senior',
+      rules,
+      () => 0,
+    );
+    if (!senior.ok) throw new Error('senior を雇えない');
+    // middle（id 3）→ ルート 4、senior（id 4）→ ルート 3 のように id を入れ違えて割り当てる。
+    const middleRouteId = maxRouteId + 2;
+    const seniorRouteId = maxRouteId + 1;
+    return {
+      fleet,
+      hired: senior.engineers,
+      middle: middle.engineer,
+      senior: senior.engineer,
+      middleRouteId,
+      seniorRouteId,
+    };
+  };
+
+  it.each(TIMES)('初期配置（%s）: 全初期ルートが junior の割合で、共通率とは異なる', (_label, ms) => {
+    const fleet = createInitialFleet(() => 0);
+    const junior = maliciousRateForRank('junior', ms);
+    for (const route of fleet.routes) {
+      const { rate, kinds } = spawnKinds(fleet.engineers, route.id, ms);
+      expect(rate).toBe(junior);
+      expect(rate).not.toBeCloseTo(maliciousRateAt(ms));
+      expect(kinds).toEqual(['malicious', 'normal', 'normal']);
+    }
+  });
+
+  it('初期配置の 0ms は junior の開始値（叩き台 0.40、共通率 0.30 とは異なる）', () => {
+    const fleet = createInitialFleet(() => 0);
+    for (const route of fleet.routes) {
+      expect(spawnKinds(fleet.engineers, route.id, 0).rate).toBeCloseTo(0.4);
+    }
+    expect(maliciousRateAt(0)).toBeCloseTo(0.3);
+  });
+
+  it.each(TIMES)('追加雇用（%s）: 雇った直後（routeId: null）は新しいルートで共通率', (_label, ms) => {
+    const { hired, middle, senior, middleRouteId, seniorRouteId } = hireAndAssign();
+    expect(middle.routeId).toBeNull();
+    expect(senior.routeId).toBeNull();
+    for (const routeId of [middleRouteId, seniorRouteId]) {
+      const { rate, kinds } = spawnKinds(hired, routeId, ms);
+      expect(rate).toBe(maliciousRateAt(ms));
+      expect(kinds).toEqual(['malicious', 'normal', 'normal']);
+    }
+  });
+
+  it.each(TIMES)('追加雇用（%s）: assignEngineerRoute で割り当てると middle・senior の割合', (_label, ms) => {
+    const { fleet, hired, middle, senior, middleRouteId, seniorRouteId } = hireAndAssign();
+    expect(middleRouteId).not.toBe(middle.id);
+    expect(seniorRouteId).not.toBe(senior.id);
+    const assigned = assignEngineerRoute(
+      assignEngineerRoute(hired, middle.id, middleRouteId),
+      senior.id,
+      seniorRouteId,
+    );
+    const cases = [
+      [middleRouteId, 'middle'],
+      [seniorRouteId, 'senior'],
+    ] as const;
+    for (const [routeId, rank] of cases) {
+      const { rate, kinds } = spawnKinds(assigned, routeId, ms);
+      expect(rate).toBe(maliciousRateForRank(rank, ms));
+      expect(kinds).toEqual(['malicious', 'normal', 'normal']);
+    }
+    // 初期ルートは junior のまま。
+    for (const route of fleet.routes) {
+      expect(spawnKinds(assigned, route.id, ms).rate).toBe(maliciousRateForRank('junior', ms));
+    }
+  });
+
+  it.each(TIMES)('割当解除（%s）: assignEngineerRoute(..., null) で外すと共通率に戻る', (_label, ms) => {
+    const { hired, middle, senior, middleRouteId, seniorRouteId } = hireAndAssign();
+    const assigned = assignEngineerRoute(
+      assignEngineerRoute(hired, middle.id, middleRouteId),
+      senior.id,
+      seniorRouteId,
+    );
+    const unassigned = assignEngineerRoute(assignEngineerRoute(assigned, middle.id, null), senior.id, null);
+    for (const routeId of [middleRouteId, seniorRouteId]) {
+      const { rate, kinds } = spawnKinds(unassigned, routeId, ms);
+      expect(rate).toBe(maliciousRateAt(ms));
+      expect(kinds).toEqual(['malicious', 'normal', 'normal']);
+    }
   });
 });
 
@@ -385,9 +562,113 @@ describe('config の整合性', () => {
     expect(CODE_MALICIOUS_RATE_MIN).toBeLessThanOrEqual(rank.maliciousRate);
   });
 
+  it('休暇の低下量(#39): 0 < REDUCTION ≤ MAX ≤ 1', () => {
+    expect(VACATION_MALICIOUS_RATE_REDUCTION).toBeGreaterThan(0);
+    expect(VACATION_MALICIOUS_RATE_REDUCTION).toBeLessThanOrEqual(VACATION_MALICIOUS_RATE_REDUCTION_MAX);
+    expect(VACATION_MALICIOUS_RATE_REDUCTION_MAX).toBeLessThanOrEqual(1);
+  });
+
   it('間隔は正、増加量は 0 以上', () => {
     expect(DIFFICULTY_STEP_MS).toBeGreaterThan(0);
     expect(CODE_SPEED_INCREMENT).toBeGreaterThanOrEqual(0);
     expect(CODE_MALICIOUS_RATE_INCREMENT).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// 休暇を与えると不正コード率が下がる(#39)。低下量(vacationRateReduction)を負の差分にして effectiveMaliciousRate に渡す。
+describe('vacationMaliciousRateModifiers（休暇による補正・境界値）', () => {
+  const REDUCTION = VACATION_MALICIOUS_RATE_REDUCTION;
+  const REDUCTION_MAX = VACATION_MALICIOUS_RATE_REDUCTION_MAX;
+  const makeVacationEngineer = (
+    rank: EngineerRank,
+    vacationRateReduction: number,
+    onVacation: boolean = false,
+  ): Engineer => ({
+    id: 0,
+    rank,
+    routeId: 0,
+    personality: 'meticulous',
+    onVacation,
+    vacationRateReduction,
+    salary: getInitialSalary(rank),
+    ...createEngineerParameters(rank, 'meticulous'),
+  });
+
+  it('担当者がいない（undefined）は空配列', () => {
+    expect(vacationMaliciousRateModifiers(undefined)).toEqual([]);
+  });
+
+  it.each([0, -0, -EPS, -REDUCTION, NaN, Infinity, -Infinity])('低下量 %s は空配列', (reduction) => {
+    for (const onVacation of [false, true]) {
+      const modifiers = vacationMaliciousRateModifiers(makeVacationEngineer('junior', reduction, onVacation));
+      expect(modifiers).toEqual([]);
+      expect(modifiers.length).toBe(0);
+    }
+  });
+
+  it.each([EPS, REDUCTION, REDUCTION_MAX])('低下量 %s は [-値]（onVacation に関わらない）', (reduction) => {
+    for (const onVacation of [false, true]) {
+      const modifiers = vacationMaliciousRateModifiers(makeVacationEngineer('junior', reduction, onVacation));
+      expect(modifiers).toEqual([-reduction]);
+      expect(modifiers.every((value) => !Object.is(value, -0))).toBe(true);
+    }
+  });
+
+  describe.each(RANKS)('%s: 経過時間 0 とランク上限到達時', (id, rank) => {
+    it.each([
+      ['0ms', 0],
+      ['ランク上限到達', STEP * rankCapStep(rank)],
+    ] as const)('%s: 低下量が正なら基礎率 − 低下量、0 なら基礎率', (_label, ms) => {
+      const base = maliciousRateForRank(id, ms);
+      const reduced = effectiveMaliciousRate(id, ms, vacationMaliciousRateModifiers(makeVacationEngineer(id, REDUCTION)));
+      expect(reduced).toBeCloseTo(Math.max(base - REDUCTION, MIN), 12);
+      expect(effectiveMaliciousRate(id, ms, vacationMaliciousRateModifiers(makeVacationEngineer(id, 0)))).toBe(base);
+    });
+  });
+
+  it.each(RANKS)('%s: 休暇の前は基礎率、休暇中・復帰後は基礎率 − REDUCTION', (id) => {
+    const ms = STEP;
+    const base = maliciousRateForRank(id, ms);
+    const rateOf = (engineers: readonly Engineer[]): number =>
+      effectiveMaliciousRate(id, ms, vacationMaliciousRateModifiers(findEngineerByRoute(engineers, 0)));
+    const before: readonly Engineer[] = [makeVacationEngineer(id, 0)];
+    const during = setEngineerVacation(before, 0, true);
+    const after = setEngineerVacation(during, 0, false);
+    const expected = Math.max(base - REDUCTION, MIN);
+    expect(rateOf(before)).toBe(base);
+    expect(rateOf(during)).toBeCloseTo(expected, 12);
+    expect(rateOf(after)).toBeCloseTo(expected, 12);
+  });
+
+  // 補正後の率が MIN - ε / MIN / MIN + ε になる低下量（基礎率 − 目標）を作る。
+  it.each([
+    ['MIN - ε', MIN - EPS, MIN],
+    ['MIN', MIN, MIN],
+    ['MIN + ε', MIN + EPS, MIN + EPS],
+  ])('下限の境界: 補正後 %s', (_label, target, expected) => {
+    const base = maliciousRateForRank('junior', 0);
+    const rate = effectiveMaliciousRate('junior', 0, vacationMaliciousRateModifiers(makeVacationEngineer('junior', base - target)));
+    expect(rate).toBeCloseTo(expected, 12);
+    expect(rate).toBeGreaterThanOrEqual(MIN);
+  });
+
+  it('senior の開始率から MAX を引くと MIN で止まる', () => {
+    expect(maliciousRateForRank('senior', 0) - REDUCTION_MAX).toBeLessThan(MIN);
+    expect(effectiveMaliciousRate('senior', 0, vacationMaliciousRateModifiers(makeVacationEngineer('senior', REDUCTION_MAX)))).toBe(MIN);
+    // 叩き台の値での具体値（0.1 - 0.2 → 下限 0.05）。値を変えたらこの行も見直す。
+    expect(effectiveMaliciousRate('senior', 0, [-0.2])).toBe(0.05);
+  });
+
+  it.each(RANKS)('%s: 休暇後の率で rate - ε は不正、rate は正常', (id) => {
+    const rate = effectiveMaliciousRate(id, STEP * 2, vacationMaliciousRateModifiers(makeVacationEngineer(id, REDUCTION)));
+    expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
+  });
+
+  it('MIN に制限された率でも rate - ε は不正、rate は正常', () => {
+    const rate = effectiveMaliciousRate('senior', 0, vacationMaliciousRateModifiers(makeVacationEngineer('senior', REDUCTION_MAX)));
+    expect(rate).toBe(MIN);
+    expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
   });
 });
