@@ -14,6 +14,7 @@ import {
   ROUTE_STYLE,
   routePixelPoints,
   SPAWN_MARKER_STYLE,
+  VACATION_MARKER_STYLE,
 } from './route';
 import type { Point, Route } from './route';
 import {
@@ -149,6 +150,51 @@ export const drawRoutes = (scene: Phaser.Scene, routes: readonly Route[]): void 
       .setStrokeStyle(SPAWN_MARKER_STYLE.strokeWidth, SPAWN_MARKER_STYLE.strokeColor)
       .setDepth(ROUTE_DEPTH);
   }
+};
+
+// 仮: ルート(-0.5)より上、リリース地点(0)より下。出現場所の円の上に重ねる。
+const VACATION_MARKER_DEPTH = -0.4;
+
+export type VacationMarker = {
+  readonly container: Phaser.GameObjects.Container;
+  // 休暇中なら灰色の円と「休」を表示し、そうでなければ隠して通常の出現場所マーカーを見せる。
+  readonly setOnVacation: (onVacation: boolean) => void;
+};
+
+// 出現場所の円に重ねる休暇の切り替えマーカー(#35)。タップで onToggle を呼ぶ。drawRoutes の線と円は変えない。
+// マーカー上の pointerdown で移動・攻撃が起きないようにする処理は main.ts 側（drawHireButtons と同じく currentlyOver で判定）。
+export const drawVacationMarker = (
+  scene: Phaser.Scene,
+  route: Route,
+  onToggle: () => void,
+): VacationMarker => {
+  const { x, y } = cellCenter(route.spawn);
+  const { radius, strokeWidth } = SPAWN_MARKER_STYLE;
+  const circle = scene.add
+    .circle(0, 0, radius, VACATION_MARKER_STYLE.fillColor)
+    .setStrokeStyle(strokeWidth, VACATION_MARKER_STYLE.strokeColor);
+  const label = scene.add
+    .text(0, 0, VACATION_MARKER_STYLE.label, {
+      fontSize: VACATION_MARKER_STYLE.labelFontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: VACATION_MARKER_STYLE.labelColor,
+    })
+    .setOrigin(0.5);
+  const container = scene.add
+    .container(x, y, [circle, label])
+    .setSize(radius * 2, radius * 2)
+    .setDepth(VACATION_MARKER_DEPTH);
+  // 当たり判定は出現場所の円。InputManager は local 座標へ displayOrigin（幅・高さの半分）を加算するため、円の中心も半径ぶんずらす。
+  container.setInteractive(new Phaser.Geom.Circle(radius, radius, radius), Phaser.Geom.Circle.Contains);
+  // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
+  container.on('pointerdown', onToggle);
+  // コンテナ自体は表示したまま（非表示にすると当たり判定もなくなる）、中身の表示だけ切り替える。
+  const setOnVacation = (onVacation: boolean): void => {
+    circle.setVisible(onVacation);
+    label.setVisible(onVacation);
+  };
+  setOnVacation(false);
+  return { container, setOnVacation };
 };
 
 // 主人公（エンジニア）を描く。ローカル原点を中心に PLAYER_SIZE 内へ収める。

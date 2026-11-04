@@ -27,7 +27,7 @@ import {
   isInsideTapArea,
 } from './attack';
 import type { CodeHitEvent } from './attack';
-import { codeSpeedAt, maliciousRateForRank } from './difficulty';
+import { codeSpeedAt, effectiveMaliciousRate } from './difficulty';
 import {
   clampToField,
   getMoveDirection,
@@ -56,8 +56,10 @@ import {
   drawReleasePoint,
   drawRoutes,
   drawTechDebt,
+  drawVacationMarker,
   flashCode,
 } from './render';
+import type { VacationMarker } from './render';
 import {
   CODE_RELEASED_EVENT,
   advanceCode,
@@ -107,7 +109,9 @@ import {
   formatEngineerCount,
   formatHireMessage,
   hireEngineer,
+  isEngineerOnVacation,
   shouldAddRouteOnHire,
+  toggleEngineerVacation,
 } from './engineer';
 import type { Engineer, EngineerHiredPayload } from './engineer';
 import { addRoute, cellCenter } from './route';
@@ -162,6 +166,8 @@ class MainScene extends Phaser.Scene {
   private placedItems: readonly PlacedItem[] = [];
   private nextItemId = 0;
   private itemMessageText?: Phaser.GameObjects.Text;
+  // 休暇の切り替えマーカー（routeId がキー）(#35)。
+  private vacationMarkers = new Map<number, VacationMarker>();
 
   constructor() {
     super('main');
@@ -203,6 +209,8 @@ class MainScene extends Phaser.Scene {
     this.nextCodeId = 0;
     this.codeHp = new Map();
     drawRoutes(this, this.routes);
+    this.vacationMarkers = new Map();
+    this.routes.forEach((route) => this.addVacationMarker(route));
     this.engineers = fleet.engineers;
     this.nextEngineerId = fleet.nextEngineerId;
     this.hireMessageText = undefined;
@@ -244,7 +252,7 @@ class MainScene extends Phaser.Scene {
         this.tryRestart();
         return;
       }
-      // 雇うボタン上の押下では、離すまで主人公の移動・攻撃をしない。
+      // 雇うボタン・休暇マーカー上の押下では、離すまで主人公の移動・攻撃をしない。
       if (currentlyOver.length > 0) {
         this.attackPointerHeld = true;
         return;
@@ -585,6 +593,13 @@ class MainScene extends Phaser.Scene {
     this.events.emit(CODE_DEFEATED_EVENT, payload);
   }
 
+  // 不正コード率の補正（パーセントポイントの差分）の一覧(#13)。effectiveMaliciousRate に渡す。
+  // 今は補正がないので空配列。後続で差分を追加する: #39 休暇（担当エンジニア単位の減少）、
+  // #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
+  private maliciousRateModifiersFor(_engineer: Engineer | undefined): readonly number[] {
+    return [];
+  }
+
   private updateCodes(delta: number): void {
     for (const route of this.routes) {
       const step = stepSpawnTimer(
@@ -594,9 +609,11 @@ class MainScene extends Phaser.Scene {
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
-        // 担当エンジニアのランクに応じた割合(#12)。担当者がいないルートは既定の割合を使う。
-        const rank = findEngineerByRoute(this.engineers, route.id)?.rank;
-        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, maliciousRateForRank(rank, this.elapsedMs)), route);
+        // 担当エンジニアのランクに応じた割合(#12)に補正(#13)を加える。担当者がいないルートは既定の割合を使う。
+        const engineer = findEngineerByRoute(this.engineers, route.id);
+        const rank = engineer?.rank;
+        const rate = effectiveMaliciousRate(rank, this.elapsedMs, this.maliciousRateModifiersFor(engineer));
+        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, rate), route);
         if (code.kind === 'malicious') {
           this.codeHp.set(code.id, getInitialHp());
         }
@@ -643,7 +660,38 @@ class MainScene extends Phaser.Scene {
     if (route === undefined) return undefined;
     this.routes.push(route);
     drawRoutes(this, [route]);
+    this.addVacationMarker(route);
     return route;
+  }
+
+  // ルートの出現場所に休暇の切り替えマーカーを重ねる(#35)。
+  private addVacationMarker(route: Route): void {
+    this.vacationMarkers.set(
+      route.id,
+      drawVacationMarker(this, route, () => this.toggleVacation(route.id)),
+    );
+  }
+
+  // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
+  // 資金・スコアは変えない。コードの停止(#36)・給料(#37)・不正コード率はこの issue では変えない。
+  private toggleVacation(routeId: number): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const engineer = findEngineerByRoute(this.engineers, routeId);
+    if (engineer === undefined) {
+      return;
+    }
+    const marker = this.vacationMarkers.get(routeId);
+    if (marker === undefined) {
+      throw new Error(`休暇マーカーが見つかりません: routeId=${routeId}`);
+    }
+    this.engineers = toggleEngineerVacation(this.engineers, engineer.id);
+    const updated = findEngineerByRoute(this.engineers, routeId);
+    if (updated === undefined) {
+      throw new Error(`休暇を切り替えたエンジニアが見つかりません: routeId=${routeId}`);
+    }
+    marker.setOnVacation(isEngineerOnVacation(updated));
   }
 }
 

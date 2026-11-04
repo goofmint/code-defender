@@ -11,11 +11,15 @@ import {
   HIRE_MESSAGE_POSITION,
   HIRE_UI_POSITION,
   ITEM_BLOCKED_CELLS,
+  ITEM_BUTTON_SIZE,
+  ITEM_UI_POSITION,
   RELEASE_POINT_CELL,
   TECH_DEBT_MAX,
   TECH_DEBT_POSITION,
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
+import { ITEM_TYPES } from './item';
+import { SPAWN_MARKER_STYLE } from './route';
 import { formatTechDebt } from './techDebt';
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
@@ -133,6 +137,48 @@ describe('HUD のレイアウト', () => {
     expect(overlapped.length).toBeGreaterThan(0);
     for (const cell of overlapped) {
       expect(ITEM_BLOCKED_CELLS).toContainEqual(cell);
+    }
+  });
+});
+
+describe('休暇マーカーとボタンのレイアウト（#35）', () => {
+  // drawItemButtons と同じ計算。
+  const itemButtonRects: readonly Rect[] = ITEM_TYPES.map((_, index) => ({
+    x: ITEM_UI_POSITION.x + index * (ITEM_BUTTON_SIZE.width + ITEM_BUTTON_SIZE.gap),
+    y: ITEM_UI_POSITION.y,
+    width: ITEM_BUTTON_SIZE.width,
+    height: ITEM_BUTTON_SIZE.height,
+  }));
+  // 休暇マーカーの当たり判定（出現セル中心の半径 SPAWN_MARKER_STYLE.radius の円）を外接する正方形で過大に見積もる。
+  const vacationMarkerRect = (row: number): Rect => {
+    const { radius } = SPAWN_MARKER_STYLE;
+    return {
+      x: ENGINEER_SPAWN_COL * CELL_SIZE + CELL_SIZE / 2 - radius,
+      y: row * CELL_SIZE + CELL_SIZE / 2 - radius,
+      width: radius * 2,
+      height: radius * 2,
+    };
+  };
+  const spawnRows = Array.from({ length: FIELD_ROWS }, (_, row) => row);
+
+  it('境界値: 行8（最下行）のマーカーは x=14〜46・y=494〜526、最初の購入ボタンは出現列の右（x≧60）から始まる', () => {
+    expect(vacationMarkerRect(FIELD_ROWS - 1)).toEqual({ x: 14, y: 494, width: 32, height: 32 });
+    expect(itemButtonRects[0].x).toBeGreaterThanOrEqual((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
+  });
+
+  it.each(spawnRows)('行%i の休暇マーカーはどの購入ボタン・雇用ボタンとも交差しない', (row) => {
+    const marker = vacationMarkerRect(row);
+    for (const button of [...itemButtonRects, ...hireButtonRects]) {
+      expect(intersects(marker, button)).toBe(false);
+    }
+  });
+
+  it('購入ボタンはすべてフィールド内に収まる', () => {
+    for (const rect of itemButtonRects) {
+      expect(rect.x).toBeGreaterThanOrEqual(0);
+      expect(rect.y).toBeGreaterThanOrEqual(0);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
     }
   });
 });

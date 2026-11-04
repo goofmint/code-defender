@@ -102,6 +102,10 @@ export const CODE_SPEED_MAX = 160;
 export const CODE_MALICIOUS_RATE_INCREMENT = 0.02;
 // 仮・要確認(#14): 担当エンジニアがいないルートの不正コード率の上限（0〜1）。
 export const CODE_MALICIOUS_RATE_MAX = 0.5;
+// 仮・要確認(#13): 補正後の不正コード率の下限（0〜1）。企画書(6)「一定以上の割合を確保する」(docs/game_plan.md) に対応する。
+// 休暇・リファクタリング等の補正（difficulty.ts の effectiveMaliciousRate）を加えた後の割合にだけ適用し、
+// maliciousRateForRank の基礎率には適用しない。全ランクの maliciousRate と CODE_MALICIOUS_RATE 以下にする。
+export const CODE_MALICIOUS_RATE_MIN = 0.05;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
 // 移動キーではないので、移動のキーボード優先判定には含めない。
@@ -466,8 +470,10 @@ export const ITEM_MARK_STYLE = { fontSize: '14px', color: '#ffffff', strokeColor
 // 仮・要確認(#48): アイテムの攻撃演出（アイテムから対象への線）の色・太さ・表示時間（ミリ秒）。
 export const ITEM_ATTACK_LINE = { color: 0xffffff, width: 3, durationMs: 150 } as const;
 // 仮・要確認(#48): 購入ボタンの配置。画面下端の行（アイテムを置けない行）に6個を横に並べる。
-export const ITEM_UI_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 34 } as const;
-export const ITEM_BUTTON_SIZE = { width: 154, height: 28, gap: 4 } as const;
+// 仮・要確認(#35): 左端 x は出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右端。出現場所は列0の行0〜8のどこにでも出るため、
+// 行8の出現場所・休暇マーカー（当たり判定 x=14〜46）と重ならないようにする。幅は 154→146 に縮め、6個で x=60〜956 とフィールド幅960に収める。
+export const ITEM_UI_POSITION = { x: CELL_SIZE * (ENGINEER_SPAWN_COL + 1), y: FIELD_ROWS * CELL_SIZE - 34 } as const;
+export const ITEM_BUTTON_SIZE = { width: 146, height: 28, gap: 4 } as const;
 export const ITEM_BUTTON_COLORS = { fill: 0x1e3a2a, stroke: 0x6cff9c, text: '#ffffff' } as const;
 // 仮・要確認(#48): 購入ボタンの背景の不透明度。下端の行を流れるコードがボタン越しに見えるよう半透明にする。
 export const ITEM_BUTTON_FILL_ALPHA = 0.7;
