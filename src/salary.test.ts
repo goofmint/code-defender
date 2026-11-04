@@ -207,6 +207,7 @@ describe('越えた月ごとに1回ずつ給料を引く（getCrossedMonths と�
     rank,
     routeId: id,
     personality: 'meticulous',
+    onVacation: false,
     salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });

@@ -22,9 +22,14 @@ import {
   SALARY_UI_POSITION,
   SELECTED_ENGINEER_FONT_SIZE,
   SELECTED_ENGINEER_POSITION,
+  TECH_DEBT_MAX,
+  TECH_DEBT_POSITION,
 } from './config';
 import { createEngineerParameters, formatSelectedEngineer } from './engineer';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
+import { ITEM_TYPES } from './item';
+import { SPAWN_MARKER_STYLE } from './route';
+import { formatTechDebt } from './techDebt';
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 
@@ -56,6 +61,8 @@ const hudRects: readonly { readonly name: string; readonly rect: Rect }[] = [
   { name: '経過日数', rect: textRect(ELAPSED_DAYS_POSITION, '経過日数: 99,999日', HUD_FONT_PX) },
   { name: '資金', rect: textRect(FUNDS_POSITION, '資金: -9,999,999,999円', HUD_FONT_PX) },
   { name: '累計売上', rect: textRect(CUMULATIVE_SALES_POSITION, '累計売上: 9,999,999,999円', HUD_FONT_PX) },
+  // 技術的負債は上限で止まるため、上限値の表示が最長。
+  { name: '技術的負債', rect: textRect(TECH_DEBT_POSITION, formatTechDebt(TECH_DEBT_MAX), HUD_FONT_PX) },
 ];
 
 const hireButtonRects: readonly Rect[] = HIRE_KEYS.map((_, index) => ({
@@ -120,11 +127,68 @@ describe('HUD のレイアウト', () => {
     expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
   });
 
-  it('HUD の3行どうしが交差しない', () => {
+  it('HUD の4行どうしが交差しない', () => {
     for (let i = 0; i < hudRects.length; i += 1) {
       for (let j = i + 1; j < hudRects.length; j += 1) {
         expect(intersects(hudRects[i].rect, hudRects[j].rect)).toBe(false);
       }
+    }
+  });
+
+  it('技術的負債の表示と重なるセルはすべてアイテムを置けない（ITEM_BLOCKED_CELLS）', () => {
+    const rect = hudRects.find((entry) => entry.name === '技術的負債')?.rect;
+    if (!rect) throw new Error('技術的負債の矩形がない');
+    const overlapped = Array.from({ length: FIELD_ROWS }, (_, row) => row).flatMap((row) =>
+      Array.from({ length: FIELD_COLS }, (_, col) => ({ col, row })).filter(
+        ({ col }) => col !== ENGINEER_SPAWN_COL && intersects(rect, cellRect(col, row)),
+      ),
+    );
+    expect(overlapped.length).toBeGreaterThan(0);
+    for (const cell of overlapped) {
+      expect(ITEM_BLOCKED_CELLS).toContainEqual(cell);
+    }
+  });
+});
+
+// 休暇マーカーの当たり判定（出現セル中心の半径 SPAWN_MARKER_STYLE.radius の円）を外接する正方形で過大に見積もる。
+const vacationMarkerRect = (row: number): Rect => {
+  const { radius } = SPAWN_MARKER_STYLE;
+  return {
+    x: ENGINEER_SPAWN_COL * CELL_SIZE + CELL_SIZE / 2 - radius,
+    y: row * CELL_SIZE + CELL_SIZE / 2 - radius,
+    width: radius * 2,
+    height: radius * 2,
+  };
+};
+const spawnRows = Array.from({ length: FIELD_ROWS }, (_, row) => row);
+
+describe('休暇マーカーとボタンのレイアウト（#35）', () => {
+  // drawItemButtons と同じ計算。
+  const itemButtonRects: readonly Rect[] = ITEM_TYPES.map((_, index) => ({
+    x: ITEM_UI_POSITION.x + index * (ITEM_BUTTON_SIZE.width + ITEM_BUTTON_SIZE.gap),
+    y: ITEM_UI_POSITION.y,
+    width: ITEM_BUTTON_SIZE.width,
+    height: ITEM_BUTTON_SIZE.height,
+  }));
+
+  it('境界値: 行8（最下行）のマーカーは x=14〜46・y=494〜526、最初の購入ボタンは出現列の右（x≧60）から始まる', () => {
+    expect(vacationMarkerRect(FIELD_ROWS - 1)).toEqual({ x: 14, y: 494, width: 32, height: 32 });
+    expect(itemButtonRects[0].x).toBeGreaterThanOrEqual((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
+  });
+
+  it.each(spawnRows)('行%i の休暇マーカーはどの購入ボタン・雇用ボタンとも交差しない', (row) => {
+    const marker = vacationMarkerRect(row);
+    for (const button of [...itemButtonRects, ...hireButtonRects]) {
+      expect(intersects(marker, button)).toBe(false);
+    }
+  });
+
+  it('購入ボタンはすべてフィールド内に収まる', () => {
+    for (const rect of itemButtonRects) {
+      expect(rect.x).toBeGreaterThanOrEqual(0);
+      expect(rect.y).toBeGreaterThanOrEqual(0);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
+      expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
     }
   });
 });
@@ -136,6 +200,7 @@ const longestSelectedEngineer = formatSelectedEngineer({
   rank: 'junior',
   routeId: null,
   personality: 'meticulous',
+  onVacation: false,
   salary: ENGINEER_SALARY_MAX,
   ...createEngineerParameters('junior'),
 });
@@ -167,7 +232,24 @@ describe('昇給・減給パネルのレイアウト(#34)', () => {
     expect(longestSelectedEngineer).toBe('選択: #99 ジュニア 月給 1,000,000円');
   });
 
-  it.each(salaryRects)('$name は HUD の3行と交差しない', ({ rect }) => {
+  it('境界値: 情報行は技術的負債の行（HUD 4行目）の下、ボタンは情報行の下に並ぶ', () => {
+    expect(SELECTED_ENGINEER_POSITION).toEqual({ x: 72, y: 208 });
+    expect(salaryButtonRects[0]).toEqual({ x: 72, y: 238, width: 80, height: 28 });
+    expect(salaryButtonRects[salaryButtonRects.length - 1].x + SALARY_BUTTON_SIZE.width).toBe(416);
+  });
+
+  it('技術的負債の行・情報行・各ボタンはどの2つも交差しない', () => {
+    const techDebtRect = hudRects.find((entry) => entry.name === '技術的負債')?.rect;
+    if (!techDebtRect) throw new Error('技術的負債の矩形がない');
+    const rects = [techDebtRect, ...salaryRects.map((entry) => entry.rect)];
+    for (let i = 0; i < rects.length; i += 1) {
+      for (let j = i + 1; j < rects.length; j += 1) {
+        expect(intersects(rects[i], rects[j])).toBe(false);
+      }
+    }
+  });
+
+  it.each(salaryRects)('$name は HUD の4行（技術的負債を含む）と交差しない', ({ rect }) => {
     for (const hud of hudRects) {
       expect(intersects(rect, hud.rect)).toBe(false);
     }
@@ -192,6 +274,12 @@ describe('昇給・減給パネルのレイアウト(#34)', () => {
   it.each(salaryRects)('$name は購入ボタン・購入メッセージと交差しない', ({ rect }) => {
     for (const other of [...itemButtonRects, itemMessageRect]) {
       expect(intersects(rect, other)).toBe(false);
+    }
+  });
+
+  it.each(salaryRects)('$name は出現列の全行の休暇マーカーと交差しない', ({ rect }) => {
+    for (const row of spawnRows) {
+      expect(intersects(rect, vacationMarkerRect(row))).toBe(false);
     }
   });
 
