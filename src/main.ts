@@ -114,6 +114,7 @@ import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
   createTechDebtChangedEvent,
   formatTechDebt,
+  refactoringMaliciousRateModifier,
   resolveWorkTechDebt,
   TECH_DEBT_CHANGED_EVENT,
   techDebtSpawnIntervalMs,
@@ -740,10 +741,11 @@ class MainScene extends Phaser.Scene {
   }
 
   // 不正コード率の補正（パーセントポイントの差分）の一覧(#13)。effectiveMaliciousRate に渡す。
-  // 実装済み: #39 休暇（担当エンジニア単位の減少。vacationMaliciousRateModifiers）。
-  // 今後の補正はこの配列に差分を追加して合成する: #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
+  // 実装済み: #39 休暇（担当エンジニア単位の減少。vacationMaliciousRateModifiers）、
+  // #41 リファクタリング（プロダクト全体の減少。refactoringMaliciousRateModifier）。
+  // 今後の補正はこの配列に差分を追加して合成する: #45 技術的負債（プロダクト全体の増加）。
   private maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[] {
-    return vacationMaliciousRateModifiers(engineer);
+    return [...vacationMaliciousRateModifiers(engineer), refactoringMaliciousRateModifier(this.refactoringRatio)];
   }
 
   private updateCodes(delta: number): void {
