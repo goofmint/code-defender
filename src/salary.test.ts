@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_RANKS, MAX_ENGINEERS } from './config';
-import { getInitialSalary } from './engineer';
-import type { EngineerRank } from './engineer';
+import {
+  ENGINEER_MONTHLY_SALARY_BY_RANK,
+  ENGINEER_RANKS,
+  ENGINEER_SALARY_MAX,
+  ENGINEER_SALARY_MIN,
+  ENGINEER_SALARY_STEP,
+  MAX_ENGINEERS,
+} from './config';
+import { adjustEngineerSalary, createEngineerParameters, getInitialSalary } from './engineer';
+import type { Engineer, EngineerRank } from './engineer';
 import { getCrossedMonths } from './gameTime';
 import {
   createSalaryPaidEvent,
@@ -192,5 +199,58 @@ describe('越えた月ごとに1回ずつ給料を引く（getCrossedMonths と�
     const months = getCrossedMonths(60000, 60001);
     expect(months).toEqual([]);
     expect(settleAll(months, 1000, [100])).toEqual([]);
+  });
+
+  // 昇給・減給(#34)との互換性。調整後の額が次の精算から、以後の月も引かれる。
+  const engineerOf = (id: number, rank: EngineerRank): Engineer => ({
+    id,
+    rank,
+    routeId: id,
+    personality: 'meticulous',
+    onVacation: false,
+    salary: getInitialSalary(rank),
+    ...createEngineerParameters(rank, 'meticulous'),
+  });
+
+  it('昇給 → getEngineerSalaries → settleMonthlySalary で新しい額が引かれ、以後の月も同じ額', () => {
+    const roster = [engineerOf(0, 'junior'), engineerOf(1, 'senior')];
+    const raised = adjustEngineerSalary(roster, 0, 'raise');
+    if (!raised.ok) throw new Error(raised.reason);
+    const salaries = getEngineerSalaries(raised.engineers);
+    const expected = getInitialSalary('junior') + ENGINEER_SALARY_STEP + getInitialSalary('senior');
+    expect(settleMonthlySalary(10_000_000, 1, salaries).amount).toBe(expected);
+    const results = settleAll(getCrossedMonths(0, 180000), 10_000_000, salaries);
+    expect(results.map((r) => r.amount)).toEqual([expected, expected, expected]);
+    expect(results.map((r) => r.fundsAfter)).toEqual([1, 2, 3].map((n) => 10_000_000 - expected * n));
+  });
+
+  it('月の途中で減給すると、それ以前の月は元の額・以後の月は新しい額', () => {
+    const roster = [engineerOf(0, 'middle')];
+    const before = settleAll([1], 10_000_000, getEngineerSalaries(roster));
+    const cut = adjustEngineerSalary(roster, 0, 'cut');
+    if (!cut.ok) throw new Error(cut.reason);
+    const after = settleAll([2, 3], before[0].fundsAfter, getEngineerSalaries(cut.engineers));
+    const newSalary = getInitialSalary('middle') - ENGINEER_SALARY_STEP;
+    expect(before.map((r) => r.amount)).toEqual([getInitialSalary('middle')]);
+    expect(after.map((r) => r.amount)).toEqual([newSalary, newSalary]);
+    expect(after[1].fundsAfter).toBe(10_000_000 - getInitialSalary('middle') - newSalary * 2);
+  });
+});
+
+describe('昇給・減給の設定値の不変条件(#34)', () => {
+  it('STEP は正の有限値', () => {
+    expect(Number.isFinite(ENGINEER_SALARY_STEP)).toBe(true);
+    expect(ENGINEER_SALARY_STEP).toBeGreaterThan(0);
+  });
+  it('MIN は MAX より小さい（どちらも有限値）', () => {
+    expect(Number.isFinite(ENGINEER_SALARY_MIN)).toBe(true);
+    expect(Number.isFinite(ENGINEER_SALARY_MAX)).toBe(true);
+    expect(ENGINEER_SALARY_MIN).toBeLessThan(ENGINEER_SALARY_MAX);
+  });
+  it.each(ENGINEER_RANKS.map((r) => r.id))('%s の初期額は MIN〜MAX に入り、初期額 − MIN は STEP の倍数', (rank) => {
+    const initial = getInitialSalary(rank);
+    expect(initial).toBeGreaterThanOrEqual(ENGINEER_SALARY_MIN);
+    expect(initial).toBeLessThanOrEqual(ENGINEER_SALARY_MAX);
+    expect((initial - ENGINEER_SALARY_MIN) % ENGINEER_SALARY_STEP).toBe(0);
   });
 });
