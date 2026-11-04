@@ -10,13 +10,17 @@ import {
   HIRE_KEYS,
   HIRE_MESSAGE_POSITION,
   HIRE_UI_POSITION,
+  ITEM_BLOCKED_CELLS,
   ITEM_BUTTON_SIZE,
   ITEM_UI_POSITION,
   RELEASE_POINT_CELL,
+  TECH_DEBT_MAX,
+  TECH_DEBT_POSITION,
 } from './config';
-import { CELL_SIZE, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
+import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import { ITEM_TYPES } from './item';
 import { SPAWN_MARKER_STYLE } from './route';
+import { formatTechDebt } from './techDebt';
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 
@@ -48,6 +52,8 @@ const hudRects: readonly { readonly name: string; readonly rect: Rect }[] = [
   { name: '経過日数', rect: textRect(ELAPSED_DAYS_POSITION, '経過日数: 99,999日', HUD_FONT_PX) },
   { name: '資金', rect: textRect(FUNDS_POSITION, '資金: -9,999,999,999円', HUD_FONT_PX) },
   { name: '累計売上', rect: textRect(CUMULATIVE_SALES_POSITION, '累計売上: 9,999,999,999円', HUD_FONT_PX) },
+  // 技術的負債は上限で止まるため、上限値の表示が最長。
+  { name: '技術的負債', rect: textRect(TECH_DEBT_POSITION, formatTechDebt(TECH_DEBT_MAX), HUD_FONT_PX) },
 ];
 
 const hireButtonRects: readonly Rect[] = HIRE_KEYS.map((_, index) => ({
@@ -112,11 +118,25 @@ describe('HUD のレイアウト', () => {
     expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
   });
 
-  it('HUD の3行どうしが交差しない', () => {
+  it('HUD の4行どうしが交差しない', () => {
     for (let i = 0; i < hudRects.length; i += 1) {
       for (let j = i + 1; j < hudRects.length; j += 1) {
         expect(intersects(hudRects[i].rect, hudRects[j].rect)).toBe(false);
       }
+    }
+  });
+
+  it('技術的負債の表示と重なるセルはすべてアイテムを置けない（ITEM_BLOCKED_CELLS）', () => {
+    const rect = hudRects.find((entry) => entry.name === '技術的負債')?.rect;
+    if (!rect) throw new Error('技術的負債の矩形がない');
+    const overlapped = Array.from({ length: FIELD_ROWS }, (_, row) => row).flatMap((row) =>
+      Array.from({ length: FIELD_COLS }, (_, col) => ({ col, row })).filter(
+        ({ col }) => col !== ENGINEER_SPAWN_COL && intersects(rect, cellRect(col, row)),
+      ),
+    );
+    expect(overlapped.length).toBeGreaterThan(0);
+    for (const cell of overlapped) {
+      expect(ITEM_BLOCKED_CELLS).toContainEqual(cell);
     }
   });
 });
