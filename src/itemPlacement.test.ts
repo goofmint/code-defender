@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINEER_SPAWN_CELLS, ITEM_ATTACK_COOLDOWN_MS, RELEASE_POINT_CELL } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
-import { getItemRange, ITEM_TYPES } from './item';
+import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES, itemTargetsNormalCode } from './item';
 import type { ItemType } from './item';
 import {
   canItemAttack,
   createItemState,
+  filterItemTargets,
   findItemTarget,
+  findTargetFor,
   formatItemButton,
   formatItemMessage,
   getItemPrice,
@@ -369,6 +371,80 @@ describe('findItemTarget: 範囲内で最も近い不正なコード', () => {
     const codes = [code(1, 50), code(2, 10)];
     findItemTarget(item, codes);
     expect(codes.map((c) => c.id)).toEqual([1, 2]);
+  });
+});
+
+describe('アイテムごとの正常なコードの扱い（targetsNormalCode）', () => {
+  const range = getItemRange('linter');
+  const origin = { x: 100, y: 100 };
+  const code = (id: number, dx: number, kind: 'malicious' | 'normal') => ({
+    id,
+    kind,
+    position: { x: origin.x + dx, y: origin.y },
+  });
+
+  it('既存6アイテムはすべて false', () => {
+    expect(ITEM_TYPES).toHaveLength(6);
+    for (const type of ITEM_TYPES) {
+      expect(ITEM_DEFINITIONS[type].targetsNormalCode).toBe(false);
+      expect(itemTargetsNormalCode(type)).toBe(false);
+    }
+  });
+
+  describe('設定 false', () => {
+    const query = { position: origin, range, targetsNormalCode: false };
+
+    it('正常だけが範囲の境界にある → null（境界±1 も）', () => {
+      expect(findTargetFor(query, [code(1, range, 'normal')])).toBeNull();
+      expect(findTargetFor(query, [code(1, range - 1, 'normal')])).toBeNull();
+      expect(findTargetFor(query, [code(1, range + 1, 'normal')])).toBeNull();
+    });
+
+    it('正常と不正が同じ距離 → 不正（配列の順序を両方試す）', () => {
+      expect(findTargetFor(query, [code(1, 10, 'normal'), code(2, 10, 'malicious')])?.id).toBe(2);
+      expect(findTargetFor(query, [code(2, 10, 'malicious'), code(1, 10, 'normal')])?.id).toBe(2);
+    });
+
+    it('正常が近く不正が遠い（両方範囲内）→ 不正', () => {
+      expect(findTargetFor(query, [code(1, 5, 'normal'), code(2, range, 'malicious')])?.id).toBe(2);
+    });
+
+    it('正常が近く不正が範囲外 → null', () => {
+      expect(findTargetFor(query, [code(1, 5, 'normal'), code(2, range + 1, 'malicious')])).toBeNull();
+    });
+  });
+
+  describe('テスト専用の設定 true', () => {
+    const query = { position: origin, range, targetsNormalCode: true };
+
+    it('正常だけが境界ちょうど → 正常、境界+1 → null', () => {
+      expect(findTargetFor(query, [code(1, range, 'normal')])?.id).toBe(1);
+      expect(findTargetFor(query, [code(1, range - 1, 'normal')])?.id).toBe(1);
+      expect(findTargetFor(query, [code(1, range + 1, 'normal')])).toBeNull();
+    });
+
+    it('同じ距離 → 配列で先のもの（仮の扱い）', () => {
+      expect(findTargetFor(query, [code(1, 10, 'normal'), code(2, 10, 'malicious')])?.id).toBe(1);
+      expect(findTargetFor(query, [code(2, 10, 'malicious'), code(1, 10, 'normal')])?.id).toBe(2);
+    });
+
+    it('正常が近く不正が遠い → 正常', () => {
+      expect(findTargetFor(query, [code(2, range, 'malicious'), code(1, 5, 'normal')])?.id).toBe(1);
+    });
+  });
+
+  describe('filterItemTargets', () => {
+    it('false は不正だけ、true は全部残す', () => {
+      const codes = [code(1, 0, 'normal'), code(2, 0, 'malicious')];
+      expect(filterItemTargets(codes, false).map((c) => c.id)).toEqual([2]);
+      expect(filterItemTargets(codes, true).map((c) => c.id)).toEqual([1, 2]);
+    });
+
+    it('入力の配列を変更しない', () => {
+      const codes = [code(1, 0, 'normal'), code(2, 0, 'malicious')];
+      filterItemTargets(codes, false);
+      expect(codes.map((c) => c.id)).toEqual([1, 2]);
+    });
   });
 });
 

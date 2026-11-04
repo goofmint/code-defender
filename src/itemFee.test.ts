@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINEER_MONTHLY_SALARY, MS_PER_GAME_MONTH } from './config';
+import { ENGINEER_MONTHLY_SALARY_BY_RANK, MS_PER_GAME_MONTH } from './config';
 import { isBankrupt } from './gameOver';
 import { createMonthElapsedEvent, getCrossedMonths } from './gameTime';
 import { ITEM_TYPES } from './item';
@@ -225,7 +225,7 @@ describe('1フレームで複数月をまたぐ', () => {
 
 describe('給料と同じ月: 給料 → アイテム費の順', () => {
   const items = [placed(0, 'codeRabbit')]; // 月額 200000
-  const salaries = getEngineerSalaries(1, ENGINEER_MONTHLY_SALARY);
+  const salaries = getEngineerSalaries([{ rank: 'junior' }]);
 
   // main.ts の onMonthElapsed が使う精算と同じ関数（settleMonthBoundary）を呼ぶ。
   const monthBoundary = (funds: number, over: boolean, placedItems: readonly PlacedItem[] = items) => {
@@ -240,13 +240,13 @@ describe('給料と同じ月: 給料 → アイテム費の順', () => {
   });
 
   it('給料で倒産したらアイテム費は引かない', () => {
-    const { salary, fee } = monthBoundary(ENGINEER_MONTHLY_SALARY, false);
+    const { salary, fee } = monthBoundary(ENGINEER_MONTHLY_SALARY_BY_RANK.junior, false);
     expect(salary.fundsAfter).toBe(0);
     expect(fee).toBeNull();
   });
 
   it('給料で1円残ればアイテム費を引く', () => {
-    const { fee } = monthBoundary(ENGINEER_MONTHLY_SALARY + 1, false);
+    const { fee } = monthBoundary(ENGINEER_MONTHLY_SALARY_BY_RANK.junior + 1, false);
     expect(fee?.fundsBefore).toBe(1);
     expect(fee?.fundsAfter).toBe(-199999);
   });
