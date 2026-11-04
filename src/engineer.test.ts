@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CODE_SPAWN_INTERVAL_MS,
   ENGINEER_HIRE_COST,
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
@@ -42,8 +43,10 @@ import {
   formatSelectedEngineer,
   getInitialSalary,
   hireEngineer,
+  isAssigneeOnVacation,
   isEngineerOnVacation,
   isEngineerRank,
+  isRouteOnVacation,
   pickRandomPersonality,
   selectAdjacentEngineerId,
   setEngineerVacation,
@@ -60,6 +63,7 @@ import type {
   SalaryDirection,
 } from './engineer';
 import { addRoute, createRoutes, nextSpawnCell } from './route';
+import { advanceCode, moveDistanceUnlessPaused, spawnCode, stepSpawnTimerUnlessPaused } from './codeFlow';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
 
 const rules: HireRules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
@@ -486,6 +490,90 @@ describe('findEngineerByRoute / findRouteIdOfEngineer', () => {
     [99, null],
   ])('エンジニア%i のルートは %s', (engineerId, expected) => {
     expect(findRouteIdOfEngineer(engineers, engineerId)).toBe(expected);
+  });
+});
+
+describe('休暇中はそのエンジニアのコードを止める(#36): isRouteOnVacation', () => {
+  // ルート0: 休暇中、ルート1: 勤務中、ルート2: 担当なし、エンジニア2: ルートなし（routeId === null）で休暇中。
+  const engineers: Engineer[] = [
+    { ...makeEngineer(0, 'junior', 0), onVacation: true },
+    makeEngineer(1, 'middle', 1),
+    { ...makeEngineer(2, 'senior', null), onVacation: true },
+  ];
+  it.each<[string, readonly Engineer[], number, boolean]>([
+    ['担当者が休暇中', engineers, 0, true],
+    ['担当者が勤務中', engineers, 1, false],
+    ['担当者がいない', engineers, 2, false],
+    ['存在しないルート id', engineers, -1, false],
+    ['エンジニア 0 人', [], 0, false],
+  ])('%s（ルート%i） → %s', (_label, list, routeId, expected) => {
+    expect(isRouteOnVacation(list, routeId)).toBe(expected);
+  });
+  it('ルートなし（routeId === null）の休暇中エンジニアはどのルートも止めない', () => {
+    const onlyUnrouted = [engineers[2]];
+    expect([0, 1, 2].map((routeId) => isRouteOnVacation(onlyUnrouted, routeId))).toEqual([false, false, false]);
+  });
+  it('複数エンジニアのうち休暇中の担当ルートだけが止まる', () => {
+    const many = toggleEngineerVacation(makeEngineers(4), 2);
+    expect([0, 1, 2, 3].map((routeId) => isRouteOnVacation(many, routeId))).toEqual([false, false, true, false]);
+  });
+  it('toggleEngineerVacation を 1 回で true、2 回で false', () => {
+    const base = makeEngineers(2);
+    const once = toggleEngineerVacation(base, 1);
+    expect(isRouteOnVacation(once, 1)).toBe(true);
+    expect(isRouteOnVacation(toggleEngineerVacation(once, 1), 1)).toBe(false);
+  });
+  it.each<[string, Engineer | undefined, boolean]>([
+    ['休暇中', { ...makeEngineer(0, 'junior', 0), onVacation: true }, true],
+    ['勤務中', makeEngineer(0, 'junior', 0), false],
+    ['担当者なし(undefined)', undefined, false],
+  ])('isAssigneeOnVacation: %s → %s', (_label, engineer, expected) => {
+    expect(isAssigneeOnVacation(engineer)).toBe(expected);
+  });
+  it('入力を変更しない', () => {
+    const snapshot = structuredClone(engineers);
+    isRouteOnVacation(engineers, 0);
+    expect(engineers).toEqual(snapshot);
+  });
+});
+
+describe('休暇中はそのエンジニアのコードを止める(#36): 複数フレームの合成', () => {
+  // main.ts の updateCodes と同じ順に、休暇の切替 → ルートの判定 → 生成タイマー・移動を組み合わせる。
+  const interval = CODE_SPAWN_INTERVAL_MS;
+  const route = createRoutes(ENGINEER_SPAWN_CELLS, () => 0)[0];
+  const frame = (
+    engineers: readonly Engineer[],
+    elapsedMs: number,
+    deltaMs: number,
+  ): { readonly elapsedMs: number; readonly spawn: boolean } =>
+    stepSpawnTimerUnlessPaused(elapsedMs, deltaMs, interval, isRouteOnVacation(engineers, route.id));
+
+  it('休暇中は何フレームでも凍結し、解除後は保持値から再開する', () => {
+    let engineers: readonly Engineer[] = [makeEngineer(0, 'junior', route.id)];
+    // 勤務中に間隔 - 1 まで進める。
+    let timer = frame(engineers, 0, interval - 1);
+    expect(timer).toEqual({ elapsedMs: interval - 1, spawn: false });
+    engineers = toggleEngineerVacation(engineers, 0);
+    for (const delta of [1, interval, interval * 30]) {
+      timer = frame(engineers, timer.elapsedMs, delta);
+      expect(timer).toEqual({ elapsedMs: interval - 1, spawn: false });
+    }
+    engineers = toggleEngineerVacation(engineers, 0);
+    expect(frame(engineers, timer.elapsedMs, 0)).toEqual({ elapsedMs: interval - 1, spawn: false });
+    expect(frame(engineers, timer.elapsedMs, 1)).toEqual({ elapsedMs: 0, spawn: true });
+  });
+
+  it('休暇中のルートのコードは進まず、解除後に進む。他のルートは影響を受けない', () => {
+    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0);
+    let engineers: readonly Engineer[] = toggleEngineerVacation(makeEngineers(2), 0);
+    const paused = spawnCode(1, 'malicious', routes[0]);
+    const working = spawnCode(2, 'normal', routes[1]);
+    const step = (code: ReturnType<typeof spawnCode>) =>
+      advanceCode(code, moveDistanceUnlessPaused(30, isRouteOnVacation(engineers, code.routeId)));
+    expect(step(paused)).toBe(paused);
+    expect(step(working).position).not.toEqual(working.position);
+    engineers = toggleEngineerVacation(engineers, 0);
+    expect(step(paused).position).not.toEqual(paused.position);
   });
 });
 

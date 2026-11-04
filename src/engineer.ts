@@ -294,6 +294,14 @@ export const findEngineerByRoute = (
   routeId: number,
 ): Engineer | undefined => engineers.find((engineer) => engineer.routeId === routeId);
 
+// 担当者が休暇中か(#36)。担当者がいない（undefined）なら false。検索済みの担当者を使い回すときに使う。
+export const isAssigneeOnVacation = (engineer: Engineer | undefined): boolean =>
+  engineer !== undefined && isEngineerOnVacation(engineer);
+
+// そのルートの担当者が休暇中か(#36)。担当者がいないルートは止めないので false。新しい状態は持たず、onVacation から求める。
+export const isRouteOnVacation = (engineers: readonly Engineer[], routeId: number): boolean =>
+  isAssigneeOnVacation(findEngineerByRoute(engineers, routeId));
+
 // そのエンジニアの担当ルート id。エンジニアがいない、またはルートなしなら null。
 export const findRouteIdOfEngineer = (
   engineers: readonly Engineer[],
