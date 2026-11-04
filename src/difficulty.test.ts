@@ -231,6 +231,7 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     rank,
     routeId,
     personality: 'meticulous',
+    onVacation: false,
     salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });

@@ -50,6 +50,10 @@ export type Engineer = {
   readonly routeId: number | null;
   // 雇ったときにランダムで付く性格(#26)。id/rank/routeId/パラメータとは独立。初期パラメータ(#29)と疲労の溜まりやすさの係数に使う。
   readonly personality: EngineerPersonalityId;
+  // 休暇中か(#35)。数値パラメータではないので EngineerParameters には入れない（clamp の対象外）。
+  // 仮・要確認(#35): 開始も終了もプレイヤーの操作だけで切り替える（期間・自動復帰・回数制限なし）。変えるのは setEngineerVacation / toggleEngineerVacation だけ。
+  // 休暇中のコード停止(#36)・給料(#37)・不正コード率への効果はそれぞれの issue で実装する。
+  readonly onVacation: boolean;
   // 月給（円）(#33)。雇ったとき・初期編成のときにランクの初期額(getInitialSalary)が入る。ゲーム内1か月ごとにこの額を引く。
   // パラメータ（疲労度・集中力・技術力・愛着心）とは別。昇給・減給(#34)はこの値を変える想定。
   readonly salary: number;
@@ -244,6 +248,7 @@ export const createInitialEngineers = (
       rank: ranks[index],
       routeId: route.id,
       personality,
+      onVacation: false,
       salary: getInitialSalary(ranks[index]),
       ...createEngineerParameters(ranks[index], personality),
     };
@@ -257,6 +262,27 @@ export const assignEngineerRoute = (
   routeId: number | null,
 ): Engineer[] =>
   engineers.map((engineer) => (engineer.id === engineerId ? { ...engineer, routeId } : engineer));
+
+// 対象のエンジニアだけ休暇状態を onVacation にした新しい配列を返す(#35)。他のエンジニアは同じ参照のまま。入力は変更しない。
+// routeId・性格・パラメータは変えない（資金・スコアにも触れない）。該当 id がなければ同じ内容の配列。
+export const setEngineerVacation = (
+  engineers: readonly Engineer[],
+  engineerId: number,
+  onVacation: boolean,
+): Engineer[] =>
+  engineers.map((engineer) => (engineer.id === engineerId ? { ...engineer, onVacation } : engineer));
+
+// 対象のエンジニアの休暇を切り替える（休暇中なら終了、そうでなければ開始）。該当 id がなければ同じ内容の配列。入力は変更しない。
+export const toggleEngineerVacation = (engineers: readonly Engineer[], engineerId: number): Engineer[] => {
+  const target = engineers.find((engineer) => engineer.id === engineerId);
+  if (target === undefined) {
+    return [...engineers];
+  }
+  return setEngineerVacation(engineers, engineerId, !isEngineerOnVacation(target));
+};
+
+// 休暇中か。#36（休暇中はコードを止める）などの後続でも使う。
+export const isEngineerOnVacation = (engineer: Engineer): boolean => engineer.onVacation;
 
 // そのルートを担当するエンジニア。いなければ undefined。退職(#32)・休暇(#36)でルートを外す・止めるときに使う。
 export const findEngineerByRoute = (
@@ -308,6 +334,7 @@ export const hireEngineer = (
     rank,
     routeId: null,
     personality,
+    onVacation: false,
     salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, personality),
   };
