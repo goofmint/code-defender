@@ -10,10 +10,18 @@ import {
   DIFFICULTY_STEP_MS,
   ENGINEER_RANKS,
   PLAYER_SPEED,
+  VACATION_MALICIOUS_RATE_REDUCTION,
+  VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
 import { pickCodeKind } from './codeFlow';
-import { codeSpeedAt, effectiveMaliciousRate, maliciousRateAt, maliciousRateForRank } from './difficulty';
-import { createEngineerParameters, findEngineerByRoute, getInitialSalary } from './engineer';
+import {
+  codeSpeedAt,
+  effectiveMaliciousRate,
+  maliciousRateAt,
+  maliciousRateForRank,
+  vacationMaliciousRateModifiers,
+} from './difficulty';
+import { createEngineerParameters, findEngineerByRoute, getInitialSalary, setEngineerVacation } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
 
 const STEP = DIFFICULTY_STEP_MS;
@@ -232,6 +240,7 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     routeId,
     personality: 'meticulous',
     onVacation: false,
+    vacationRateReduction: 0,
     salary: getInitialSalary(rank),
     ...createEngineerParameters(rank, 'meticulous'),
   });
@@ -385,9 +394,113 @@ describe('config の整合性', () => {
     expect(CODE_MALICIOUS_RATE_MIN).toBeLessThanOrEqual(rank.maliciousRate);
   });
 
+  it('休暇の低下量(#39): 0 < REDUCTION ≤ MAX ≤ 1', () => {
+    expect(VACATION_MALICIOUS_RATE_REDUCTION).toBeGreaterThan(0);
+    expect(VACATION_MALICIOUS_RATE_REDUCTION).toBeLessThanOrEqual(VACATION_MALICIOUS_RATE_REDUCTION_MAX);
+    expect(VACATION_MALICIOUS_RATE_REDUCTION_MAX).toBeLessThanOrEqual(1);
+  });
+
   it('間隔は正、増加量は 0 以上', () => {
     expect(DIFFICULTY_STEP_MS).toBeGreaterThan(0);
     expect(CODE_SPEED_INCREMENT).toBeGreaterThanOrEqual(0);
     expect(CODE_MALICIOUS_RATE_INCREMENT).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// 休暇を与えると不正コード率が下がる(#39)。低下量(vacationRateReduction)を負の差分にして effectiveMaliciousRate に渡す。
+describe('vacationMaliciousRateModifiers（休暇による補正・境界値）', () => {
+  const REDUCTION = VACATION_MALICIOUS_RATE_REDUCTION;
+  const REDUCTION_MAX = VACATION_MALICIOUS_RATE_REDUCTION_MAX;
+  const makeVacationEngineer = (
+    rank: EngineerRank,
+    vacationRateReduction: number,
+    onVacation: boolean = false,
+  ): Engineer => ({
+    id: 0,
+    rank,
+    routeId: 0,
+    personality: 'meticulous',
+    onVacation,
+    vacationRateReduction,
+    salary: getInitialSalary(rank),
+    ...createEngineerParameters(rank, 'meticulous'),
+  });
+
+  it('担当者がいない（undefined）は空配列', () => {
+    expect(vacationMaliciousRateModifiers(undefined)).toEqual([]);
+  });
+
+  it.each([0, -0, -EPS, -REDUCTION, NaN, Infinity, -Infinity])('低下量 %s は空配列', (reduction) => {
+    for (const onVacation of [false, true]) {
+      const modifiers = vacationMaliciousRateModifiers(makeVacationEngineer('junior', reduction, onVacation));
+      expect(modifiers).toEqual([]);
+      expect(modifiers.length).toBe(0);
+    }
+  });
+
+  it.each([EPS, REDUCTION, REDUCTION_MAX])('低下量 %s は [-値]（onVacation に関わらない）', (reduction) => {
+    for (const onVacation of [false, true]) {
+      const modifiers = vacationMaliciousRateModifiers(makeVacationEngineer('junior', reduction, onVacation));
+      expect(modifiers).toEqual([-reduction]);
+      expect(modifiers.every((value) => !Object.is(value, -0))).toBe(true);
+    }
+  });
+
+  describe.each(RANKS)('%s: 経過時間 0 とランク上限到達時', (id, rank) => {
+    it.each([
+      ['0ms', 0],
+      ['ランク上限到達', STEP * rankCapStep(rank)],
+    ] as const)('%s: 低下量が正なら基礎率 − 低下量、0 なら基礎率', (_label, ms) => {
+      const base = maliciousRateForRank(id, ms);
+      const reduced = effectiveMaliciousRate(id, ms, vacationMaliciousRateModifiers(makeVacationEngineer(id, REDUCTION)));
+      expect(reduced).toBeCloseTo(Math.max(base - REDUCTION, MIN), 12);
+      expect(effectiveMaliciousRate(id, ms, vacationMaliciousRateModifiers(makeVacationEngineer(id, 0)))).toBe(base);
+    });
+  });
+
+  it.each(RANKS)('%s: 休暇の前は基礎率、休暇中・復帰後は基礎率 − REDUCTION', (id) => {
+    const ms = STEP;
+    const base = maliciousRateForRank(id, ms);
+    const rateOf = (engineers: readonly Engineer[]): number =>
+      effectiveMaliciousRate(id, ms, vacationMaliciousRateModifiers(findEngineerByRoute(engineers, 0)));
+    const before: readonly Engineer[] = [makeVacationEngineer(id, 0)];
+    const during = setEngineerVacation(before, 0, true);
+    const after = setEngineerVacation(during, 0, false);
+    const expected = Math.max(base - REDUCTION, MIN);
+    expect(rateOf(before)).toBe(base);
+    expect(rateOf(during)).toBeCloseTo(expected, 12);
+    expect(rateOf(after)).toBeCloseTo(expected, 12);
+  });
+
+  // 補正後の率が MIN - ε / MIN / MIN + ε になる低下量（基礎率 − 目標）を作る。
+  it.each([
+    ['MIN - ε', MIN - EPS, MIN],
+    ['MIN', MIN, MIN],
+    ['MIN + ε', MIN + EPS, MIN + EPS],
+  ])('下限の境界: 補正後 %s', (_label, target, expected) => {
+    const base = maliciousRateForRank('junior', 0);
+    const rate = effectiveMaliciousRate('junior', 0, vacationMaliciousRateModifiers(makeVacationEngineer('junior', base - target)));
+    expect(rate).toBeCloseTo(expected, 12);
+    expect(rate).toBeGreaterThanOrEqual(MIN);
+  });
+
+  it('senior の開始率から MAX を引くと MIN で止まる', () => {
+    expect(maliciousRateForRank('senior', 0) - REDUCTION_MAX).toBeLessThan(MIN);
+    expect(effectiveMaliciousRate('senior', 0, vacationMaliciousRateModifiers(makeVacationEngineer('senior', REDUCTION_MAX)))).toBe(MIN);
+    // 叩き台の値での具体値（0.1 - 0.2 → 下限 0.05）。値を変えたらこの行も見直す。
+    expect(effectiveMaliciousRate('senior', 0, [-0.2])).toBe(0.05);
+  });
+
+  it.each(RANKS)('%s: 休暇後の率で rate - ε は不正、rate は正常', (id) => {
+    const rate = effectiveMaliciousRate(id, STEP * 2, vacationMaliciousRateModifiers(makeVacationEngineer(id, REDUCTION)));
+    expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
+  });
+
+  it('MIN に制限された率でも rate - ε は不正、rate は正常', () => {
+    const rate = effectiveMaliciousRate('senior', 0, vacationMaliciousRateModifiers(makeVacationEngineer('senior', REDUCTION_MAX)));
+    expect(rate).toBe(MIN);
+    expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
   });
 });

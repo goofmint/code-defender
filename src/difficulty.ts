@@ -9,7 +9,7 @@ import {
   DIFFICULTY_STEP_MS,
   ENGINEER_RANKS,
 } from './config';
-import type { EngineerRank } from './engineer';
+import type { Engineer, EngineerRank } from './engineer';
 
 // 難易度（時間とともにコードの流れが速くなり、不正なコードも増える）。Phaser に依存しない純粋関数だけを置く。
 // 開始値・増加量・上限・間隔は末尾の省略可能引数で、既定値は config.ts。後続(#12/#13)で差し替えやすくする。
@@ -68,4 +68,14 @@ export const effectiveMaliciousRate = (
   const base = maliciousRateForRank(rank, elapsedMs);
   const delta = modifiers.reduce((sum, value) => sum + (Number.isFinite(value) ? value : 0), 0);
   return Math.min(Math.max(base + delta, CODE_MALICIOUS_RATE_MIN), 1);
+};
+
+// 休暇による不正コード率の補正(#39)。effectiveMaliciousRate の modifiers に渡す差分の一覧。
+// 担当エンジニアの vacationRateReduction（休暇を始めるたびに累積し、復帰後も維持する）を負の差分にする。onVacation は見ない。
+// 担当者がいない・低下量が 0 以下・有限でない場合は空配列（-0 を混ぜない）。下限 CODE_MALICIOUS_RATE_MIN への制限は effectiveMaliciousRate に任せる。
+export const vacationMaliciousRateModifiers = (engineer: Engineer | undefined): readonly number[] => {
+  if (engineer === undefined) return [];
+  const reduction = engineer.vacationRateReduction;
+  if (!Number.isFinite(reduction) || reduction <= 0) return [];
+  return [-reduction];
 };

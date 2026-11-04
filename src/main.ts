@@ -27,7 +27,7 @@ import {
   isInsideTapArea,
 } from './attack';
 import type { CodeHitEvent } from './attack';
-import { codeSpeedAt, effectiveMaliciousRate } from './difficulty';
+import { codeSpeedAt, effectiveMaliciousRate, vacationMaliciousRateModifiers } from './difficulty';
 import {
   clampToField,
   getMoveDirection,
@@ -594,10 +594,10 @@ class MainScene extends Phaser.Scene {
   }
 
   // 不正コード率の補正（パーセントポイントの差分）の一覧(#13)。effectiveMaliciousRate に渡す。
-  // 今は補正がないので空配列。後続で差分を追加する: #39 休暇（担当エンジニア単位の減少）、
-  // #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
-  private maliciousRateModifiersFor(_engineer: Engineer | undefined): readonly number[] {
-    return [];
+  // 実装済み: #39 休暇（担当エンジニア単位の減少。vacationMaliciousRateModifiers）。
+  // 今後の補正はこの配列に差分を追加して合成する: #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
+  private maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[] {
+    return vacationMaliciousRateModifiers(engineer);
   }
 
   private updateCodes(delta: number): void {
@@ -673,7 +673,8 @@ class MainScene extends Phaser.Scene {
   }
 
   // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
-  // 資金・スコアは変えない。コードの停止(#36)・給料(#37)・不正コード率はこの issue では変えない。
+  // 資金・スコアは変えない。休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
+  // コードの停止(#36)・給料(#37)はこの issue では変えない。
   private toggleVacation(routeId: number): void {
     if (this.gameOver.over) {
       return;
