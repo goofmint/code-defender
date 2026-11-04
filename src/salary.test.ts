@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_RANKS, MAX_ENGINEERS } from './config';
+import { getInitialSalary } from './engineer';
 import type { EngineerRank } from './engineer';
 import { getCrossedMonths } from './gameTime';
 import {
@@ -25,7 +26,8 @@ describe('getMonthlyPayroll', () => {
   });
 });
 
-const staff = (...ranks: EngineerRank[]) => ranks.map((rank) => ({ rank }));
+// ランクの初期額の月給を持つエンジニア（getEngineerSalaries が見るのは salary だけ）。
+const staff = (...ranks: EngineerRank[]) => ranks.map((rank) => ({ rank, salary: getInitialSalary(rank) }));
 
 describe('ENGINEER_MONTHLY_SALARY_BY_RANK', () => {
   it('全ランクが定義され、正の有限値', () => {
@@ -34,6 +36,12 @@ describe('ENGINEER_MONTHLY_SALARY_BY_RANK', () => {
       const salary = ENGINEER_MONTHLY_SALARY_BY_RANK[rank.id];
       expect(Number.isFinite(salary)).toBe(true);
       expect(salary).toBeGreaterThan(0);
+    }
+  });
+  it('ランクが上がるほど高い（ジュニア < ミドル < シニア）', () => {
+    const salaries = ENGINEER_RANKS.map((rank) => ENGINEER_MONTHLY_SALARY_BY_RANK[rank.id]);
+    for (let i = 1; i < salaries.length; i += 1) {
+      expect(salaries[i]).toBeGreaterThan(salaries[i - 1]);
     }
   });
 });
@@ -74,7 +82,33 @@ describe('getEngineerSalaries', () => {
   it('入力を変更しない', () => {
     const input = staff('junior', 'senior');
     getEngineerSalaries(input);
-    expect(input).toEqual([{ rank: 'junior' }, { rank: 'senior' }]);
+    expect(input).toEqual([
+      { rank: 'junior', salary: ENGINEER_MONTHLY_SALARY_BY_RANK.junior },
+      { rank: 'senior', salary: ENGINEER_MONTHLY_SALARY_BY_RANK.senior },
+    ]);
+  });
+
+  it('ランクではなく個人の salary を使う（ジュニアでも salary 350000 なら 350000）', () => {
+    const [junior, senior] = staff('junior', 'senior');
+    const salaries = getEngineerSalaries([
+      { ...junior, salary: 350000 },
+      { ...senior, salary: ENGINEER_MONTHLY_SALARY_BY_RANK.junior },
+    ]);
+    expect(salaries).toEqual([350000, ENGINEER_MONTHLY_SALARY_BY_RANK.junior]);
+    expect(getMonthlyPayroll(salaries)).toBe(350000 + ENGINEER_MONTHLY_SALARY_BY_RANK.junior);
+  });
+
+  it.each([
+    [1, 1],
+    [0, 0],
+    [-1, 0],
+    [Number.NaN, 0],
+    [Number.POSITIVE_INFINITY, 0],
+    [Number.NEGATIVE_INFINITY, 0],
+  ])('salary %d はそのまま返し、合計では %d 円として扱う', (salary, payroll) => {
+    const salaries = getEngineerSalaries([{ salary }]);
+    expect(salaries).toEqual([salary]);
+    expect(getMonthlyPayroll(salaries)).toBe(payroll);
   });
 
   it.each([
