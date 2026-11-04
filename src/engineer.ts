@@ -19,7 +19,7 @@ import type { Route } from './route';
 
 // エンジニア（雇用）の純粋ロジック。Phaser に依存しない。
 // 給料(#33)は Engineer の salary フィールドに個人ごとに持たせる。初期額はランク表（ENGINEER_MONTHLY_SALARY_BY_RANK）で決まる。昇給・減給は #34。
-// ランクごとの不正コード率(#12/#24)は、ランク表（ENGINEER_RANKS）に列を足して扱う想定。
+// ランクごとの不正コード率(#12)はランク表の maliciousRate / maliciousRateMax 列で持ち、difficulty.ts の maliciousRateForRank で求める。
 // 性格(#26)は Engineer の personality フィールドに持たせる（ランクとは独立）。性格ごとのパラメータの差(#29)は ENGINEER_PERSONALITY_TENDENCIES（傾向表）で持つ。
 
 export type EngineerRank = (typeof ENGINEER_RANKS)[number]['id'];

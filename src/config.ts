@@ -86,7 +86,8 @@ export const CODE_STROKE_WIDTH = 2;
 export const CODE_SPEED = 80;
 // 仮・要確認: ルートごとのコード生成間隔（ミリ秒）。企画書に数値の記載なし。
 export const CODE_SPAWN_INTERVAL_MS = 2000;
-// 仮・要確認: ゲーム開始時の不正コードの割合（0〜1）。企画書の「ランク別割合」(#12/#13)が入るまでの開始値。
+// 仮・要確認: 担当エンジニアがいないルートの、ゲーム開始時の不正コードの割合（0〜1）。
+// 担当エンジニアがいるルートはランク表（ENGINEER_RANKS）の maliciousRate / maliciousRateMax を使う(#12)。
 // 時間とともに増える(#14)。経過時間ごとの値は difficulty.ts の maliciousRateAt で求める。
 export const CODE_MALICIOUS_RATE = 0.3;
 
@@ -97,9 +98,9 @@ export const DIFFICULTY_STEP_MS = 30000;
 export const CODE_SPEED_INCREMENT = 8;
 // 仮・要確認(#14): コード速度の上限（ピクセル/秒）。主人公(PLAYER_SPEED)より遅くする。
 export const CODE_SPEED_MAX = 160;
-// 仮・要確認(#14): 1段階ごとの不正コード率の増加量（0〜1）。
+// 仮・要確認(#14): 1段階ごとの不正コード率の増加量（0〜1）。担当エンジニアのランク別の割合(#12)でも同じ増加量を使う。
 export const CODE_MALICIOUS_RATE_INCREMENT = 0.02;
-// 仮・要確認(#14): 不正コード率の上限（0〜1）。
+// 仮・要確認(#14): 担当エンジニアがいないルートの不正コード率の上限（0〜1）。
 export const CODE_MALICIOUS_RATE_MAX = 0.5;
 
 // 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
@@ -233,10 +234,14 @@ export const PENALTY_TEXT_FONT_SIZE = '20px';
 
 // 仮・要確認(#23): 企画書(6)は「ジュニア・ミドル・シニアの3ランクから雇える」とだけで、費用・人数・上限・操作は未記載。以下はすべて仮の値。
 // ランク表。表示名のほか、不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。
+// 仮・要確認(#12): maliciousRate は担当ルートの開始時の不正コード率、maliciousRateMax は時間が経った後の上限（どちらも 0〜1）。
+// 企画書(6)「不正なコードの割合」の叩き台（ジュニア 40%→60%・ミドル 25%→45%・シニア 10%→25%）。
+// 数値は docs/tasks.md の「各ランクの不正コード率（開始時・上限）を確定する」で調整する。
+// 増え方（増加量・間隔）は CODE_MALICIOUS_RATE_INCREMENT / DIFFICULTY_STEP_MS を共用する。
 export const ENGINEER_RANKS = [
-  { id: 'junior', label: 'ジュニア' },
-  { id: 'middle', label: 'ミドル' },
-  { id: 'senior', label: 'シニア' },
+  { id: 'junior', label: 'ジュニア', maliciousRate: 0.4, maliciousRateMax: 0.6 },
+  { id: 'middle', label: 'ミドル', maliciousRate: 0.25, maliciousRateMax: 0.45 },
+  { id: 'senior', label: 'シニア', maliciousRate: 0.1, maliciousRateMax: 0.25 },
 ] as const;
 // 仮・要確認(#25): 企画書(6)は「ランクによって、一定期間ごとの支払い（給料）が変わる」とだけで金額は未記載。以下はすべて仮の値。
 // ランク別の月給の初期額（円）(#33)。雇ったとき・初期編成のときに、この額がエンジニア個人の月給（Engineer.salary）になる。
