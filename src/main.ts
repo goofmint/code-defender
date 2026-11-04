@@ -16,9 +16,12 @@ import {
   MAX_ENGINEERS,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  REVENUE_PER_NORMAL_CODE,
   SALARY_ADJUST_KEYS,
   SALARY_SELECT_KEYS,
   TECH_DEBT_INITIAL,
+  TECH_DEBT_OUTAGE_FLASH_COLOR,
+  TECH_DEBT_OUTAGE_FLASH_DURATION_MS,
 } from './config';
 import {
   ATTACK_COOLDOWN_MS,
@@ -52,6 +55,7 @@ import {
   drawItemAttackEffect,
   drawItemButtons,
   drawItemMessage,
+  drawOutageText,
   drawPlacedItem,
   drawPenaltyText,
   drawPlayer,
@@ -99,11 +103,19 @@ import type { GameOverState } from './gameOver';
 import { NORMAL_CODE_PENALIZED_EVENT, resolveNormalCodePenalty } from './penalty';
 import type { NormalCodePenalizedPayload } from './penalty';
 import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
+import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
+import { advanceTechDebtNeglect, MAJOR_OUTAGE_EVENT, settleMajorOutage } from './outage';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
-import { createTechDebtChangedEvent, formatTechDebt, resolveWorkTechDebt, TECH_DEBT_CHANGED_EVENT } from './techDebt';
+import {
+  createTechDebtChangedEvent,
+  formatTechDebt,
+  resolveWorkTechDebt,
+  TECH_DEBT_CHANGED_EVENT,
+  techDebtSpawnIntervalMs,
+} from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
 import {
   adjustEngineerSalary,
@@ -167,6 +179,8 @@ class MainScene extends Phaser.Scene {
   // 技術的負債（0〜TECH_DEBT_MAX）。資金とは別。変更は changeTechDebt に集約する。
   private techDebt = TECH_DEBT_INITIAL;
   private techDebtText?: Phaser.GameObjects.Text;
+  // 技術的負債が閾値を超えたまま続けて放置された時間（ミリ秒）(#46)。閾値以下に下がる・大障害が起きると 0 に戻る。
+  private techDebtNeglectMs = 0;
   // リファクタリングの割合（0〜1）。割合を指定するUI（docs/tasks.md 8）が変更する想定。今は初期値のまま。
   private refactoringRatio = DEFAULT_REFACTORING_RATIO;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
@@ -202,6 +216,7 @@ class MainScene extends Phaser.Scene {
     this.score = INITIAL_SCORE;
     this.salesText = drawCumulativeSales(this, this.score);
     this.techDebt = TECH_DEBT_INITIAL;
+    this.techDebtNeglectMs = 0;
     this.refactoringRatio = DEFAULT_REFACTORING_RATIO;
     this.techDebtText = drawTechDebt(this, this.techDebt);
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
@@ -332,8 +347,15 @@ class MainScene extends Phaser.Scene {
     if (this.gameOver.over) {
       return;
     }
+    const prevElapsedMs = this.elapsedMs;
     this.advanceClock(delta);
     // 月の給料で倒産したら、同じフレームの移動・コードの更新はしない。
+    if (this.gameOver.over) {
+      return;
+    }
+    // ゲーム内時計と同じ経過時間（サニタイズ済みの差分）で技術的負債の放置時間を進める(#46)。
+    this.updateTechDebtNeglect(this.elapsedMs - prevElapsedMs);
+    // 大障害で倒産したら、同じフレームの移動・コードの更新はしない。
     if (this.gameOver.over) {
       return;
     }
@@ -552,6 +574,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
+  // 給料の対象は this.engineers の全員（ルート未割当・休暇中も含む）(#37)。休暇などの状態で this.engineers を絞ってから渡さない。
   private onMonthElapsed(event: MonthElapsedEvent): void {
     const { salary, itemFee } = settleMonthBoundary(
       this.funds,
@@ -562,6 +585,10 @@ class MainScene extends Phaser.Scene {
     );
     this.changeFunds(salary.fundsAfter, 'salary');
     this.events.emit(SALARY_PAID_EVENT, salary);
+    // 給料を払ったあと、ゲームオーバーでなければ月給と初期額の差で愛着心を動かす(#31)。給料で倒産した月とそれ以降は動かさない。
+    if (!this.gameOver.over) {
+      this.engineers = applySalaryToAttachment(this.engineers);
+    }
     // 給料のあとに月額アイテムの費用を引く（給料で倒産していたら itemFee は null）。
     if (itemFee === null) return;
     this.changeFunds(itemFee.fundsAfter, 'itemFee');
@@ -585,12 +612,16 @@ class MainScene extends Phaser.Scene {
   // 正常なコードがリリースされたら売上を加算する。不正コード（売上 0）では売上は変えない。
   // 不正コードのリリースは障害として扱い、損害ぶん資金を減らす。倒産判定は FUNDS_CHANGED_EVENT 経由（onFundsChanged）。
   private onCodeReleased(payload: CodeReleasedPayload): void {
-    if (getReleaseRevenue(payload.kind) > 0) {
-      this.changeFunds(sellReleasedCode(this.funds, payload.kind), 'sales');
-      // 正常なコードのリリース1件を作業1単位として技術的負債を精算する。ゲームオーバー中は精算しない。
-      if (!this.gameOver.over) {
-        this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
-      }
+    // 売上は現在の配分（機能開発の割合）に比例する。リファクタリング100%では売上 0 なので資金は変えない。
+    if (getReleaseRevenue(payload.kind, REVENUE_PER_NORMAL_CODE, this.refactoringRatio) > 0) {
+      this.changeFunds(
+        sellReleasedCode(this.funds, payload.kind, REVENUE_PER_NORMAL_CODE, this.refactoringRatio),
+        'sales',
+      );
+    }
+    // 正常なコードのリリース1件を作業1単位として技術的負債を精算する（売上が 0 でも精算する）。ゲームオーバー中は精算しない。
+    if (payload.kind === 'normal' && !this.gameOver.over) {
+      this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
     }
     const incident = settleIncident(this.funds, payload, this.gameOver);
     if (incident === null) {
@@ -600,6 +631,28 @@ class MainScene extends Phaser.Scene {
     const { r, g, b } = Phaser.Display.Color.IntegerToRGB(INCIDENT_FLASH_COLOR);
     this.cameras.main.flash(INCIDENT_FLASH_DURATION_MS, r, g, b);
     this.events.emit(INCIDENT_EVENT, incident);
+  }
+
+  // 技術的負債が閾値を超えたまま猶予時間を過ぎたら大障害を起こし、損害ぶん資金を減らす(#46)。
+  // 倒産判定は FUNDS_CHANGED_EVENT 経由（onFundsChanged）。演出とイベントの順序は onCodeReleased の障害と同じ。
+  private updateTechDebtNeglect(deltaMs: number): void {
+    const neglect = advanceTechDebtNeglect(this.techDebtNeglectMs, this.techDebt, deltaMs);
+    this.techDebtNeglectMs = neglect.neglectMs;
+    if (!neglect.outage) {
+      return;
+    }
+    const outage = settleMajorOutage(this.funds, this.techDebt, neglect.neglectedMs, this.gameOver);
+    if (outage === null) {
+      return;
+    }
+    this.changeFunds(outage.fundsAfter, 'damage');
+    const { r, g, b } = Phaser.Display.Color.IntegerToRGB(TECH_DEBT_OUTAGE_FLASH_COLOR);
+    this.cameras.main.flash(TECH_DEBT_OUTAGE_FLASH_DURATION_MS, r, g, b);
+    // 倒産すると tweens.pauseAll() で Tween が止まり、文字の破棄が走らず画面に残るため、倒産時は描画しない。
+    if (!this.gameOver.over) {
+      drawOutageText(this);
+    }
+    this.events.emit(MAJOR_OUTAGE_EVENT, outage);
   }
 
   // ゲームオーバー中で待ち時間を過ぎていれば、最初からやり直す。
@@ -667,14 +720,19 @@ class MainScene extends Phaser.Scene {
   }
 
   private updateCodes(delta: number): void {
+    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートに同じ間隔を使う。
+    // フレーム内（リリース精算など）で負債が変わっても、反映は次のフレームから。
+    // 新規ルートの初期値にも同じ間隔を渡し、負債があっても最初の更新ですぐ1個生成されるようにする（既存の挙動を維持）。
+    const spawnIntervalMs = techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS);
     for (const route of this.routes) {
       // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
       const engineer = findEngineerByRoute(this.engineers, route.id);
       // 担当者の休暇中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
+      // 生成間隔は技術的負債で延びた実効間隔(#44)を使う。
       const step = stepSpawnTimerUnlessPaused(
-        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(CODE_SPAWN_INTERVAL_MS),
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(spawnIntervalMs),
         delta,
-        CODE_SPAWN_INTERVAL_MS,
+        spawnIntervalMs,
         isAssigneeOnVacation(engineer),
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
@@ -744,7 +802,8 @@ class MainScene extends Phaser.Scene {
   }
 
   // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
-  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。給料(#37)は休暇中も引き続き払う。
+  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。
+  // 休暇中も給料は引く(#37): onMonthElapsed は this.engineers 全員の給料を引くので、ここでは給料の処理をしない。
   // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
   private toggleVacation(routeId: number): void {
     if (this.gameOver.over) {
