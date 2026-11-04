@@ -392,6 +392,26 @@ export const INCIDENT_DEFAULT_DAMAGE_POINTS = 10;
 export const INCIDENT_FLASH_DURATION_MS = 250;
 export const INCIDENT_FLASH_COLOR = 0xff0000;
 
+// 仮・要確認(#46): 企画書(7)は「技術的負債が一定量を超えて放置すると、大障害が起きる」とだけで、閾値・放置時間・損害額は未定
+// （docs/tasks.md の「技術的負債の具体的な数値」）。以下はすべて仮の値。
+// 仮・要確認(#46): 大障害の閾値。技術的負債がこの値を「超えて」いる間（ちょうどは含まない）を放置とみなす。0〜TECH_DEBT_MAX の内側。
+export const TECH_DEBT_OUTAGE_THRESHOLD = 80;
+// 仮・要確認(#46): 閾値を超えたまま続けて放置できる時間（ミリ秒）。ゲーム内1か月。これ以上続くと大障害が1回起き、放置時間は 0 に戻る。
+// 閾値以下に下がったら放置時間は 0 に戻る（累積しない）。
+export const TECH_DEBT_OUTAGE_GRACE_MS = MS_PER_GAME_MONTH;
+// 仮・要確認(#46): 大障害の損害ポイント。損害額 = この値 × INCIDENT_DAMAGE_UNIT_YEN。種別なしの不正コード(INCIDENT_DEFAULT_DAMAGE_POINTS)より大きくする。
+export const TECH_DEBT_OUTAGE_DAMAGE_POINTS = 30;
+// 仮・要確認(#46): 大障害の損害額（円）。
+export const TECH_DEBT_OUTAGE_DAMAGE = TECH_DEBT_OUTAGE_DAMAGE_POINTS * INCIDENT_DAMAGE_UNIT_YEN;
+// 仮・要確認(#46): 大障害の演出（画面全体の点滅）。通常の障害(INCIDENT_FLASH_DURATION_MS)より長くする。企画書には演出の記載なし。
+export const TECH_DEBT_OUTAGE_FLASH_DURATION_MS = 600;
+export const TECH_DEBT_OUTAGE_FLASH_COLOR = 0xff0000;
+// 仮・要確認(#46): 大障害の通知（フィールド中央に出てフェードアウトする文字）の文言・文字サイズ・色・表示時間（ミリ秒）。
+export const TECH_DEBT_OUTAGE_TEXT = '大障害発生!';
+export const TECH_DEBT_OUTAGE_TEXT_FONT_SIZE = '48px';
+export const TECH_DEBT_OUTAGE_TEXT_COLOR = '#ff1744';
+export const TECH_DEBT_OUTAGE_TEXT_DURATION_MS = 1500;
+
 // 仮・要確認(#50): 企画書(8, 10)ではアイテムの範囲・攻撃力は「段階」だけで、具体的な数値は未定。以下はすべて仮の値。
 // 範囲(段階→距離): CELL_SIZE に対する比率。近距離=1.5(90px)、中距離=2.5(150px)、長距離=4(240px)。主人公の攻撃範囲(60px)より大きい。
 export const ITEM_RANGE_RATIOS = { short: 1.5, middle: 2.5, long: 4 } as const;

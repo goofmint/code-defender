@@ -53,6 +53,10 @@ import {
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
   PENALTY_TEXT_RISE_PX,
+  TECH_DEBT_OUTAGE_TEXT,
+  TECH_DEBT_OUTAGE_TEXT_COLOR,
+  TECH_DEBT_OUTAGE_TEXT_DURATION_MS,
+  TECH_DEBT_OUTAGE_TEXT_FONT_SIZE,
   TECH_DEBT_POSITION,
 } from './config';
 import { formatPenalty } from './penalty';
@@ -413,6 +417,28 @@ export const drawTechDebt = (scene: Phaser.Scene, debt: number): Phaser.GameObje
       strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
+
+// 仮・要確認(#46): HUD(2)より上、ゲームオーバー表示(GAME_OVER_DEPTH=3)より下。
+const OUTAGE_TEXT_DEPTH = 2.5;
+// 大障害の通知（フィールド中央の文字）。フェードアウトして自身を破棄する（drawPenaltyText と同じ形）。
+export const drawOutageText = (scene: Phaser.Scene): void => {
+  const text = scene.add
+    .text(FIELD_WIDTH / 2, FIELD_HEIGHT / 2, TECH_DEBT_OUTAGE_TEXT, {
+      fontSize: TECH_DEBT_OUTAGE_TEXT_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: TECH_DEBT_OUTAGE_TEXT_COLOR,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setOrigin(0.5)
+    .setDepth(OUTAGE_TEXT_DEPTH);
+  scene.tweens.add({
+    targets: text,
+    alpha: 0,
+    duration: TECH_DEBT_OUTAGE_TEXT_DURATION_MS,
+    onComplete: () => text.destroy(),
+  });
+};
 
 // 仮: HUD(2)より上。
 const GAME_OVER_DEPTH = 3;
