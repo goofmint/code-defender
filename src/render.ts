@@ -53,6 +53,12 @@ import {
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
   PENALTY_TEXT_RISE_PX,
+  REFACTORING_RATIO_BUTTON_LABELS,
+  REFACTORING_RATIO_BUTTON_SIZE,
+  REFACTORING_RATIO_FONT_SIZE,
+  REFACTORING_RATIO_LABEL_WIDTH,
+  REFACTORING_RATIO_UI_GAP,
+  REFACTORING_RATIO_UI_POSITION,
   TECH_DEBT_POSITION,
 } from './config';
 import { formatPenalty } from './penalty';
@@ -82,6 +88,7 @@ import {
 import { formatItemButton } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import type { ItemType } from './item';
+import type { RefactoringRatioDirection } from './refactoringRatioControl';
 
 // 後続オブジェクトより常に下に描画する。
 const FIELD_DEPTH = -1;
@@ -490,6 +497,57 @@ export const drawHireButtons = (
     button.on('pointerdown', () => onHire(entry.rank));
     return button;
   });
+
+// 機能開発とリファクタリングの割合UI(#40)。左から [機能開発へ寄せるボタン][割合の表示][リファクタリングへ寄せるボタン]。
+// ボタンは drawHireButtons と同じ構成（Rectangle と Text の Container、当たり判定は半分ずらす、深さは HUD と同じ）。
+// 返した割合表示の Text を MainScene が setText() で更新する。
+export const drawRefactoringRatioControl = (
+  scene: Phaser.Scene,
+  initialLabel: string,
+  onChange: (direction: RefactoringRatioDirection) => void,
+): Phaser.GameObjects.Text => {
+  const { width, height, strokeWidth } = REFACTORING_RATIO_BUTTON_SIZE;
+  const { x, y } = REFACTORING_RATIO_UI_POSITION;
+  const labelX = x + width + REFACTORING_RATIO_UI_GAP;
+  const buttons: readonly { readonly direction: RefactoringRatioDirection; readonly x: number }[] = [
+    { direction: 'feature', x },
+    { direction: 'refactoring', x: labelX + REFACTORING_RATIO_LABEL_WIDTH + REFACTORING_RATIO_UI_GAP },
+  ];
+  buttons.forEach((entry) => {
+    const background = scene.add
+      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+      .setOrigin(0)
+      .setStrokeStyle(strokeWidth, HIRE_BUTTON_COLORS.stroke);
+    const label = scene.add
+      .text(width / 2, height / 2, REFACTORING_RATIO_BUTTON_LABELS[entry.direction], {
+        fontSize: REFACTORING_RATIO_FONT_SIZE,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: HIRE_BUTTON_COLORS.text,
+      })
+      .setOrigin(0.5);
+    const button = scene.add
+      .container(entry.x, y, [background, label])
+      .setSize(width, height)
+      .setDepth(ELAPSED_DAYS_DEPTH);
+    // drawHireButtons と同じく、矩形を半分ずらして表示範囲と当たり判定を一致させる。
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
+    button.on('pointerdown', () => onChange(entry.direction));
+  });
+  return scene.add
+    .text(labelX + REFACTORING_RATIO_LABEL_WIDTH / 2, y + height / 2, initialLabel, {
+      fontSize: REFACTORING_RATIO_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ELAPSED_DAYS_STYLE.color,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+    })
+    .setOrigin(0.5)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+};
 
 export const drawEngineerCount = (
   scene: Phaser.Scene,

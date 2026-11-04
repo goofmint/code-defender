@@ -178,7 +178,8 @@ export const TECH_DEBT_MAX = 100;
 export const TECH_DEBT_PER_FEATURE_WORK = 10;
 // 仮・要確認(#43): 作業1単位をすべてリファクタリングに充てたときに返す負債。
 export const TECH_DEBT_REPAY_PER_REFACTORING_WORK = 20;
-// 仮・要確認(#43): リファクタリングの割合（0〜1）の初期値。割合を指定するUIは別タスク（docs/tasks.md 8）。
+// 仮・要確認(#43): リファクタリングの割合（0〜1）の初期値。割合はプレイ中に画面左上の割合UI（REFACTORING_RATIO_UI_POSITION、#40）で変えられる。
+// 初期値は REFACTORING_RATIO_STEP_PERCENT の刻み（10%）の上に置く（UI の段階変更で同じ値に戻れるようにする）。
 // 0.2 なら作業1単位で 0.8×10 溜まり 0.2×20 返すので、正味 +4。リファクタリング 1/3 で増減 0 になる。
 export const DEFAULT_REFACTORING_RATIO = 0.2;
 // 仮・要確認(#43): 技術的負債の表示書式。「技術的負債: 40」。数値は四捨五入した整数。
@@ -383,6 +384,30 @@ export const HIRE_BUTTON_FONT_SIZE = '16px';
 export const HIRE_COUNT_POSITION = { x: 300, y: 42 } as const;
 export const HIRE_MESSAGE_POSITION = { x: 480, y: 42 } as const;
 export const HIRE_MESSAGE_DURATION_MS = 2000;
+// 仮・要確認(#40): 企画書(7)は「プレイヤーが機能開発とリファクタリングの割合を指定できる」とだけで、操作方法・刻み・表示は未記載。以下はすべて仮の値。
+// 割合UIの1回の操作で変えるリファクタリングの割合（パーセント、整数）。100 を割り切れる値にする（0% と 100% に止まれるように）。
+export const REFACTORING_RATIO_STEP_PERCENT = 10;
+// 仮・要確認(#40): 割合を変えるキー（Phaser の KeyCodes のキー名）。feature は機能開発へ寄せる、refactoring はリファクタリングへ寄せる。
+// 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)と、#34 で使う予定の Q/E/R/F と重ならない。
+export const REFACTORING_RATIO_KEYS = { feature: 'Z', refactoring: 'X' } as const;
+// 仮・要確認(#40): 割合UIのボタンの文字。左（機能開発へ寄せる）は左向き、右（リファクタリングへ寄せる）は右向きの矢印とキー名。
+export const REFACTORING_RATIO_BUTTON_LABELS = {
+  feature: `◀${REFACTORING_RATIO_KEYS.feature}`,
+  refactoring: `${REFACTORING_RATIO_KEYS.refactoring}▶`,
+} as const;
+// 仮・要確認(#40): 割合の表示書式。「機能80:リファ20」。両方の割合（整数パーセント、合計100）を出す。
+export const REFACTORING_ALLOCATION_FORMAT = { feature: '機能', separator: ':', refactoring: 'リファ' } as const;
+// 仮・要確認(#40): 割合UIの配置。上端の行（行0）で、HUD と同じ左端（出現列 x<60 の右、x=72）、雇うボタンと同じ上端（y=8）。
+// 左から [機能開発へ寄せるボタン][割合の表示][リファクタリングへ寄せるボタン] の順に横に並べる。
+export const REFACTORING_RATIO_UI_POSITION = { x: HUD_LEFT_X, y: HIRE_UI_POSITION.y } as const;
+// 仮・要確認(#40): ボタンの幅・高さ・枠線の太さ、割合表示の幅、要素間の間隔（ピクセル）。高さは雇うボタンと同じ。
+// 全体の幅は 32+4+140+4+32 = 212 で x=72〜284。割合表示の幅は最長の「機能100:リファ0」（10文字×14px=140）が収まる幅。
+export const REFACTORING_RATIO_BUTTON_SIZE = { width: 32, height: HIRE_BUTTON_SIZE.height, strokeWidth: 2 } as const;
+export const REFACTORING_RATIO_LABEL_WIDTH = 140;
+export const REFACTORING_RATIO_UI_GAP = 4;
+export const REFACTORING_RATIO_FONT_SIZE = '14px';
+// 仮・要確認(#40): 割合UI全体（枠線を含む）の右端と、雇うボタン（枠線を含む）の左端との最小の間隔（ピクセル）。
+export const REFACTORING_RATIO_UI_HIRE_MIN_GAP = 8;
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
