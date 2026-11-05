@@ -28,8 +28,8 @@
 | twitter:image | `https://goofmint.github.io/code-defender/twitter-card.png` |
 | twitter:site | 未設定 (X アカウント未確定のため意図的に未設定) |
 | og:* (type, url, title, image, image:width/height 1280x720, site_name, locale ja_JP) | 配信 HTML とワークツリーの index.html で一致 |
-| 配信 HTML と index.html の meta 差分 | なし (twitter:* / og:* の行を比較して一致) |
-| `GET /twitter-card.png` | HTTP/2 200、`content-type: image/png`、content-length 53878 バイト |
+| 配信 HTML と index.html の meta 差分 | なし (`twitter:*` / `og:*` の行を比較して一致) |
+| `GET /code-defender/twitter-card.png` | HTTP/2 200、`content-type: image/png`、content-length 53878 バイト（2026-11-05 08:15 UTC に再取得して確認） |
 | JS `/code-defender/assets/index-BOEVluZJ.js` | 200 `application/javascript` |
 | CSS `/code-defender/assets/index-XIIXC3xm.css` | 200 `text/css` |
 | favicon `/code-defender/favicon.svg` | 200 `image/svg+xml` |
@@ -73,6 +73,7 @@
 4. 投稿の URL を記録する。
 5. マトリクスの 4 環境で、各項目を確認して結果を記入する。
 6. 投稿を残すか削除するかを決め、理由とともに記録する。
+7. Phase 2 の結果に基づいて `docs/tasks.md` の X対応チェックリスト（「ポスト内で動くか実際に試す」）を更新し、この文書へのリンクを添える。
 
 記録欄:
 
