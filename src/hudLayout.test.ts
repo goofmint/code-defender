@@ -54,8 +54,17 @@ import {
   SELECTED_ENGINEER_POSITION,
   TECH_DEBT_MAX,
   TECH_DEBT_POSITION,
+  CODE_MALICIOUS_RATE_MIN,
+  VACATION_HINT_FONT_SIZE,
+  VACATION_HINT_HEIGHT,
+  VACATION_HINT_LINE_HEIGHT,
+  VACATION_HINT_LINE_SPACING,
+  VACATION_HINT_LINES,
+  VACATION_HINT_POSITION,
+  VACATION_MALICIOUS_RATE_REDUCTION,
+  VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
-import { createEngineerParameters, formatSelectedEngineer, getInitialSalary } from './engineer';
+import { createEngineerParameters, formatSelectedEngineer, formatVacationHint, getInitialSalary } from './engineer';
 import { CELL_SIZE, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import { ITEM_TYPES } from './item';
 import { formatInitialPlacementPanel } from './initialPlacement';
@@ -191,8 +200,8 @@ describe('HUD のレイアウト', () => {
     expect(within(rect, ITEM_HUD_BOUNDS)).toBe(true);
   });
 
-  it('境界値: アイテムを置けない矩形（ITEM_BLOCKED_RECTS）は上帯（行0）・下帯（最終行）・HUD の矩形（x=72〜416、y=80〜298）の3つ(#151)', () => {
-    expect(ITEM_HUD_BOUNDS).toEqual({ x: 72, y: 80, width: 344, height: 218 });
+  it('境界値: アイテムを置けない矩形（ITEM_BLOCKED_RECTS）は上帯（行0）・下帯（最終行）・HUD の矩形（x=72〜416、y=80〜362。下端は休暇の案内文 #150）の3つ(#151)', () => {
+    expect(ITEM_HUD_BOUNDS).toEqual({ x: 72, y: 80, width: 344, height: 282 });
     expect(ITEM_BLOCKED_RECTS).toEqual([
       { x: 0, y: 0, width: FIELD_WIDTH, height: CELL_SIZE },
       { x: 0, y: FIELD_HEIGHT - CELL_SIZE, width: FIELD_WIDTH, height: CELL_SIZE },
@@ -515,14 +524,14 @@ describe('AIエージェントのボタンのレイアウト(#53)', () => {
     expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
   });
 
-  it('ボタンはすべてアイテムを置けない HUD の矩形（ITEM_HUD_BOUNDS）に収まり、右端・下端は矩形の右端・下端と一致する(#151)', () => {
+  it('ボタンはすべてアイテムを置けない HUD の矩形（ITEM_HUD_BOUNDS）に収まり、右端は矩形の右端と一致し、下端は矩形の下端（休暇の案内文 #150）より上(#151)', () => {
     for (const { rect } of aiAgentButtonRects) {
       expect(within(rect, ITEM_HUD_BOUNDS)).toBe(true);
     }
     const last = aiAgentButtonRects[aiAgentButtonRects.length - 1]?.rect;
     if (!last) throw new Error('AIエージェントのボタンの矩形がない');
     expect(last.x + last.width).toBe(ITEM_HUD_BOUNDS.x + ITEM_HUD_BOUNDS.width);
-    expect(last.y + last.height).toBe(ITEM_HUD_BOUNDS.y + ITEM_HUD_BOUNDS.height);
+    expect(last.y + last.height).toBeLessThan(ITEM_HUD_BOUNDS.y + ITEM_HUD_BOUNDS.height);
   });
 });
 
@@ -702,5 +711,116 @@ describe('初期配置UIのレイアウト(#47)', () => {
     for (const rect of ITEM_BLOCKED_RECTS) {
       expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, rect)).toBe(false);
     }
+  });
+});
+
+// 休暇の案内文(#150)。文言は固定なので、最長の行を全角相当（1文字 = フォントpx）で過大に見積もった幅 × 行数 × 行の高さの矩形
+// （vacationMarkerRect と同じく純粋関数）。
+const vacationHintRect = (): Rect => {
+  const lines = formatVacationHint();
+  return {
+    x: VACATION_HINT_POSITION.x,
+    y: VACATION_HINT_POSITION.y,
+    width: Math.max(...lines.map((line) => line.length)) * parseInt(VACATION_HINT_FONT_SIZE, 10),
+    height: lines.length * VACATION_HINT_LINE_HEIGHT,
+  };
+};
+
+describe('休暇の案内文のレイアウト(#150)', () => {
+  const rect = vacationHintRect();
+  const lines = formatVacationHint();
+  const fontPx = parseInt(VACATION_HINT_FONT_SIZE, 10);
+  const aiAgentBottom = Math.max(...aiAgentButtonRects.map(({ rect: button }) => button.y + button.height));
+  const hudBottom = ITEM_HUD_BOUNDS.y + ITEM_HUD_BOUNDS.height;
+  const points = (ratio: number): number => Math.round(ratio * 100);
+
+  it('文言は 3 行で、1回の低下量・累積の上限・下限を config から作る（0.1 / 0.2 / 0.05 → -10pt/回・最大-20pt・下限5%）', () => {
+    expect(lines).toHaveLength(VACATION_HINT_LINES);
+    expect(lines).toEqual([
+      '出現地点の「休」で休暇/復帰（プレイ開始後）',
+      `不正率-${points(VACATION_MALICIOUS_RATE_REDUCTION)}pt/回・最大-${points(VACATION_MALICIOUS_RATE_REDUCTION_MAX)}pt・下限${points(CODE_MALICIOUS_RATE_MIN)}%`,
+      '効果は復帰後も維持。休暇中は生産停止・給与継続',
+    ]);
+    const joined = lines.join('\n');
+    expect(joined).toContain('-10pt/回');
+    expect(joined).toContain('最大-20pt');
+    expect(joined).toContain('下限5%');
+    // setup 中は切り替えられないこと、復帰後も効果が残ること、休暇中の生産停止と給与の継続も伝える。
+    expect(joined).toContain('プレイ開始後');
+    expect(joined).toContain('復帰後も維持');
+    expect(joined).toContain('生産停止');
+    expect(joined).toContain('給与継続');
+    for (const line of lines) expect(line).not.toContain('\n');
+  });
+
+  it('境界値: 数値は四捨五入した整数（0.004 → 0、0.005 → 1、0.2 → 20）', () => {
+    expect(formatVacationHint(0.004, 0.004, 0.004)[1]).toBe('不正率-0pt/回・最大-0pt・下限0%');
+    expect(formatVacationHint(0.005, 0.005, 0.005)[1]).toBe('不正率-1pt/回・最大-1pt・下限1%');
+    expect(formatVacationHint(0.2, 0.2, 0.2)[1]).toBe('不正率-20pt/回・最大-20pt・下限20%');
+  });
+
+  it('境界値: AIエージェントのボタンの下端（y=298）の 4px 下 y=302 から始まり、左端は HUD と同じ x=72', () => {
+    expect(VACATION_HINT_POSITION).toEqual({ x: 72, y: 302 });
+    expect(rect.y - aiAgentBottom).toBe(4);
+    expect(rect.x).toBe(ELAPSED_DAYS_POSITION.x);
+  });
+
+  it('境界値: 各行は HUD の矩形の幅（344px = 14px × 24 文字）に収まり、矩形の幅は最長の行 × 文字サイズ', () => {
+    const maxChars = Math.floor(ITEM_HUD_BOUNDS.width / fontPx);
+    expect(maxChars).toBe(24);
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(maxChars);
+    expect(rect.width).toBe(Math.max(...lines.map((line) => line.length)) * fontPx);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(ITEM_HUD_BOUNDS.x + ITEM_HUD_BOUNDS.width);
+  });
+
+  it('境界値: 1 行の高さは 20px（14px × 1.25 の切り上げ + 行間 2px）、3 行で 60px、下端 y=362 がアイテムを置けない HUD の矩形の下端と一致する', () => {
+    expect(VACATION_HINT_LINE_HEIGHT).toBe(Math.ceil(fontPx * 1.25) + VACATION_HINT_LINE_SPACING);
+    expect(VACATION_HINT_LINE_HEIGHT).toBe(20);
+    expect(VACATION_HINT_HEIGHT).toBe(60);
+    expect(rect.height).toBe(VACATION_HINT_HEIGHT);
+    expect(rect.y + rect.height).toBe(362);
+    expect(rect.y + rect.height).toBe(hudBottom);
+    expect(within(rect, ITEM_HUD_BOUNDS)).toBe(true);
+    // 上帯・下帯（ITEM_BLOCKED_RECTS）とは交差しない。
+    expect(intersects(rect, ITEM_BLOCKED_RECTS[0])).toBe(false);
+    expect(intersects(rect, ITEM_BLOCKED_RECTS[1])).toBe(false);
+  });
+
+  it('HUD の4行・選択中のエンジニア・昇給減給ボタン・AIエージェントのボタンと交差しない', () => {
+    for (const other of [...hudRects, ...salaryRects, ...aiAgentButtonRects]) {
+      expect(intersects(rect, other.rect)).toBe(false);
+    }
+  });
+
+  it('雇用ボタン・エンジニア数・雇用メッセージと交差しない', () => {
+    for (const other of [...hireButtonRects, ...hireTextRects]) {
+      expect(intersects(rect, other)).toBe(false);
+    }
+  });
+
+  it('購入ボタン・ページ切替UI・購入メッセージと交差しない', () => {
+    for (const other of [...itemBarRects, itemMessageRect]) {
+      expect(intersects(rect, other)).toBe(false);
+    }
+  });
+
+  it.each(spawnRows)('行%i の出現セル・休暇マーカーと交差しない', (row) => {
+    expect(intersects(rect, cellRect(ENGINEER_SPAWN_COL, row))).toBe(false);
+    expect(intersects(rect, vacationMarkerRect(row))).toBe(false);
+  });
+
+  it('初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS。パネル・開始ボタン・メッセージを含む）と交差しない', () => {
+    expect(intersects(rect, INITIAL_PLACEMENT_UI_BOUNDS)).toBe(false);
+  });
+
+  it('リリース地点のセルと交差しない', () => {
+    expect(intersects(rect, cellRect(RELEASE_POINT_CELL.col, RELEASE_POINT_CELL.row))).toBe(false);
+  });
+
+  it('フィールド内に収まる', () => {
+    expect(rect.x).toBeGreaterThanOrEqual(0);
+    expect(rect.y).toBeGreaterThanOrEqual(0);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
   });
 });

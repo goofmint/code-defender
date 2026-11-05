@@ -89,6 +89,7 @@ import {
   drawSalaryButtons,
   drawSelectedEngineer,
   drawTechDebt,
+  drawVacationHint,
   drawVacationMarker,
   flashCode,
   setPlayerFacing,
@@ -410,6 +411,8 @@ class MainScene extends Phaser.Scene {
       (direction) => this.adjustSalary(direction),
     );
     drawAiAgentButtons(this, (agentType) => this.buyAiAgent(agentType));
+    // 休暇の案内文(#150)。setup 中・プレイ中とも常時表示し、文言は変わらないので参照は持たない（雇うボタンと同じ）。
+    drawVacationHint(this);
     const itemState = createItemState();
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;

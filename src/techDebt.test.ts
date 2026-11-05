@@ -4,8 +4,8 @@ import {
   CODE_MALICIOUS_RATE_MIN,
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_REFACTORING_RATIO,
-  DIFFICULTY_STEP_MS,
   ENGINEER_RANKS,
+  MALICIOUS_RATE_STEP_MS,
   REFACTORING_MALICIOUS_RATE_REDUCTION_MAX,
   TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
@@ -359,6 +359,17 @@ describe('techDebtSpawnIntervalMs', () => {
       9,
     );
   });
+
+  // 負債で生産量を落とさない(#150)。既定の倍率は 1 で、負債がいくつでも基準の間隔のまま。
+  it('既定の倍率(#150)は 1 で、負債 0・上限直前・上限・上限超えのどれでも基準の間隔（CODE_SPAWN_INTERVAL_MS）のまま', () => {
+    expect(TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER).toBe(1);
+    for (const debt of [0, 1, TECH_DEBT_MAX / 2, TECH_DEBT_MAX - 1, TECH_DEBT_MAX, TECH_DEBT_MAX + 1]) {
+      expect(techDebtSpawnIntervalMs(debt, CODE_SPAWN_INTERVAL_MS)).toBe(CODE_SPAWN_INTERVAL_MS);
+    }
+    expect(techDebtSpawnIntervalMs(TECH_DEBT_MAX, CODE_SPAWN_INTERVAL_MS)).toBe(
+      techDebtSpawnIntervalMs(0, CODE_SPAWN_INTERVAL_MS),
+    );
+  });
 });
 
 // main.ts の updateCodes と同じ手順を再現する合成テスト（Phaser は使わない）。
@@ -456,6 +467,25 @@ describe('技術的負債と生成タイマーの合成（main.ts の updateCode
     expect(step.spawn).toBe(true);
     expect(step.elapsedMs).toBeLessThan(techDebtSpawnIntervalMs(debt, BASE, opts));
   });
+
+  // 既定の設定（倍率 1、#150）では負債 0 と負債上限で生成数が同じになる。倍率を引数で渡す上のテストとは別に、config の値で確かめる。
+  it('既定の設定(#150): 負債 0 と負債上限で、16.7ms 刻み 1200 フレームの生成数が同じ（初回の即生成 + floor(20040 / 2000)）', () => {
+    const count = (debt: number): number => {
+      let elapsed: number | undefined;
+      let spawned = 0;
+      for (let i = 0; i < 1200; i += 1) {
+        const intervalMs = techDebtSpawnIntervalMs(debt, CODE_SPAWN_INTERVAL_MS);
+        const step = stepSpawnTimer(elapsed ?? initialSpawnElapsed(intervalMs), 16.7, intervalMs);
+        elapsed = step.elapsedMs;
+        if (step.spawn) spawned += 1;
+      }
+      return spawned;
+    };
+    const expected = 1 + Math.floor((16.7 * 1200) / CODE_SPAWN_INTERVAL_MS);
+    expect(count(0)).toBe(expected);
+    expect(count(TECH_DEBT_MAX - 1)).toBe(expected);
+    expect(count(TECH_DEBT_MAX)).toBe(expected);
+  });
 });
 
 // リファクタリングの割合による不正コード率の補正(#41)。係数は引数で渡し、config の仮の値に依存しない。
@@ -531,7 +561,8 @@ describe('リファクタリングの差分と補正後の不正コード率（e
   const K = 0.2;
   const EPS = 1e-9;
   const MIN = CODE_MALICIOUS_RATE_MIN;
-  const STEP = DIFFICULTY_STEP_MS;
+  // 不正コード率の段階間隔（ゲーム内10日、#150）。
+  const STEP = MALICIOUS_RATE_STEP_MS;
   const RANK_OR_NONE: readonly (EngineerRank | undefined)[] = [...ENGINEER_RANKS.map((rank) => rank.id), undefined];
   // 十分長い経過時間（全ランクが上限に達した後）。
   const LONG_MS = STEP * 1000;

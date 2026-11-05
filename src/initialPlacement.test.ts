@@ -206,11 +206,12 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
     expect(reasonAt({ col: 1, row: 20 })).toBe('ok'); // 出現列でもルートが無い位置
   });
 
-  it('HUD の矩形（ITEM_HUD_BOUNDS: x=72〜416、y=80〜298）に重なると notPlaceable、その外は置ける', () => {
+  it('HUD の矩形（ITEM_HUD_BOUNDS: x=72〜416、y=80〜362。下端は休暇の案内文 #150）に重なると notPlaceable、その外は置ける', () => {
     expect(reasonAt({ col: 26, row: 10 })).toBe('notPlaceable'); // x=406〜442
     expect(reasonAt({ col: 27, row: 10 })).toBe('ok'); // x=422〜458
-    expect(reasonAt({ col: 10, row: 19 })).toBe('notPlaceable'); // y=294〜330
-    expect(reasonAt({ col: 10, row: 20 })).toBe('ok'); // y=310〜346
+    expect(reasonAt({ col: 10, row: 19 })).toBe('notPlaceable'); // y=294〜330（休暇の案内文に重なる）
+    expect(reasonAt({ col: 10, row: 23 })).toBe('notPlaceable'); // y=358〜394
+    expect(reasonAt({ col: 10, row: 24 })).toBe('ok'); // y=374〜410
   });
 
   it('blockedRects に初期配置UIの範囲を足すと、その中は notPlaceable、左隣と下隣は置ける。プレイ中の既定では置ける', () => {

@@ -8,11 +8,13 @@ import {
   CODE_SPEED_MAX,
   DIFFICULTY_STEP_MS,
   ENGINEER_RANKS,
+  MALICIOUS_RATE_STEP_MS,
 } from './config';
 import type { Engineer, EngineerRank } from './engineer';
 
 // 難易度（時間とともにコードの流れが速くなり、不正なコードも増える）。Phaser に依存しない純粋関数だけを置く。
 // 開始値・増加量・上限・間隔は末尾の省略可能引数で、既定値は config.ts。後続(#12/#13)で差し替えやすくする。
+// 間隔はコード速度（DIFFICULTY_STEP_MS）と不正コード率（MALICIOUS_RATE_STEP_MS = ゲーム内10日、#150）で別にする。
 
 // 負値・NaN・Infinity は 0 として扱う（gameTime.ts と同じ規則）。
 const sanitize = (ms: number): number => (Number.isFinite(ms) && ms > 0 ? ms : 0);
@@ -29,13 +31,13 @@ export const codeSpeedAt = (
   stepMs: number = DIFFICULTY_STEP_MS,
 ): number => Math.min(startSpeed + stepAt(elapsedMs, stepMs) * increment, maxSpeed);
 
-// 経過時間での不正コードの割合（0〜1）。上限で止まる。
+// 経過時間での不正コードの割合（0〜1）。上限で止まる。間隔の既定値はゲーム内10日（MALICIOUS_RATE_STEP_MS、#150）。
 export const maliciousRateAt = (
   elapsedMs: number,
   startRate: number = CODE_MALICIOUS_RATE,
   increment: number = CODE_MALICIOUS_RATE_INCREMENT,
   maxRate: number = CODE_MALICIOUS_RATE_MAX,
-  stepMs: number = DIFFICULTY_STEP_MS,
+  stepMs: number = MALICIOUS_RATE_STEP_MS,
 ): number => Math.min(Math.max(Math.min(startRate + stepAt(elapsedMs, stepMs) * increment, maxRate), 0), 1);
 
 // 担当エンジニアのランクに応じた、経過時間での不正コードの割合（0〜1）(#12)。
@@ -51,7 +53,7 @@ export const maliciousRateForRank = (rank: EngineerRank | undefined, elapsedMs: 
     entry.maliciousRate,
     CODE_MALICIOUS_RATE_INCREMENT,
     entry.maliciousRateMax,
-    DIFFICULTY_STEP_MS,
+    MALICIOUS_RATE_STEP_MS,
   );
 };
 

@@ -10,6 +10,8 @@ import {
   DIFFICULTY_STEP_MS,
   ENGINEER_HIRE_COST,
   ENGINEER_RANKS,
+  MALICIOUS_RATE_STEP_DAYS,
+  MALICIOUS_RATE_STEP_MS,
   MAX_ENGINEERS,
   PLAYER_SPEED,
   VACATION_MALICIOUS_RATE_REDUCTION,
@@ -33,9 +35,12 @@ import {
   setEngineerVacation,
 } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
+import { MS_PER_GAME_DAY } from './gameTime';
 import { techDebtMaliciousRateModifier } from './techDebt';
 
+// コード速度の段階間隔。不正コード率の段階間隔は RATE_STEP（ゲーム内10日、#150）で別に刻む。
 const STEP = DIFFICULTY_STEP_MS;
+const RATE_STEP = MALICIOUS_RATE_STEP_MS;
 // 上限に達する段階（切り上げ）。
 const speedCapStep = Math.ceil((CODE_SPEED_MAX - CODE_SPEED) / CODE_SPEED_INCREMENT);
 const rateCapStep = Math.ceil((CODE_MALICIOUS_RATE_MAX - CODE_MALICIOUS_RATE) / CODE_MALICIOUS_RATE_INCREMENT - 1e-9);
@@ -100,58 +105,58 @@ describe('maliciousRateAt（不正コード率）', () => {
   });
 
   it.each([
-    ['直前(間隔-1ms)', STEP - 1, 0],
-    ['ちょうど', STEP, 1],
-    ['直後(+1ms)', STEP + 1, 1],
-    ['2段階目の直前', STEP * 2 - 1, 1],
-    ['2段階目の直後', STEP * 2 + 1, 2],
+    ['直前(間隔-1ms)', RATE_STEP - 1, 0],
+    ['ちょうど', RATE_STEP, 1],
+    ['直後(+1ms)', RATE_STEP + 1, 1],
+    ['2段階目の直前', RATE_STEP * 2 - 1, 1],
+    ['2段階目の直後', RATE_STEP * 2 + 1, 2],
   ])('段階の切替: %s', (_label, ms, step) => {
     expect(maliciousRateAt(ms)).toBeCloseTo(CODE_MALICIOUS_RATE + step * CODE_MALICIOUS_RATE_INCREMENT);
   });
 
   it('上限に達する直前の段階は上限未満', () => {
-    const v = maliciousRateAt(STEP * (rateCapStep - 1));
+    const v = maliciousRateAt(RATE_STEP * (rateCapStep - 1));
     expect(v).toBeCloseTo(CODE_MALICIOUS_RATE + (rateCapStep - 1) * CODE_MALICIOUS_RATE_INCREMENT);
     expect(v).toBeLessThan(CODE_MALICIOUS_RATE_MAX);
   });
 
   it('上限ちょうどに達する', () => {
-    expect(maliciousRateAt(STEP * rateCapStep)).toBeCloseTo(CODE_MALICIOUS_RATE_MAX);
+    expect(maliciousRateAt(RATE_STEP * rateCapStep)).toBeCloseTo(CODE_MALICIOUS_RATE_MAX);
   });
 
   it('上限を超えた後は増えない', () => {
-    expect(maliciousRateAt(STEP * (rateCapStep + 1))).toBeCloseTo(CODE_MALICIOUS_RATE_MAX);
-    expect(maliciousRateAt(STEP * (rateCapStep + 100))).toBeCloseTo(CODE_MALICIOUS_RATE_MAX);
+    expect(maliciousRateAt(RATE_STEP * (rateCapStep + 1))).toBeCloseTo(CODE_MALICIOUS_RATE_MAX);
+    expect(maliciousRateAt(RATE_STEP * (rateCapStep + 100))).toBeCloseTo(CODE_MALICIOUS_RATE_MAX);
   });
 
   it('非常に大きい elapsedMs でも上限', () => {
     expect(maliciousRateAt(Number.MAX_SAFE_INTEGER)).toBeCloseTo(CODE_MALICIOUS_RATE_MAX);
   });
 
-  it.each([-1, -STEP, NaN, Infinity, -Infinity])('%s は開始値', (ms) => {
+  it.each([-1, -RATE_STEP, NaN, Infinity, -Infinity])('%s は開始値', (ms) => {
     expect(maliciousRateAt(ms)).toBe(CODE_MALICIOUS_RATE);
   });
 
   it('開始値 0%（引数で指定）から始まり、増えていく', () => {
     expect(maliciousRateAt(0, 0)).toBe(0);
-    expect(maliciousRateAt(STEP - 1, 0)).toBe(0);
-    expect(maliciousRateAt(STEP, 0)).toBeCloseTo(CODE_MALICIOUS_RATE_INCREMENT);
+    expect(maliciousRateAt(RATE_STEP - 1, 0)).toBe(0);
+    expect(maliciousRateAt(RATE_STEP, 0)).toBeCloseTo(CODE_MALICIOUS_RATE_INCREMENT);
   });
 
   it('常に [0,1] に収まる', () => {
-    for (const ms of [0, STEP, STEP * 5, STEP * 1000, Number.MAX_SAFE_INTEGER, -1, NaN, Infinity]) {
+    for (const ms of [0, RATE_STEP, RATE_STEP * 5, RATE_STEP * 1000, Number.MAX_SAFE_INTEGER, -1, NaN, Infinity]) {
       const v = maliciousRateAt(ms);
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(1);
     }
     // 引数で上限・開始値が範囲外でも [0,1] に収める。
-    expect(maliciousRateAt(STEP * 100, 0.9, 0.5, 5)).toBe(1);
+    expect(maliciousRateAt(RATE_STEP * 100, 0.9, 0.5, 5)).toBe(1);
     expect(maliciousRateAt(0, -0.5, 0.1, 1)).toBe(0);
   });
 
   it('単調非減少', () => {
     let prev = maliciousRateAt(0);
-    for (let ms = 0; ms <= STEP * (rateCapStep + 3); ms += STEP / 3) {
+    for (let ms = 0; ms <= RATE_STEP * (rateCapStep + 3); ms += RATE_STEP / 3) {
       const v = maliciousRateAt(ms);
       expect(v).toBeGreaterThanOrEqual(prev);
       prev = v;
@@ -162,6 +167,46 @@ describe('maliciousRateAt（不正コード率）', () => {
     expect(maliciousRateAt(1000, 0.1, 0.05, 0.9, 1000)).toBeCloseTo(0.15);
     expect(maliciousRateAt(999, 0.1, 0.05, 0.9, 1000)).toBeCloseTo(0.1);
     expect(maliciousRateAt(1000000, 0.1, 0.05, 0.9, 1000)).toBeCloseTo(0.9);
+  });
+});
+
+// 不正コード率の段階はゲーム内10日ごと(#150)。コード速度の段階（DIFFICULTY_STEP_MS）とは独立に刻む。
+describe('不正コード率の段階はゲーム内10日ごとに +3 ポイント（#150・日数の境界値）', () => {
+  const dayMs = (days: number): number => days * MS_PER_GAME_DAY;
+  // 0日・9日（直前）・10日（ちょうど）・20日（2段階目）・30日（3段階目）→ +0 / +0 / +3 / +6 / +9 ポイント。
+  const DAY_CASES = [
+    [0, 0],
+    [9, 0],
+    [10, 1],
+    [20, 2],
+    [30, 3],
+  ] as const;
+
+  it.each(DAY_CASES)('ランクなし: %i 日は開始値 + %i 段階 × 増加量', (days, step) => {
+    expect(maliciousRateAt(dayMs(days))).toBeCloseTo(CODE_MALICIOUS_RATE + step * CODE_MALICIOUS_RATE_INCREMENT, 12);
+  });
+
+  it.each(ENGINEER_RANKS.flatMap((rank) => DAY_CASES.map(([days, step]) => [rank.id, days, step, rank] as const)))(
+    '%s: %i 日は開始値 + %i 段階 × 増加量（上限未満）',
+    (id, days, step, rank) => {
+      const expected = rank.maliciousRate + step * CODE_MALICIOUS_RATE_INCREMENT;
+      expect(expected).toBeLessThan(rank.maliciousRateMax);
+      expect(maliciousRateForRank(id, dayMs(days))).toBeCloseTo(expected, 12);
+    },
+  );
+
+  it('10日ちょうどの直前(-1ms)は +0、ちょうどは +3 ポイント、20日と25日は同じ値', () => {
+    expect(maliciousRateAt(dayMs(10) - 1)).toBeCloseTo(CODE_MALICIOUS_RATE, 12);
+    expect(maliciousRateAt(dayMs(10)) - maliciousRateAt(dayMs(10) - 1)).toBeCloseTo(0.03, 12);
+    expect(maliciousRateAt(dayMs(20)) - maliciousRateAt(dayMs(10))).toBeCloseTo(0.03, 12);
+    expect(maliciousRateAt(dayMs(25))).toBe(maliciousRateAt(dayMs(20)));
+  });
+
+  it('コード速度の段階は変えない: 10日（20,000ms）では速度は開始値のまま、30,000ms で 1 段階上がる', () => {
+    expect(RATE_STEP).toBeLessThan(STEP);
+    expect(codeSpeedAt(RATE_STEP)).toBe(CODE_SPEED);
+    expect(codeSpeedAt(STEP - 1)).toBe(CODE_SPEED);
+    expect(codeSpeedAt(STEP)).toBeCloseTo(CODE_SPEED + CODE_SPEED_INCREMENT, 12);
   });
 });
 
@@ -177,38 +222,42 @@ describe('maliciousRateForRank（ランク別の不正コード率・境界値�
   });
 
   it.each(RANKS)('%s: 段階の切替（間隔-1ms / ちょうど / +1ms）', (id, rank) => {
-    expect(maliciousRateForRank(id, STEP - 1)).toBeCloseTo(rank.maliciousRate);
-    expect(maliciousRateForRank(id, STEP)).toBeCloseTo(rank.maliciousRate + CODE_MALICIOUS_RATE_INCREMENT);
-    expect(maliciousRateForRank(id, STEP + 1)).toBeCloseTo(rank.maliciousRate + CODE_MALICIOUS_RATE_INCREMENT);
+    expect(maliciousRateForRank(id, RATE_STEP - 1)).toBeCloseTo(rank.maliciousRate);
+    expect(maliciousRateForRank(id, RATE_STEP)).toBeCloseTo(rank.maliciousRate + CODE_MALICIOUS_RATE_INCREMENT);
+    expect(maliciousRateForRank(id, RATE_STEP + 1)).toBeCloseTo(rank.maliciousRate + CODE_MALICIOUS_RATE_INCREMENT);
   });
 
   it.each(RANKS)('%s: 上限到達の直前(-1ms)は上限未満、ちょうど・直後(+1ms)・十分後は上限', (id, rank) => {
-    const capMs = STEP * rankCapStep(rank);
+    const capMs = RATE_STEP * rankCapStep(rank);
     const before = maliciousRateForRank(id, capMs - 1);
     expect(before).toBeCloseTo(rank.maliciousRate + (rankCapStep(rank) - 1) * CODE_MALICIOUS_RATE_INCREMENT);
     expect(before).toBeLessThan(rank.maliciousRateMax);
     expect(maliciousRateForRank(id, capMs)).toBeCloseTo(rank.maliciousRateMax);
     expect(maliciousRateForRank(id, capMs + 1)).toBeCloseTo(rank.maliciousRateMax);
-    expect(maliciousRateForRank(id, STEP * (rankCapStep(rank) + 100))).toBeCloseTo(rank.maliciousRateMax);
+    expect(maliciousRateForRank(id, RATE_STEP * (rankCapStep(rank) + 100))).toBeCloseTo(rank.maliciousRateMax);
     expect(maliciousRateForRank(id, Number.MAX_SAFE_INTEGER)).toBeCloseTo(rank.maliciousRateMax);
   });
 
-  // 叩き台の値（企画書 6）での具体的な境界。値を変えたらこの表も見直す。
+  // 叩き台の値（企画書 6）での具体的な境界。10日（20,000ms）ごとに +3 ポイント(#150)。値を変えたらこの表も見直す。
   it.each([
-    ['junior', 299999, 0.58],
-    ['junior', 300000, 0.6],
-    ['middle', 299999, 0.43],
-    ['middle', 300000, 0.45],
-    ['senior', 209999, 0.22],
-    ['senior', 210000, 0.24],
-    ['senior', 239999, 0.24],
-    // 段階 8 の計算値 0.26 は上限 0.25 で止まる。
-    ['senior', 240000, 0.25],
+    ['junior', 19999, 0.4],
+    ['junior', 20000, 0.43],
+    ['junior', 139999, 0.58],
+    // 段階 7 の計算値 0.61 は上限 0.6 で止まる。
+    ['junior', 140000, 0.6],
+    ['middle', 139999, 0.43],
+    // 段階 7 の計算値 0.46 は上限 0.45 で止まる。
+    ['middle', 140000, 0.45],
+    ['senior', 79999, 0.19],
+    ['senior', 80000, 0.22],
+    ['senior', 99999, 0.22],
+    // 段階 5 の計算値 0.25 は上限 0.25 ちょうど。
+    ['senior', 100000, 0.25],
   ] as const)('%s: %sms は %s', (id, ms, expected) => {
     expect(maliciousRateForRank(id, ms)).toBeCloseTo(expected);
   });
 
-  it.each(RANKS.flatMap(([id, rank]) => [-1, -STEP, NaN, Infinity, -Infinity].map((ms) => [id, ms, rank] as const)))(
+  it.each(RANKS.flatMap(([id, rank]) => [-1, -RATE_STEP, NaN, Infinity, -Infinity].map((ms) => [id, ms, rank] as const)))(
     '%s: %s ms は開始値',
     (id, ms, rank) => {
       expect(maliciousRateForRank(id, ms)).toBeCloseTo(rank.maliciousRate);
@@ -217,8 +266,8 @@ describe('maliciousRateForRank（ランク別の不正コード率・境界値�
 
   it.each([
     ['0ms', 0],
-    ['途中の段階', STEP * 3],
-    ['全ランクが上限に達した後', STEP * Math.max(...ENGINEER_RANKS.map(rankCapStep))],
+    ['途中の段階', RATE_STEP * 3],
+    ['全ランクが上限に達した後', RATE_STEP * Math.max(...ENGINEER_RANKS.map(rankCapStep))],
   ])('%s: ジュニア > ミドル > シニア', (_label, ms) => {
     const junior = maliciousRateForRank('junior', ms);
     const middle = maliciousRateForRank('middle', ms);
@@ -229,11 +278,11 @@ describe('maliciousRateForRank（ランク別の不正コード率・境界値�
 
   it.each([
     0,
-    STEP - 1,
-    STEP,
-    STEP * rateCapStep - 1,
-    STEP * rateCapStep,
-    STEP * (rateCapStep + 1),
+    RATE_STEP - 1,
+    RATE_STEP,
+    RATE_STEP * rateCapStep - 1,
+    RATE_STEP * rateCapStep,
+    RATE_STEP * (rateCapStep + 1),
     -1,
     NaN,
     Infinity,
@@ -251,7 +300,7 @@ describe('maliciousRateForRank（ランク別の不正コード率・境界値�
 });
 
 describe('ランク別の不正コード率で種類を決める（pickCodeKind との接続・境界値）', () => {
-  const ms = STEP * 2;
+  const ms = RATE_STEP * 2;
 
   it.each(RANKS)('%s: random = rate - ε は不正、rate・rate + ε は正常', (id) => {
     const rate = maliciousRateForRank(id, ms);
@@ -262,10 +311,10 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
 
   // 時間軸上の境界。期待値は叩き台の値（企画書 6）。値を変えたらこの表も見直す。
   it.each([
-    ['junior', '段階の切替の直前(間隔-1ms)', STEP - 1, 0.4],
-    ['junior', '段階の切替ちょうど', STEP, 0.42],
+    ['junior', '段階の切替の直前(間隔-1ms)', RATE_STEP - 1, 0.4],
+    ['junior', '段階の切替ちょうど', RATE_STEP, 0.43],
     ...ENGINEER_RANKS.map(
-      (rank) => [rank.id, '上限到達後', STEP * (rankCapStep(rank) + 1), rank.maliciousRateMax] as const,
+      (rank) => [rank.id, '上限到達後', RATE_STEP * (rankCapStep(rank) + 1), rank.maliciousRateMax] as const,
     ),
   ] as const)('%s: %s（%s ms、率 %s）で rate - ε は不正、rate・rate + ε は正常', (id, _label, ms, expected) => {
     const rate = maliciousRateForRank(id, ms);
@@ -330,7 +379,7 @@ describe('生成経路の接続（初期配置・追加雇用・割当解除）'
   const rules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
   const RICH = 100_000_000;
   // 0ms と、全ランク・共通率が上限に達した後の2点。
-  const capMs = STEP * (Math.max(rateCapStep, ...ENGINEER_RANKS.map(rankCapStep)) + 1);
+  const capMs = RATE_STEP * (Math.max(rateCapStep, ...ENGINEER_RANKS.map(rankCapStep)) + 1);
   const TIMES = [
     ['0ms', 0],
     ['上限到達後', capMs],
@@ -451,8 +500,8 @@ const RANK_OR_NONE: readonly (EngineerRank | undefined)[] = [...ENGINEER_RANKS.m
 const maxCapStep = Math.max(rateCapStep, ...ENGINEER_RANKS.map(rankCapStep));
 const ELAPSED_CASES = [
   ['0ms', 0],
-  ['STEP', STEP],
-  ['上限到達後', STEP * (maxCapStep + 1)],
+  ['RATE_STEP', RATE_STEP],
+  ['上限到達後', RATE_STEP * (maxCapStep + 1)],
 ] as const;
 const NO_MODIFIER_CASES = RANK_OR_NONE.flatMap((rank) => ELAPSED_CASES.map(([label, ms]) => [String(rank), label, rank, ms] as const));
 // ランクなし・0ms の基礎率（CODE_MALICIOUS_RATE）を起点に、合計が目標値になる差分を作る。
@@ -497,7 +546,7 @@ describe('effectiveMaliciousRate（補正後の不正コード率・境界値）
   it('ランク上限は補正後に適用しない: senior が上限に達した後に +0.1 で上限 + 0.1', () => {
     const senior = ENGINEER_RANKS.find((rank) => rank.id === 'senior');
     if (senior === undefined) throw new Error('senior がランク表にありません');
-    const ms = STEP * (rankCapStep(senior) + 1);
+    const ms = RATE_STEP * (rankCapStep(senior) + 1);
     expect(maliciousRateForRank('senior', ms)).toBeCloseTo(senior.maliciousRateMax);
     expect(effectiveMaliciousRate('senior', ms, [0.1])).toBeCloseTo(senior.maliciousRateMax + 0.1);
     // 叩き台の値（企画書 6）での具体値。値を変えたらこの行も見直す。
@@ -506,39 +555,39 @@ describe('effectiveMaliciousRate（補正後の不正コード率・境界値）
 
   it.each([NaN, Infinity, -Infinity])('不正な差分 %s は 0 として扱い、結果は有限の [MIN, 1]', (value) => {
     for (const rank of RANK_OR_NONE) {
-      const v = effectiveMaliciousRate(rank, STEP, [value]);
-      expect(v).toBe(maliciousRateForRank(rank, STEP));
+      const v = effectiveMaliciousRate(rank, RATE_STEP, [value]);
+      expect(v).toBe(maliciousRateForRank(rank, RATE_STEP));
       expect(Number.isFinite(v)).toBe(true);
       expect(v).toBeGreaterThanOrEqual(MIN);
       expect(v).toBeLessThanOrEqual(1);
       // 他の有効な差分はそのまま加算される。
-      expect(effectiveMaliciousRate(rank, STEP, [value, 0.05])).toBeCloseTo(maliciousRateForRank(rank, STEP) + 0.05);
+      expect(effectiveMaliciousRate(rank, RATE_STEP, [value, 0.05])).toBeCloseTo(maliciousRateForRank(rank, RATE_STEP) + 0.05);
     }
   });
 
   it('複数の差分は加算され、順序に依存しない', () => {
-    const base = maliciousRateForRank('middle', STEP);
-    const a = effectiveMaliciousRate('middle', STEP, [0.1, -0.05, 0.02]);
-    const b = effectiveMaliciousRate('middle', STEP, [0.02, 0.1, -0.05]);
+    const base = maliciousRateForRank('middle', RATE_STEP);
+    const a = effectiveMaliciousRate('middle', RATE_STEP, [0.1, -0.05, 0.02]);
+    const b = effectiveMaliciousRate('middle', RATE_STEP, [0.02, 0.1, -0.05]);
     expect(a).toBeCloseTo(base + 0.07);
     expect(b).toBeCloseTo(a, 12);
   });
 
   it.each(RANK_OR_NONE)('%s: -1 で下限、+1 で 1', (rank) => {
-    expect(effectiveMaliciousRate(rank, STEP, [-1])).toBe(MIN);
-    expect(effectiveMaliciousRate(rank, STEP, [1])).toBe(1);
+    expect(effectiveMaliciousRate(rank, RATE_STEP, [-1])).toBe(MIN);
+    expect(effectiveMaliciousRate(rank, RATE_STEP, [1])).toBe(1);
   });
 });
 
 describe('補正後の不正コード率で種類を決める（pickCodeKind との接続・境界値）', () => {
   it.each(RANK_OR_NONE)('%s: 補正あり（+0.1）の rate で rate - ε は不正、rate は正常', (rank) => {
-    const rate = effectiveMaliciousRate(rank, STEP * 2, [0.1]);
+    const rate = effectiveMaliciousRate(rank, RATE_STEP * 2, [0.1]);
     expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
     expect(pickCodeKind(() => rate, rate)).toBe('normal');
   });
 
   it.each(RANK_OR_NONE)('%s: 下限で止まる場合も MIN - ε は不正、MIN は正常', (rank) => {
-    const rate = effectiveMaliciousRate(rank, STEP * 2, [-1]);
+    const rate = effectiveMaliciousRate(rank, RATE_STEP * 2, [-1]);
     expect(rate).toBe(MIN);
     expect(pickCodeKind(() => MIN - EPS, rate)).toBe('malicious');
     expect(pickCodeKind(() => MIN, rate)).toBe('normal');
@@ -573,8 +622,16 @@ describe('config の整合性', () => {
 
   it('間隔は正、増加量は 0 以上', () => {
     expect(DIFFICULTY_STEP_MS).toBeGreaterThan(0);
+    expect(MALICIOUS_RATE_STEP_MS).toBeGreaterThan(0);
     expect(CODE_SPEED_INCREMENT).toBeGreaterThanOrEqual(0);
     expect(CODE_MALICIOUS_RATE_INCREMENT).toBeGreaterThanOrEqual(0);
+  });
+
+  it('不正コード率の段階間隔(#150)はゲーム内10日（MS_PER_GAME_DAY × 10 = 20,000ms）で、増加量は 3 ポイント', () => {
+    expect(MALICIOUS_RATE_STEP_DAYS).toBe(10);
+    expect(MALICIOUS_RATE_STEP_MS).toBe(MS_PER_GAME_DAY * MALICIOUS_RATE_STEP_DAYS);
+    expect(MALICIOUS_RATE_STEP_MS).toBe(20000);
+    expect(CODE_MALICIOUS_RATE_INCREMENT).toBeCloseTo(0.03, 12);
   });
 });
 
@@ -622,7 +679,7 @@ describe('vacationMaliciousRateModifiers（休暇による補正・境界値）'
   describe.each(RANKS)('%s: 経過時間 0 とランク上限到達時', (id, rank) => {
     it.each([
       ['0ms', 0],
-      ['ランク上限到達', STEP * rankCapStep(rank)],
+      ['ランク上限到達', RATE_STEP * rankCapStep(rank)],
     ] as const)('%s: 低下量が正なら基礎率 − 低下量、0 なら基礎率', (_label, ms) => {
       const base = maliciousRateForRank(id, ms);
       const reduced = effectiveMaliciousRate(id, ms, vacationMaliciousRateModifiers(makeVacationEngineer(id, REDUCTION)));
@@ -632,7 +689,7 @@ describe('vacationMaliciousRateModifiers（休暇による補正・境界値）'
   });
 
   it.each(RANKS)('%s: 休暇の前は基礎率、休暇中・復帰後は基礎率 − REDUCTION', (id) => {
-    const ms = STEP;
+    const ms = RATE_STEP;
     const base = maliciousRateForRank(id, ms);
     const rateOf = (engineers: readonly Engineer[]): number =>
       effectiveMaliciousRate(id, ms, vacationMaliciousRateModifiers(findEngineerByRoute(engineers, 0)));
@@ -665,7 +722,7 @@ describe('vacationMaliciousRateModifiers（休暇による補正・境界値）'
   });
 
   it.each(RANKS)('%s: 休暇後の率で rate - ε は不正、rate は正常', (id) => {
-    const rate = effectiveMaliciousRate(id, STEP * 2, vacationMaliciousRateModifiers(makeVacationEngineer(id, REDUCTION)));
+    const rate = effectiveMaliciousRate(id, RATE_STEP * 2, vacationMaliciousRateModifiers(makeVacationEngineer(id, REDUCTION)));
     expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
     expect(pickCodeKind(() => rate, rate)).toBe('normal');
   });
@@ -687,21 +744,21 @@ describe('技術的負債による補正と effectiveMaliciousRate の合成(#45
   const extraFor = (target: number): number => delta(target) - BONUS;
 
   it.each(RANK_OR_NONE)('%s: 負債 0 は基礎率と同じ', (rank) => {
-    for (const ms of [0, STEP, STEP * (maxCapStep + 1)]) {
+    for (const ms of [0, RATE_STEP, RATE_STEP * (maxCapStep + 1)]) {
       expect(effectiveMaliciousRate(rank, ms, [debtModifier(0)])).toBe(maliciousRateForRank(rank, ms));
     }
   });
 
   it.each(RANK_OR_NONE)('%s: 負債 MAX は基礎率 + maxBonus（ランク上限を超えてよい）', (rank) => {
-    const ms = STEP * (maxCapStep + 1);
+    const ms = RATE_STEP * (maxCapStep + 1);
     const base = maliciousRateForRank(rank, ms);
     expect(effectiveMaliciousRate(rank, ms, [debtModifier(DEBT_MAX)])).toBeCloseTo(base + BONUS, 12);
     expect(effectiveMaliciousRate(rank, ms, [debtModifier(DEBT_MAX)])).toBeGreaterThan(base);
   });
 
   it.each(RANK_OR_NONE)('%s: 負債 MAX / 2 は基礎率 + maxBonus / 2', (rank) => {
-    const base = maliciousRateForRank(rank, STEP);
-    expect(effectiveMaliciousRate(rank, STEP, [debtModifier(DEBT_MAX / 2)])).toBeCloseTo(base + BONUS / 2, 12);
+    const base = maliciousRateForRank(rank, RATE_STEP);
+    expect(effectiveMaliciousRate(rank, RATE_STEP, [debtModifier(DEBT_MAX / 2)])).toBeCloseTo(base + BONUS / 2, 12);
   });
 
   it.each([
@@ -718,10 +775,10 @@ describe('技術的負債による補正と effectiveMaliciousRate の合成(#45
   });
 
   it.each(RANK_OR_NONE)('%s: 負の差分（休暇・リファクタリング想定）と合成しても合計後に下限 MIN を適用する', (rank) => {
-    expect(effectiveMaliciousRate(rank, STEP, [debtModifier(DEBT_MAX), -1])).toBe(MIN);
+    expect(effectiveMaliciousRate(rank, RATE_STEP, [debtModifier(DEBT_MAX), -1])).toBe(MIN);
     // 負債の増加と負の差分は相殺される（差分ごとにはクランプしない）。
-    expect(effectiveMaliciousRate(rank, STEP, [debtModifier(DEBT_MAX), -BONUS])).toBeCloseTo(
-      maliciousRateForRank(rank, STEP),
+    expect(effectiveMaliciousRate(rank, RATE_STEP, [debtModifier(DEBT_MAX), -BONUS])).toBeCloseTo(
+      maliciousRateForRank(rank, RATE_STEP),
       12,
     );
   });
@@ -740,13 +797,13 @@ describe('技術的負債による補正と effectiveMaliciousRate の合成(#45
       ...createEngineerParameters('junior', 'meticulous'),
     };
     const modifiers = [...vacationMaliciousRateModifiers(engineer), debtModifier(DEBT_MAX)];
-    const base = maliciousRateForRank('junior', STEP);
-    expect(effectiveMaliciousRate('junior', STEP, modifiers)).toBeCloseTo(base - 0.1 + BONUS, 12);
+    const base = maliciousRateForRank('junior', RATE_STEP);
+    expect(effectiveMaliciousRate('junior', RATE_STEP, modifiers)).toBeCloseTo(base - 0.1 + BONUS, 12);
   });
 
   it.each(RANK_OR_NONE)('%s: pickCodeKind の境界は負債で移動する（rate - ε は不正、rate は正常）', (rank) => {
-    const low = effectiveMaliciousRate(rank, STEP, [debtModifier(0)]);
-    const high = effectiveMaliciousRate(rank, STEP, [debtModifier(DEBT_MAX)]);
+    const low = effectiveMaliciousRate(rank, RATE_STEP, [debtModifier(0)]);
+    const high = effectiveMaliciousRate(rank, RATE_STEP, [debtModifier(DEBT_MAX)]);
     expect(high).toBeGreaterThan(low);
     for (const rate of [low, high]) {
       expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');

@@ -131,8 +131,8 @@ const MONTH_BOUNDARY_MS = MS_PER_GAME_MONTH;
 const BEFORE_BOUNDARY_MS = MONTH_BOUNDARY_MS - MS_PER_GAME_DAY;
 const LAST_FRAME_BEFORE_BOUNDARY_MS = MONTH_BOUNDARY_MS - STEP_MS;
 const AFTER_BOUNDARY_MS = MONTH_BOUNDARY_MS + MS_PER_GAME_DAY;
-// 既定のリファクタリング割合では、30 日目までに技術的負債が上限に達し、生成間隔が延びる(#44)。
-// 境界後に新しいコードが出ることは、延びた生成間隔ぶん進めてから確かめる。
+// 既定のリファクタリング割合では、30 日目までに技術的負債が上限に達する。負債上限での実効間隔(#44)を使って、
+// 境界後に新しいコードが出ることを、その間隔ぶん進めてから確かめる（#150 で倍率が 1 になり、基準の間隔と同じ）。
 const MAX_DEBT_SPAWN_INTERVAL_MS = techDebtSpawnIntervalMs(TECH_DEBT_MAX, CODE_SPAWN_INTERVAL_MS);
 const AFTER_SPAWN_INTERVAL_MS = MONTH_BOUNDARY_MS + MAX_DEBT_SPAWN_INTERVAL_MS;
 // 30 日目の給料・月額を払っても倒産しない十分な資金（初期資金の 1000 倍）。
@@ -270,8 +270,9 @@ describe('MainScene.update: 30 日目の境界をまたいでもコードを書�
     expect(payloadsOf(scene, SALARY_PAID_EVENT)).toEqual([expect.objectContaining({ month: 1, amount: payroll })]);
     expect(scene.gameOver.over).toBe(false);
     expect(countEvents(scene, GAME_OVER_EVENT)).toBe(0);
-    // 生成は止まらないが、負債が上限なので生成間隔は既定の 2 倍（#44 の仕様どおり）。
+    // 負債は上限に達しているが、生成間隔は基準のまま（#150 で倍率 1。生産量は負債で落とさない）。
     expect(scene.techDebt).toBe(TECH_DEBT_MAX);
+    expect(MAX_DEBT_SPAWN_INTERVAL_MS).toBe(CODE_SPAWN_INTERVAL_MS);
     const nextIdAtBoundary = scene.nextCodeId;
     const positionsAtBoundary = positionsById(scene.codes);
     const releasedAtBoundary = countEvents(scene, CODE_RELEASED_EVENT);
