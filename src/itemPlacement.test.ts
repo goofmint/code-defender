@@ -78,24 +78,24 @@ const placed = (id: number, cell: GridCell, itemType: ItemType = 'linter'): Plac
 
 describe('getItemPrice: 18アイテムの価格', () => {
   it.each([
-    ['codeRabbit', 200000],
-    ['linter', 50000],
-    ['testTool', 100000],
-    ['ci', 100000],
-    ['securityScanner', 200000],
-    ['pairProgrammer', 100000],
-    ['cat', 50000],
-    ['rubberDuck', 50000],
-    ['codeFreeze', 100000],
-    ['specChangeStorm', 100000],
-    ['coffeeMachine', 50000],
-    ['energyDrink', 50000],
-    ['pizza', 50000],
-    ['documentation', 100000],
-    ['fridayDeploy', 50000],
-    ['rollbackButton', 200000],
-    ['worksFine', 50000],
-    ['seniorNote', 200000],
+    ['codeRabbit', 100000],
+    ['linter', 25000],
+    ['testTool', 50000],
+    ['ci', 50000],
+    ['securityScanner', 100000],
+    ['pairProgrammer', 50000],
+    ['cat', 25000],
+    ['rubberDuck', 25000],
+    ['codeFreeze', 50000],
+    ['specChangeStorm', 50000],
+    ['coffeeMachine', 25000],
+    ['energyDrink', 25000],
+    ['pizza', 25000],
+    ['documentation', 50000],
+    ['fridayDeploy', 25000],
+    ['rollbackButton', 100000],
+    ['worksFine', 25000],
+    ['seniorNote', 100000],
   ] as const)('%s は %i 円', (itemType, price) => {
     expect(getItemPrice(itemType)).toBe(price);
   });
@@ -387,26 +387,26 @@ describe('formatItemMessage / formatItemButton', () => {
   });
 
   it('ボタンはページ内の枠番号 + 4 を表示する（#58）', () => {
-    expect(formatItemButton(1, 'linter')).toBe('[5] Linter 5万円');
-    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 20万/月');
-    expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 20万/月');
-    expect(formatItemButton(0, 'cat')).toBe('[4] Cat 5万円');
-    expect(formatItemButton(5, 'seniorNote')).toBe('[9] Senior 20万円');
+    expect(formatItemButton(1, 'linter')).toBe('[5] Linter 2.5万円');
+    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 10万/月');
+    expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 10万/月');
+    expect(formatItemButton(0, 'cat')).toBe('[4] Cat 2.5万円');
+    expect(formatItemButton(5, 'seniorNote')).toBe('[9] Senior 10万円');
   });
 
   it('ページごとのボタンのキー表示は 4〜9（#58。6個ずつ3ページ）', () => {
     const pages = [ITEM_TYPES.slice(0, 6), ITEM_TYPES.slice(6, 12), ITEM_TYPES.slice(12, 18)];
     expect(pages.map((page) => page.map((itemType, slot) => formatItemButton(slot, itemType)))).toEqual([
       [
-        '[4] CodeRabbit 20万/月',
-        '[5] Linter 5万円',
-        '[6] Test 10万円',
-        '[7] CI 10万/月',
-        '[8] Scanner 20万/月',
-        '[9] Pair 10万/月',
+        '[4] CodeRabbit 10万/月',
+        '[5] Linter 2.5万円',
+        '[6] Test 5万円',
+        '[7] CI 5万/月',
+        '[8] Scanner 10万/月',
+        '[9] Pair 5万/月',
       ],
-      ['[4] Cat 5万円', '[5] Duck 5万円', '[6] Freeze 10万円', '[7] SpecStorm 10万円', '[8] Coffee 5万円', '[9] Energy 5万円'],
-      ['[4] Pizza 5万円', '[5] Docs 10万円', '[6] FriDeploy 5万円', '[7] Rollback 20万円', '[8] Yoshi! 5万円', '[9] Senior 20万円'],
+      ['[4] Cat 2.5万円', '[5] Duck 2.5万円', '[6] Freeze 5万円', '[7] SpecStorm 5万円', '[8] Coffee 2.5万円', '[9] Energy 2.5万円'],
+      ['[4] Pizza 2.5万円', '[5] Docs 5万円', '[6] FriDeploy 2.5万円', '[7] Rollback 10万円', '[8] Yoshi! 2.5万円', '[9] Senior 10万円'],
     ]);
   });
 
@@ -415,9 +415,9 @@ describe('formatItemMessage / formatItemButton', () => {
   });
 
   it('月額の表示は精算と同じ倍率を使う（1回払いは倍率に関係なく購入価格）', () => {
-    expect(formatItemButton(0, 'codeRabbit', 0.5)).toBe('[4] CodeRabbit 10万/月');
+    expect(formatItemButton(0, 'codeRabbit', 0.5)).toBe('[4] CodeRabbit 5万/月');
     expect(formatItemButton(0, 'codeRabbit', 0)).toBe('[4] CodeRabbit 0万/月');
-    expect(formatItemButton(1, 'linter', 0.5)).toBe('[5] Linter 5万円');
+    expect(formatItemButton(1, 'linter', 0.5)).toBe('[5] Linter 2.5万円');
   });
 });
 
