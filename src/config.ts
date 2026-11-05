@@ -622,3 +622,51 @@ export const ITEM_MESSAGE_COLOR = '#b9f6ca';
 export const ITEM_MESSAGE_DURATION_MS = 2000;
 // 仮・要確認(#51): 月額 = Math.round(購入価格 × この倍率)。企画書の月額アイテムの「価格」を月額の価格と読み、購入時と同じ額（倍率 1）にした。数値の調整口。
 export const ITEM_MONTHLY_FEE_RATIO = 1;
+
+// 仮(#144): 床・ルート・出現場所の見た目。座標・セルサイズ・当たり判定は変えず、色と線だけを決める。
+// 床は濃紺2色の市松タイル（旧来の単色 0x16203a と同系色、背景色 #0b1020 と区別できる明るさ）。HUD の白文字と黒縁取りが読めるよう暗いままにする。
+export const FIELD_FLOOR_COLORS = {
+  tileLight: 0x182443,
+  tileDark: 0x131c35,
+  grid: 0x2a3a62,
+  frame: 0x5b8def,
+  vignette: 0x05070f,
+} as const;
+// 仮(#144): グリッド線の不透明度、外周の縁取りの太さ・不透明度、外周を暗くする帯（ビネット）の段数・1段の幅・最外段の不透明度。
+export const FIELD_FLOOR_STYLE = {
+  gridAlpha: 0.45,
+  frameWidth: 2,
+  frameAlpha: 0.6,
+  vignetteSteps: 4,
+  vignetteStepWidth: 4,
+  vignetteMaxAlpha: 0.35,
+} as const;
+// 仮(#144): ルートの色。暗く太い下地線に明るい本線を重ね、進行方向の矢印（シェブロン）を描く。
+export const ROUTE_COLORS = {
+  underlay: 0x0a1128,
+  main: 0x6c9cff,
+  chevron: 0xd6e4ff,
+} as const;
+// 仮(#144): ルートの線の太さ・不透明度と、矢印の間隔・大きさ（px）。間隔を CELL_SIZE にすると、矢印がセルの境目（折れ点の間）に並ぶ。
+export const ROUTE_LINE_STYLE = {
+  underlayWidth: 12,
+  underlayAlpha: 0.85,
+  mainWidth: 4,
+  mainAlpha: 0.9,
+  chevronSpacing: CELL_SIZE,
+  chevronSize: 8,
+  chevronWidth: 2,
+  chevronAlpha: 0.85,
+} as const;
+// 仮(#144): 出現場所の円（半径 SPAWN_MARKER_STYLE.radius）の外側の細いリングと、内側の小さな再生マーク（▶）の見た目。
+// リングはセル内（中心から CELL_SIZE / 2 未満）に収め、休暇マーカーの当たり判定（円の半径）は変えない。
+export const SPAWN_MARKER_DECOR_COLORS = {
+  ring: 0xffd180,
+  icon: 0xffffff,
+} as const;
+export const SPAWN_MARKER_DECOR_STYLE = {
+  ringGap: 3,
+  ringWidth: 1,
+  ringAlpha: 0.8,
+  iconSize: 10,
+} as const;

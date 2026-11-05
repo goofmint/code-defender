@@ -686,6 +686,7 @@ class MainScene extends Phaser.Scene {
     if (drawing !== undefined) {
       drawing.line.destroy();
       drawing.spawnMarker.destroy();
+      drawing.spawnDecoration.destroy();
       this.routeDrawings.delete(routeId);
     }
     // マーカーを destroy() すると入力も外れ、toggleVacation のコールバックは呼ばれなくなる。

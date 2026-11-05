@@ -1,7 +1,6 @@
 import Phaser from 'phaser';
 import {
   CELL_SIZE,
-  FIELD_COLORS,
   FIELD_COLS,
   FIELD_HEIGHT,
   FIELD_ROWS,
@@ -11,12 +10,12 @@ import {
 import { RELEASE_POINT_CENTER, RELEASE_POINT_STYLE } from './releasePoint';
 import {
   cellCenter,
-  ROUTE_STYLE,
+  routeChevrons,
   routePixelPoints,
   SPAWN_MARKER_STYLE,
   VACATION_MARKER_STYLE,
 } from './route';
-import type { Point, Route } from './route';
+import type { Point, Route, RouteChevron } from './route';
 import {
   CODE_CORNER_RADIUS_RATIO,
   CODE_SIZE,
@@ -40,6 +39,8 @@ import {
   CUMULATIVE_SALES_POSITION,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
+  FIELD_FLOOR_COLORS,
+  FIELD_FLOOR_STYLE,
   FUNDS_POSITION,
   GAME_OVER_OVERLAY,
   HIRE_BUTTON_COLORS,
@@ -59,6 +60,8 @@ import {
   REFACTORING_RATIO_LABEL_WIDTH,
   REFACTORING_RATIO_UI_GAP,
   REFACTORING_RATIO_UI_POSITION,
+  ROUTE_COLORS,
+  ROUTE_LINE_STYLE,
   SALARY_ADJUST_KEYS,
   SALARY_BUTTON_FONT_SIZE,
   SALARY_BUTTON_LABELS,
@@ -68,6 +71,8 @@ import {
   SALARY_UI_POSITION,
   SELECTED_ENGINEER_FONT_SIZE,
   SELECTED_ENGINEER_POSITION,
+  SPAWN_MARKER_DECOR_COLORS,
+  SPAWN_MARKER_DECOR_STYLE,
   TECH_DEBT_OUTAGE_TEXT,
   TECH_DEBT_OUTAGE_TEXT_COLOR,
   TECH_DEBT_OUTAGE_TEXT_DURATION_MS,
@@ -108,18 +113,33 @@ const FIELD_DEPTH = -1;
 // 主人公はフィールドより手前に描画する。
 const PLAYER_DEPTH = 1;
 
+// 床（#144）: 濃紺2色の市松タイル、薄いグリッド線、外周を暗くする帯（ビネット）と縁取り。すべて1つの Graphics に描く。
 export const drawField = (scene: Phaser.Scene): void => {
   const g = scene.add.graphics();
   g.setDepth(FIELD_DEPTH);
-  g.fillStyle(FIELD_COLORS.ground, 1);
-  g.fillRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
-  g.lineStyle(GRID_LINE_WIDTH, FIELD_COLORS.grid, 1);
+  for (let row = 0; row < FIELD_ROWS; row++) {
+    for (let col = 0; col < FIELD_COLS; col++) {
+      const color = (col + row) % 2 === 0 ? FIELD_FLOOR_COLORS.tileLight : FIELD_FLOOR_COLORS.tileDark;
+      g.fillStyle(color, 1);
+      g.fillRect(col * CELL_SIZE, row * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+    }
+  }
+  g.lineStyle(GRID_LINE_WIDTH, FIELD_FLOOR_COLORS.grid, FIELD_FLOOR_STYLE.gridAlpha);
   for (let col = 0; col <= FIELD_COLS; col++) {
     g.lineBetween(col * CELL_SIZE, 0, col * CELL_SIZE, FIELD_HEIGHT);
   }
   for (let row = 0; row <= FIELD_ROWS; row++) {
     g.lineBetween(0, row * CELL_SIZE, FIELD_WIDTH, row * CELL_SIZE);
   }
+  // ビネット: 外側の段ほど濃い帯を、フィールドの内側へ1段ずつ重ねる。
+  const { vignetteSteps, vignetteStepWidth, vignetteMaxAlpha, frameWidth, frameAlpha } = FIELD_FLOOR_STYLE;
+  for (let step = 0; step < vignetteSteps; step++) {
+    const inset = step * vignetteStepWidth + vignetteStepWidth / 2;
+    g.lineStyle(vignetteStepWidth, FIELD_FLOOR_COLORS.vignette, vignetteMaxAlpha * (1 - step / vignetteSteps));
+    g.strokeRect(inset, inset, FIELD_WIDTH - inset * 2, FIELD_HEIGHT - inset * 2);
+  }
+  g.lineStyle(frameWidth, FIELD_FLOOR_COLORS.frame, frameAlpha);
+  g.strokeRect(frameWidth / 2, frameWidth / 2, FIELD_WIDTH - frameWidth, FIELD_HEIGHT - frameWidth);
 };
 
 // 仮: フィールド（FIELD_DEPTH=-1）より手前、後続オブジェクトの邪魔にならない深さ。
@@ -155,23 +175,70 @@ export const drawReleasePoint = (scene: Phaser.Scene): void => {
 // 仮: フィールド(-1)より上、リリース地点(0)より下。
 const ROUTE_DEPTH = -0.5;
 
-// ルート1本ぶんの描画（線と出現場所の円）(#32)。退職でルートが消えるときに destroy() する。
+// ルート1本ぶんの描画（線と出現場所の円、円の装飾）(#32, #144)。退職でルートが消えるときに destroy() する。
 export type RouteDrawing = {
   readonly line: Phaser.GameObjects.Graphics;
   readonly spawnMarker: Phaser.GameObjects.Arc;
+  // 出現場所の円の外側リングと内側の ▶ (#144)。
+  readonly spawnDecoration: Phaser.GameObjects.Graphics;
 };
 
-// ルートごとに線の Graphics と出現場所の円を1個ずつ作り、routeId をキーにして返す。
+// 進行方向の矢印（「>」の形）を、先端が angle の向きになるよう (x, y) を中心に描く。
+const strokeChevron = (g: Phaser.GameObjects.Graphics, chevron: RouteChevron, size: number): void => {
+  const half = size / 2;
+  const cos = Math.cos(chevron.angle);
+  const sin = Math.sin(chevron.angle);
+  // 局所座標（先端 +x 方向）の点を回転して置く。
+  const at = (lx: number, ly: number): Point => ({
+    x: chevron.x + lx * cos - ly * sin,
+    y: chevron.y + lx * sin + ly * cos,
+  });
+  const tip = at(half / 2, 0);
+  const upper = at(-half / 2, -half);
+  const lower = at(-half / 2, half);
+  g.lineBetween(upper.x, upper.y, tip.x, tip.y);
+  g.lineBetween(lower.x, lower.y, tip.x, tip.y);
+};
+
+// 出現場所の円の装飾（外側の細いリングと内側の ▶）を、円の中心 (x, y) に描く。
+const drawSpawnDecoration = (scene: Phaser.Scene, x: number, y: number): Phaser.GameObjects.Graphics => {
+  const g = scene.add.graphics();
+  const { ringGap, ringWidth, ringAlpha, iconSize } = SPAWN_MARKER_DECOR_STYLE;
+  g.lineStyle(ringWidth, SPAWN_MARKER_DECOR_COLORS.ring, ringAlpha);
+  g.strokeCircle(0, 0, SPAWN_MARKER_STYLE.radius + ringGap);
+  // ▶ は重心が中心に来るよう、左辺を -iconSize/3、先端を +iconSize*2/3 に置く。
+  const half = iconSize / 2;
+  g.fillStyle(SPAWN_MARKER_DECOR_COLORS.icon, 1);
+  g.fillTriangle(-iconSize / 3, -half, -iconSize / 3, half, (iconSize * 2) / 3, 0);
+  g.setPosition(x, y);
+  g.setDepth(ROUTE_DEPTH);
+  return g;
+};
+
+// ルートごとに線の Graphics と出現場所の円（と装飾）を1個ずつ作り、routeId をキーにして返す。
 // 重なり順を変えないよう、先に全ルートの線を作ってから円を作る（線の上に円が来る）。
+// 線の Graphics には、暗く太い下地線・明るい本線・進行方向の矢印の順に重ねる(#144)。create() 時などに一度だけ描く。
 export const drawRoutes = (scene: Phaser.Scene, routes: readonly Route[]): Map<number, RouteDrawing> => {
   const lines = routes.map((route) => {
     const g = scene.add.graphics();
     g.setDepth(ROUTE_DEPTH);
-    g.lineStyle(ROUTE_STYLE.width, ROUTE_STYLE.color, ROUTE_STYLE.alpha);
     const points = routePixelPoints(route);
-    for (let i = 1; i < points.length; i++) {
-      g.lineBetween(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
-    }
+    const strokeRoute = (): void => {
+      for (let i = 1; i < points.length; i++) {
+        g.lineBetween(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
+      }
+    };
+    g.lineStyle(ROUTE_LINE_STYLE.underlayWidth, ROUTE_COLORS.underlay, ROUTE_LINE_STYLE.underlayAlpha);
+    strokeRoute();
+    // 折れ点の角が欠けないよう、下地線の太さの丸を折れ点に置く。
+    g.fillStyle(ROUTE_COLORS.underlay, ROUTE_LINE_STYLE.underlayAlpha);
+    points.forEach((p) => g.fillCircle(p.x, p.y, ROUTE_LINE_STYLE.underlayWidth / 2));
+    g.lineStyle(ROUTE_LINE_STYLE.mainWidth, ROUTE_COLORS.main, ROUTE_LINE_STYLE.mainAlpha);
+    strokeRoute();
+    g.lineStyle(ROUTE_LINE_STYLE.chevronWidth, ROUTE_COLORS.chevron, ROUTE_LINE_STYLE.chevronAlpha);
+    routeChevrons(points, ROUTE_LINE_STYLE.chevronSpacing).forEach((chevron) =>
+      strokeChevron(g, chevron, ROUTE_LINE_STYLE.chevronSize),
+    );
     return g;
   });
   return new Map(
@@ -181,7 +248,8 @@ export const drawRoutes = (scene: Phaser.Scene, routes: readonly Route[]): Map<n
         .circle(x, y, SPAWN_MARKER_STYLE.radius, SPAWN_MARKER_STYLE.fillColor)
         .setStrokeStyle(SPAWN_MARKER_STYLE.strokeWidth, SPAWN_MARKER_STYLE.strokeColor)
         .setDepth(ROUTE_DEPTH);
-      return [route.id, { line: lines[index], spawnMarker }];
+      const spawnDecoration = drawSpawnDecoration(scene, x, y);
+      return [route.id, { line: lines[index], spawnMarker, spawnDecoration }];
     }),
   );
 };

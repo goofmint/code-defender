@@ -34,7 +34,11 @@ vi.mock('phaser', () => {
 
 // 退職の処理が触る MainScene の private メンバーだけを表す型。キャストはこのテストファイルの中に閉じる。
 type FakeDestroyable = { readonly destroy: Mock<() => void> };
-type FakeRouteDrawing = { readonly line: FakeDestroyable; readonly spawnMarker: FakeDestroyable };
+type FakeRouteDrawing = {
+  readonly line: FakeDestroyable;
+  readonly spawnMarker: FakeDestroyable;
+  readonly spawnDecoration: FakeDestroyable;
+};
 type FakeVacationMarker = { readonly container: FakeDestroyable };
 type FakeText = FakeDestroyable & { readonly setText: Mock<(text: string) => void> };
 type FakeMessageText = FakeDestroyable & { readonly setDepth: Mock<(depth: number) => FakeMessageText> };
@@ -112,7 +116,9 @@ const createScene = (engineers: Engineer[], gameOver: GameOverState = NOT_OVER):
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
   scene.engineers = engineers;
   scene.routes = routes;
-  scene.routeDrawings = new Map(routes.map((route) => [route.id, { line: destroyable(), spawnMarker: destroyable() }]));
+  scene.routeDrawings = new Map(
+    routes.map((route) => [route.id, { line: destroyable(), spawnMarker: destroyable(), spawnDecoration: destroyable() }]),
+  );
   scene.vacationMarkers = new Map(routes.map((route) => [route.id, { container: destroyable() }]));
   scene.spawnElapsed = new Map(routes.map((route) => [route.id, 100]));
   scene.codes = routes.flatMap((route) => [0, 1].map((n) => ({ id: route.id * 10 + n, routeId: route.id, graphics: destroyable() })));
@@ -165,6 +171,7 @@ describe('MainScene: 愛着心が最低になったら自主退職し、その�
     expect(scene.routes.map((route) => route.id)).toEqual([0, 2]);
     expect(drawing.line.destroy).toHaveBeenCalledOnce();
     expect(drawing.spawnMarker.destroy).toHaveBeenCalledOnce();
+    expect(drawing.spawnDecoration.destroy).toHaveBeenCalledOnce();
     expect([...scene.routeDrawings.keys()]).toEqual([0, 2]);
     expect(marker.container.destroy).toHaveBeenCalledOnce();
     expect([...scene.vacationMarkers.keys()]).toEqual([0, 2]);
@@ -180,7 +187,9 @@ describe('MainScene: 愛着心が最低になったら自主退職し、その�
       expect(scene.codeHp.has(code.id)).toBe(true);
     });
     [0, 2].forEach((routeId) => {
-      expect(getOrThrow(scene.routeDrawings, routeId).line.destroy).not.toHaveBeenCalled();
+      const kept = getOrThrow(scene.routeDrawings, routeId);
+      expect(kept.line.destroy).not.toHaveBeenCalled();
+      expect(kept.spawnDecoration.destroy).not.toHaveBeenCalled();
       expect(getOrThrow(scene.vacationMarkers, routeId).container.destroy).not.toHaveBeenCalled();
     });
     expect(scene.engineerCountText.setText).toHaveBeenLastCalledWith(formatEngineerCount(2, MAX_ENGINEERS));

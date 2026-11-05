@@ -6,9 +6,5 @@ export { CELL_SIZE, FIELD_COLS, FIELD_ROWS };
 export const FIELD_WIDTH = CELL_SIZE * FIELD_COLS;
 export const FIELD_HEIGHT = CELL_SIZE * FIELD_ROWS;
 
-// 仮: 配色。背景色 #0b1020 と区別できるやや明るい暗色。
-export const FIELD_COLORS = {
-  ground: 0x16203a,
-  grid: 0x2a3a62,
-} as const;
+// 床の配色は config.ts の FIELD_FLOOR_COLORS / FIELD_FLOOR_STYLE(#144)。
 export const GRID_LINE_WIDTH = 1;
