@@ -8,7 +8,6 @@ import {
   LINTER_ATTACK_COOLDOWN_MS,
   LINTER_HESITATION_PROBABILITY,
   PAIR_PROGRAMMER_FOLLOW_OFFSET,
-  RELEASE_POINT_CELL,
   SENIOR_NOTE_PREVENTED_MESSAGE,
   TECH_DEBT_INITIAL,
 } from './config';
@@ -18,9 +17,10 @@ import type { FundsChangedEvent } from './funds';
 import type { GameOverState } from './gameOver';
 import { INCIDENT_EVENT, INCIDENT_PREVENTED_EVENT, incidentDamage } from './incident';
 import type { ActiveEffect, IncidentRecord } from './itemEffect';
+import { placementCellCenter, pointToPlacementCell } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
+import { RELEASE_POINT_CENTER } from './releasePoint';
 import { drawCode, drawItemAttackEffect, drawItemMessage } from './render';
-import { cellCenter } from './route';
 import type { GridCell, Point } from './route';
 
 type SceneConstructor = { readonly prototype: object };
@@ -102,8 +102,11 @@ type SceneUnderTest = {
 const NOT_OVER: GameOverState = { over: false, at: null };
 const T0 = 10_000;
 const FUNDS = 1_000_000;
-const ITEM_CELL: GridCell = { col: 7, row: 4 };
-const ITEM_CENTER = cellCenter(ITEM_CELL);
+// アイテムのセルは配置グリッド（16px #151）の座標。中心は (456, 264)。
+const ITEM_CELL: GridCell = { col: 28, row: 16 };
+const ITEM_CENTER = placementCellCenter(ITEM_CELL);
+// リリース地点を含む配置グリッドのセル。
+const NOTE_CELL = pointToPlacementCell(RELEASE_POINT_CENTER);
 
 const isFundsChangedEvent = (payload: object): payload is FundsChangedEvent =>
   'previous' in payload && 'current' in payload && 'delta' in payload && 'reason' in payload;
@@ -222,7 +225,7 @@ describe('攻撃しないアイテム(#58)', () => {
   it('ラバーダック・コーヒーマシン・書き置きは範囲内の不正なコードを攻撃しない', () => {
     const scene = createScene(
       [makeCode(1, ITEM_CENTER)],
-      [placed(0, 'rubberDuck'), placed(1, 'coffeeMachine', { col: 8, row: 4 }), placed(2, 'seniorNote', { col: 6, row: 4 })],
+      [placed(0, 'rubberDuck'), placed(1, 'coffeeMachine', { col: 31, row: 16 }), placed(2, 'seniorNote', { col: 25, row: 16 })],
     );
 
     scene.updateItems(T0);
@@ -251,7 +254,7 @@ describe('ペアプロ相棒(#58): 主人公についてまわる', () => {
   });
 
   it('置いたセルの近くのコードは、主人公が離れていれば叩かない', () => {
-    const scene = createScene([makeCode(1, cellCenter({ col: 1, row: 1 }))], [placed(0, 'pairProgrammer', { col: 1, row: 1 })]);
+    const scene = createScene([makeCode(1, placementCellCenter({ col: 1, row: 1 }))], [placed(0, 'pairProgrammer', { col: 1, row: 1 })]);
 
     scene.updateItems(T0);
 
@@ -296,7 +299,7 @@ describe('伝説のシニアの書き置き(#58): リリース地点の周辺で
   const payload: CodeReleasedPayload = { id: 9, kind: 'malicious', routeId: 0 };
 
   it('リリース地点が範囲内なら損害・INCIDENT_EVENT・直前の障害の記録を出さず、防いだことを知らせる', () => {
-    const scene = createScene([], [placed(0, 'seniorNote', RELEASE_POINT_CELL)]);
+    const scene = createScene([], [placed(0, 'seniorNote', NOTE_CELL)]);
 
     scene.onCodeReleased(payload);
 

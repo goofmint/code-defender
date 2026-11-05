@@ -6,21 +6,23 @@ import type { Mock } from 'vitest';
 import {
   GAME_OVER_RESTART_KEYS,
   INITIAL_FUNDS,
-  INITIAL_PLACEMENT_BLOCKED_CELLS,
   INITIAL_PLACEMENT_START_KEYS,
-  ITEM_BLOCKED_CELLS,
+  INITIAL_PLACEMENT_UI_BOUNDS,
+  ITEM_BLOCKED_RECTS,
   ITEM_BUY_KEYS,
   ITEM_PAGE_KEYS,
   ITEM_PAGE_SIZE,
+  PLACEMENT_COLS,
+  PLACEMENT_ROWS,
   STAGE_POINTS_INITIAL,
 } from './config';
-import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
+import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import type { GameOverState } from './gameOver';
 import { getStagePointCost } from './initialPlacement';
 import type { InitialPlacementState } from './initialPlacement';
 import { ITEM_TYPES } from './item';
 import type { ItemType } from './item';
-import { isPlaceableCell } from './itemPlacement';
+import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import type { GridCell, Route } from './route';
 
@@ -241,17 +243,18 @@ const createHarness = (): Harness => {
   };
 };
 
-// 初期配置の間に置けるセルを左上から n 個（ルート・HUD・初期配置UIのセルを除く）。
+// 初期配置の間に置ける配置グリッド（16px #151）のセルを左上から n 個（ルート・HUD・初期配置UIの範囲と、先に選んだセルのフットプリントに重ならないセル）。
 const placeableCells = (routes: readonly Route[], count: number): GridCell[] => {
   const cells: GridCell[] = [];
-  for (let row = 0; row < FIELD_ROWS && cells.length < count; row += 1) {
-    for (let col = 0; col < FIELD_COLS && cells.length < count; col += 1) {
+  for (let row = 0; row < PLACEMENT_ROWS && cells.length < count; row += 1) {
+    for (let col = 0; col < PLACEMENT_COLS && cells.length < count; col += 1) {
       const cell = { col, row };
+      const placedItems: PlacedItem[] = cells.map((chosen, id) => ({ id, itemType: 'linter', cell: chosen, lastAttackTime: null }));
       if (
         isPlaceableCell(cell, {
           routes,
-          placedItems: [],
-          blockedCells: [...ITEM_BLOCKED_CELLS, ...INITIAL_PLACEMENT_BLOCKED_CELLS],
+          placedItems,
+          blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS],
         })
       ) {
         cells.push(cell);
@@ -262,10 +265,8 @@ const placeableCells = (routes: readonly Route[], count: number): GridCell[] => 
   return cells;
 };
 
-const centerOf = (cell: GridCell): { readonly x: number; readonly y: number } => ({
-  x: cell.col * CELL_SIZE + CELL_SIZE / 2,
-  y: cell.row * CELL_SIZE + CELL_SIZE / 2,
-});
+// 押す位置は配置グリッドのセルの中心。
+const centerOf = (cell: GridCell): { readonly x: number; readonly y: number } => placementCellCenter(cell);
 
 const startKey = INITIAL_PLACEMENT_START_KEYS[0];
 
@@ -322,6 +323,36 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     pointerDown(centerOf(cell), [{}]);
     expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
     expect(render.drawInitialPlacementMessage).not.toHaveBeenCalled();
+  });
+
+  it('境界値: フィールド外（x=960・y=540・負）の押下では置かず、メッセージも出さない。フィールド内の端（959.99, 539.99）は判定する(#151)', () => {
+    const { scene, pointerDown } = createHarness();
+    pointerDown({ x: FIELD_WIDTH, y: 100 });
+    pointerDown({ x: 100, y: FIELD_HEIGHT });
+    pointerDown({ x: -0.01, y: 100 });
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+    expect(render.drawInitialPlacementMessage).not.toHaveBeenCalled();
+    // 右下の端はフィールド内なので判定し、フットプリントがはみ出すため「そこには置けません」。
+    pointerDown({ x: FIELD_WIDTH - 0.01, y: FIELD_HEIGHT - 0.01 });
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'そこには置けません');
+  });
+
+  it('置いたアイテムのフットプリント内なら、セルの中心でなくても・別のセルでも撤去する。フットプリントの右端ちょうどは置く判定になる(#151)', () => {
+    const { scene, pointerDown } = createHarness();
+    const [cell] = placeableCells(scene.routes, 1);
+    pointerDown(centerOf(cell));
+    expect(scene.initialPlacement.itemState.placedItems).toHaveLength(1);
+    const { x, y, width, height } = itemFootprint(cell);
+    // 右下の角の 0.01px 内側（セルは cell の 2 つ右・2 つ下）を押すと撤去する。
+    pointerDown({ x: x + width - 0.01, y: y + height - 0.01 });
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+    expect(scene.initialPlacement.points).toBe(STAGE_POINTS_INITIAL);
+    // 置き直してから右端ちょうど（フットプリントの外）を押すと、撤去ではなく置く判定（重なるので occupied）になる。
+    pointerDown(centerOf(cell));
+    pointerDown({ x: x + width, y });
+    expect(scene.initialPlacement.itemState.placedItems).toHaveLength(1);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'そこには置けません');
   });
 
   it('購入キーは setup の間は現在のページの種類を選ぶだけで、買わない。ページ切り替え(#58)は setup の間も動く', () => {

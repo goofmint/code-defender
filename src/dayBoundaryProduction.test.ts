@@ -9,6 +9,8 @@ import {
   INITIAL_FUNDS,
   ITEM_PRICE_TIERS,
   MS_PER_GAME_MONTH,
+  PLACEMENT_COLS,
+  PLACEMENT_ROWS,
   REVENUE_PER_NORMAL_CODE,
   TECH_DEBT_INITIAL,
   TECH_DEBT_MAX,
@@ -17,7 +19,6 @@ import { CODE_RELEASED_EVENT } from './codeFlow';
 import type { CodeReleasedPayload } from './codeFlow';
 import { createInitialFleet } from './engineer';
 import type { Engineer } from './engineer';
-import { FIELD_COLS, FIELD_ROWS } from './field';
 import { FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent } from './funds';
 import { GAME_OVER_EVENT, INITIAL_GAME_OVER_STATE } from './gameOver';
@@ -27,9 +28,8 @@ import type { MonthElapsedEvent } from './gameTime';
 import type { ItemType } from './item';
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
-import { getItemMonthlyFee, getItemPrice, isPlaceableCell } from './itemPlacement';
+import { getItemMonthlyFee, getItemPrice, isPlaceableCell, placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
-import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
 import { getEngineerSalaries, getMonthlyPayroll, SALARY_PAID_EVENT } from './salary';
 import { getReleaseRevenue } from './sales';
@@ -241,10 +241,10 @@ const movedCount = (before: Map<number, Point>, after: readonly FakeCode[]): { s
   return { shared: shared.length, moved: moved.length };
 };
 
-// 置けるセルを左上から探す（ルート・UI・HUD に重ならないセル）。
+// 置ける配置グリッド（16px #151）のセルを左上から探す（ルート・UI・HUD に重ならないセル）。
 const findPlaceableCell = (scene: SceneUnderTest): GridCell => {
-  for (let row = 0; row < FIELD_ROWS; row++) {
-    for (let col = 0; col < FIELD_COLS; col++) {
+  for (let row = 0; row < PLACEMENT_ROWS; row++) {
+    for (let col = 0; col < PLACEMENT_COLS; col++) {
       const cell: GridCell = { col, row };
       if (isPlaceableCell(cell, { routes: scene.routes, placedItems: scene.placedItems })) return cell;
     }
@@ -363,7 +363,7 @@ describe('MainScene.update: 新しい価格で CodeRabbit を買っても 30 日
     expect(price).toBe(ITEM_PRICE_TIERS.expensive);
     expect(fee).toBe(ITEM_PRICE_TIERS.expensive);
     const scene = createScene(INITIAL_FUNDS);
-    const center = cellCenter(findPlaceableCell(scene));
+    const center = placementCellCenter(findPlaceableCell(scene));
     scene.player = { x: center.x, y: center.y, setPosition: vi.fn<(x: number, y: number) => void>() };
 
     scene.buyItem('codeRabbit');

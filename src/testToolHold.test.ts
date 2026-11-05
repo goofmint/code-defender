@@ -13,9 +13,9 @@ import { codeSpeedAt } from './difficulty';
 import type { Engineer } from './engineer';
 import type { GameOverState } from './gameOver';
 import type { ItemType } from './item';
+import { placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import type { MaliciousCodeType } from './maliciousCode';
-import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
 import type { ActiveEffect, IncidentRecord } from './itemEffect';
 
@@ -96,7 +96,7 @@ const T0 = 10_000;
 // テストではゲーム開始直後（elapsedMs = 0）の速度で動かす。
 const SPEED = codeSpeedAt(0);
 const ITEM_CELL: GridCell = { col: 7, row: 4 };
-const ITEM_CENTER = cellCenter(ITEM_CELL);
+const ITEM_CENTER = placementCellCenter(ITEM_CELL);
 // 移動の検証中にリリースされないよう、十分長い直線の経路にする。
 const PATH_LENGTH = 100_000;
 
