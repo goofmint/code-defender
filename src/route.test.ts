@@ -18,10 +18,12 @@ import { CELL_SIZE } from './field';
 import type { GridCell, Route } from './route';
 import {
   addRoute,
+  addRouteAt,
   cellCenter,
   createRoute,
   createRoutes,
   nextSpawnCell,
+  pointToRouteCell,
   removeRoute,
   routePixelPoints,
   SPAWN_MARKER_STYLE,
@@ -433,5 +435,73 @@ describe('removeRoute（退職でルートが消える #32）', () => {
     const removed = removeRoute(initial(), 1);
     expect(nextSpawnCell(removed.map((route) => route.spawn))).toEqual(spawnAt(0));
     expect(removed.map((route) => route.spawn)).not.toContainEqual(ENGINEER_SPAWN_CELLS[1]);
+  });
+});
+
+describe('addRouteAt（出現セルを指定して追加する #157）', () => {
+  const initial = (): Route[] => createRoutes(ENGINEER_SPAWN_CELLS, seededRandom(1));
+
+  it('多数のシード × 出現列の全行で、指定した出現セルから接続・範囲・単調・主人公セル回避を満たす', () => {
+    for (const seed of seeds) {
+      const random = seededRandom(seed);
+      for (const row of allRows) {
+        const route = addRouteAt([], spawnAt(row), random);
+        if (route === undefined) throw new Error('ルートを追加できませんでした');
+        expect(route.spawn).toEqual(spawnAt(row));
+        expectValidRoute(route);
+      }
+    }
+  });
+
+  it('id は既存の最大 id + 1（空なら 0、欠番があっても最大 + 1）', () => {
+    expect(addRouteAt([], spawnAt(0), alwaysMin)?.id).toBe(0);
+    expect(addRouteAt(initial(), spawnAt(0), alwaysMin)?.id).toBe(3);
+    expect(addRouteAt(removeRoute(initial(), 1), spawnAt(4), alwaysMin)?.id).toBe(3);
+    expect(addRouteAt(removeRoute(initial(), 2), spawnAt(7), alwaysMin)?.id).toBe(2);
+  });
+
+  it('同じ乱数列なら addRoute と同じ形（出現セルが同じとき）', () => {
+    const routes = initial();
+    expect(addRouteAt(routes, spawnAt(0), seededRandom(7))).toEqual(addRoute(routes, seededRandom(7)));
+  });
+
+  it('境界値: 上限-1本（8本）なら追加でき、上限ちょうど（9本）なら undefined', () => {
+    const below = routesAtRows(allRows.slice(0, MAX_ENGINEER_ROUTES - 1), alwaysMin);
+    expect(addRouteAt(below, spawnAt(MAX_ENGINEER_ROUTES - 1), alwaysMin)?.spawn).toEqual(spawnAt(MAX_ENGINEER_ROUTES - 1));
+    const full = routesAtRows(allRows.slice(0, MAX_ENGINEER_ROUTES), alwaysMin);
+    expect(addRouteAt(full, spawnAt(0), alwaysMin)).toBeUndefined();
+  });
+
+  it('入力の一覧と既存ルートを変更しない', () => {
+    const routes = initial();
+    const snapshot = structuredClone(routes);
+    addRouteAt(routes, spawnAt(0), alwaysMin);
+    expect(routes).toEqual(snapshot);
+  });
+});
+
+describe('pointToRouteCell（ピクセル → ルートグリッド 60px のセル #157）', () => {
+  it('セルの中心は cellCenter の逆になる', () => {
+    for (const row of allRows) {
+      for (const col of [0, FIELD_COLS - 1]) {
+        expect(pointToRouteCell(cellCenter({ col, row }))).toEqual({ col, row });
+      }
+    }
+  });
+
+  it('境界値: セル境界ちょうどは次のセル、0.01px 手前は前のセル', () => {
+    expect(pointToRouteCell({ x: 0, y: 0 })).toEqual({ col: 0, row: 0 });
+    expect(pointToRouteCell({ x: CELL_SIZE - 0.01, y: CELL_SIZE - 0.01 })).toEqual({ col: 0, row: 0 });
+    expect(pointToRouteCell({ x: CELL_SIZE, y: CELL_SIZE })).toEqual({ col: 1, row: 1 });
+  });
+
+  it('境界値: フィールドの内側の端はセルになり、外（負・幅・高さちょうど）は undefined', () => {
+    const width = CELL_SIZE * FIELD_COLS;
+    const height = CELL_SIZE * FIELD_ROWS;
+    expect(pointToRouteCell({ x: width - 0.01, y: height - 0.01 })).toEqual({ col: FIELD_COLS - 1, row: FIELD_ROWS - 1 });
+    expect(pointToRouteCell({ x: -0.01, y: 0 })).toBeUndefined();
+    expect(pointToRouteCell({ x: 0, y: -0.01 })).toBeUndefined();
+    expect(pointToRouteCell({ x: width, y: 0 })).toBeUndefined();
+    expect(pointToRouteCell({ x: 0, y: height })).toBeUndefined();
   });
 });

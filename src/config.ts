@@ -899,7 +899,8 @@ export const RELEASE_BURST = {
 
 // 仮・要確認(#47): 企画書(8)は「ステージポイントによる初期配置」とだけで、ポイントの初期値・コスト・返却・持ち越し・開始条件は未記載。以下はすべて仮の値（要調整。一次資料に定義なし）。
 // 仮の規則: ステージポイントは資金(funds)とは別の単位で、プレイ開始前（初期配置フェーズ）にだけ使う。資金は変えない。
-// 配置済みのセルをもう一度押すと撤去して、そのコストを全額返す。配置ゼロ・残ポイントありでも開始でき、残ポイントは開始時に破棄する（持ち越さない）。
+// 配置済みのアイテムは右上の×で撤去して、そのコストを全額返す(#157)。配置ゼロ・残ポイントありでも開始でき、残ポイントは開始時に破棄する（持ち越さない）。
+// 開始できるのは初期エンジニアを全員配置したときだけ(#157)。
 // 再開始（倒産後のリスタート）では毎回 STAGE_POINTS_INITIAL・配置なしから始める。月額アイテムの月額費用は、プレイ中に買ったものと同じく資金から引く(#51)。
 // 仮・要確認(#47): ステージ開始時のステージポイント。
 export const STAGE_POINTS_INITIAL = 6;
@@ -919,34 +920,62 @@ export const INITIAL_PLACEMENT_PANEL_POSITION = {
   x: CELL_SIZE * INITIAL_PLACEMENT_UI_LEFT_COL + INITIAL_PLACEMENT_UI_MARGIN,
   y: 68,
 } as const;
-// 仮・要確認(#47): パネル・開始ボタン・メッセージの文字サイズと行の間隔（ピクセル）。パネルは4行（残ポイント・選択中・操作説明2行）。
+// 仮・要確認(#47): パネル・開始ボタン・メッセージの文字サイズと行の間隔（ピクセル）。
+// 仮・要確認(#157): パネルは3行（残ポイント・選択中・マウス操作の説明1行）。キーボード操作の説明は出さない（情報量を減らす）。
 // 1行の高さは 文字サイズ × 1.25（縁取りを含めた余裕）を切り上げ + 行の間隔 = 20px として範囲を見積もる。
 export const INITIAL_PLACEMENT_FONT_SIZE = '14px';
 // 行の間隔は 2px。選択中のエンジニアの情報行（y=208〜、AIエージェントの表示 #53 で右へ長くなった）と重ならないよう、メッセージの下端を y=208 に収める。
 export const INITIAL_PLACEMENT_LINE_SPACING = 2;
-export const INITIAL_PLACEMENT_PANEL_LINES = 4;
+export const INITIAL_PLACEMENT_PANEL_LINES = 3;
 const INITIAL_PLACEMENT_LINE_HEIGHT_RATIO = 1.25;
 export const INITIAL_PLACEMENT_LINE_HEIGHT =
   Math.ceil(parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10) * INITIAL_PLACEMENT_LINE_HEIGHT_RATIO) + INITIAL_PLACEMENT_LINE_SPACING;
 // 仮・要確認(#47): パネル・開始ボタン・メッセージの間の縦の余白（ピクセル）。
 const INITIAL_PLACEMENT_UI_GAP = 6;
 // 仮・要確認(#47): パネルの文言。
+// 仮・要確認(#157): マウス操作（先に置くものを選び、次に置く場所をクリック。配置済みは右上の×で取り消す）に合わせた文言にする。
+// 開始キー（ENTER）は残すが、画面には出さない。
 export const INITIAL_PLACEMENT_TEXT = {
   title: '初期配置',
   points: '残りポイント: ',
   pointUnit: 'pt',
   selected: '選択: ',
-  instructionSelect: '[4〜9]/下のボタンで選択',
-  instructionPlace: 'クリックで配置・撤去',
-  startButton: '[ENTER] プレイ開始',
+  selectedNone: 'なし',
+  selectedEngineer: 'エンジニア',
+  instruction: '選んで床をクリック／×で取消',
+  startButton: 'プレイ開始',
+  // エンジニアの選択ボタンの文言。「エンジニア 残り3人」（残りは未配置の初期エンジニアの人数）。
+  engineerButton: 'エンジニア 残り',
+  engineerButtonUnit: '人',
 } as const;
-// 仮・要確認(#47): 開始ボタンの位置・大きさ（パネルの下、y=154〜182）。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
-export const INITIAL_PLACEMENT_START_BUTTON_SIZE = { width: 200, height: 28 } as const;
-export const INITIAL_PLACEMENT_START_BUTTON_POSITION = {
+// 仮・要確認(#157): 初期配置の結果メッセージのうち、エンジニアの配置・取消・選択・開始に関するもの。
+export const INITIAL_PLACEMENT_MESSAGES = {
+  engineerPlaced: 'エンジニアを置きました',
+  engineerRemoved: 'エンジニアを外しました',
+  engineerNotCandidate: 'エンジニアはここに置けません',
+  engineerOverlapsItem: 'アイテムと重なるため置けません',
+  noUnplacedEngineer: '置けるエンジニアがいません',
+  selectFirst: '先に置くものを選んでください',
+  placeAllEngineers: 'エンジニアを全員配置してください',
+} as const;
+// 仮・要確認(#157): エンジニアの選択ボタンと開始ボタンは、パネルの下の1行に左から並べる（y=134〜162）。
+// 幅の合計（エンジニア 150 + 間 6 + 開始 128 = 284）は初期配置UIの範囲の幅（x=668〜952）と同じ。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+export const INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE = { width: 150, height: 28 } as const;
+export const INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION = {
   x: INITIAL_PLACEMENT_PANEL_POSITION.x,
   y: INITIAL_PLACEMENT_PANEL_POSITION.y + INITIAL_PLACEMENT_PANEL_LINES * INITIAL_PLACEMENT_LINE_HEIGHT + INITIAL_PLACEMENT_UI_GAP,
 } as const;
-// 仮・要確認(#47): 初期配置の結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。開始ボタンの下（y=188〜208）。
+// 仮・要確認(#47): 開始ボタンの位置・大きさ。#157 でエンジニアの選択ボタンの右（x=824〜952）に移す。
+export const INITIAL_PLACEMENT_START_BUTTON_SIZE = { width: 128, height: 28 } as const;
+export const INITIAL_PLACEMENT_START_BUTTON_POSITION = {
+  x: INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION.x + INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE.width + INITIAL_PLACEMENT_UI_GAP,
+  y: INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION.y,
+} as const;
+// 仮・要確認(#157): 選択中の購入バーの枠・エンジニアの選択ボタンの強調色（塗り・枠線）。通常の色は ITEM_BUTTON_COLORS / HIRE_BUTTON_COLORS。
+export const INITIAL_PLACEMENT_SELECTED_COLORS = { fill: 0x5d4a12, stroke: 0xffd54f } as const;
+// 仮・要確認(#157): 開始できない（未配置のエンジニアがいる）ときの開始ボタンの不透明度。開始できるときは 1。
+export const INITIAL_PLACEMENT_START_BUTTON_ALPHA = { enabled: 1, disabled: 0.4 } as const;
+// 仮・要確認(#47): 初期配置の結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。ボタンの行の下（#157 で y=168〜188）。
 export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
   x: INITIAL_PLACEMENT_PANEL_POSITION.x,
   y: INITIAL_PLACEMENT_START_BUTTON_POSITION.y + INITIAL_PLACEMENT_START_BUTTON_SIZE.height + INITIAL_PLACEMENT_UI_GAP,
@@ -954,15 +983,42 @@ export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
 export const INITIAL_PLACEMENT_MESSAGE_COLOR = ITEM_MESSAGE_COLOR;
 export const INITIAL_PLACEMENT_MESSAGE_DURATION_MS = ITEM_MESSAGE_DURATION_MS;
 // 仮・要確認(#47): 初期配置UIが占める範囲の右端・下端（ピクセル）。右端はフィールド右端から余白を引いた位置、
-// 下端はメッセージ（1行）の下端。この矩形に重なる位置は初期配置の間だけ置けない（プレイ開始で UI を消すので、プレイ中の購入では置ける #151）。
+// 下端は選択中のエンジニアの情報行の上端（y=208）。#157 でパネルを3行にしてメッセージの下端は y=188 に上がったが、範囲は #47 のまま変えない
+// （hudLayout.test.ts でメッセージが範囲に収まることを確かめる）。この矩形に重なる位置は初期配置の間だけ置けない（プレイ開始で UI を消すので、プレイ中の購入では置ける #151）。
 const INITIAL_PLACEMENT_UI_RIGHT = FIELD_COLS * CELL_SIZE - INITIAL_PLACEMENT_UI_MARGIN;
-const INITIAL_PLACEMENT_UI_BOTTOM = INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT;
+const INITIAL_PLACEMENT_UI_BOTTOM = SELECTED_ENGINEER_POSITION.y;
 export const INITIAL_PLACEMENT_UI_BOUNDS = {
   x: INITIAL_PLACEMENT_PANEL_POSITION.x,
   y: INITIAL_PLACEMENT_PANEL_POSITION.y,
   width: INITIAL_PLACEMENT_UI_RIGHT - INITIAL_PLACEMENT_PANEL_POSITION.x,
   height: INITIAL_PLACEMENT_UI_BOTTOM - INITIAL_PLACEMENT_PANEL_POSITION.y,
 } as const;
+
+// 仮・要確認(#157): 初期配置でエンジニアを置ける床（ENGINEER_SPAWN_COL の空いた行）の色分け。setup の間だけ床(-1)とルート(-0.5)の間に重ねる。
+export const ENGINEER_CANDIDATE_OVERLAY = {
+  fillColor: 0x2e7d32,
+  fillAlpha: 0.45,
+  strokeColor: 0x81c784,
+  strokeWidth: 2,
+  strokeAlpha: 0.8,
+  depth: -0.75,
+} as const;
+// 仮・要確認(#157): 初期配置の取消（×）ボタン。一辺 size の正方形で、アイテム(0.4)より手前・主人公(1)より奥に描く。
+// アイテムでは見た目の四角（itemFootprint）の右上の角を中心にする（小さいアイテムでは四角に重なってよい）。
+// エンジニアでは出現場所の円の右上に置き、休暇マーカーの当たり判定（半径 SPAWN_MARKER_STYLE.radius の円）と重ならないようにする。
+export const INITIAL_PLACEMENT_REMOVE_BUTTON = {
+  size: 12,
+  fillColor: 0xc62828,
+  strokeColor: 0xffffff,
+  strokeWidth: 1,
+  label: '×',
+  fontSize: '11px',
+  labelColor: '#ffffff',
+  depth: 0.6,
+} as const;
+// 仮・要確認(#157): 後から置いたエンジニアの自動生成ルートが配置済みアイテムに重なるとき、ルートを作り直す回数の上限（最初の1回を含む）。
+// 上限まで重なったら置かない（アイテムは勝手に撤去しない）。
+export const INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS = 20;
 
 // 仮・要確認(#58): 企画書(8)の「その他のアイテム」の効果の数値は未定。以下はすべて仮の値（試作で調整する）。
 // 時限効果の時刻はゲーム内の経過ミリ秒（elapsedMs）で測る。同じ効果を重ねて買っても効果量は足さず、残り時間だけ延ばす（買い直した時点から数え直す）。

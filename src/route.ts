@@ -1,6 +1,7 @@
 // ルートの純粋ロジック。Phaser には依存しない（テスト可能にするため）。
 import {
   ENGINEER_SPAWN_COL,
+  FIELD_COLS,
   FIELD_ROWS,
   MAX_ENGINEER_ROUTES,
   PLAYER_START_COL,
@@ -156,6 +157,19 @@ export const addRoute = (
   return createRoute(id, spawn, RELEASE_POINT_CELL, random);
 };
 
+// 出現セルを指定して新しいルートを返す（初期配置でエンジニアの位置を選ぶ #157）。入力は変更しない。上限なら undefined。
+// addRoute との違いは出現セルを自動で選ばないことだけ（id の採番・上限・ルートの形は同じ）。
+// spawn はルートグリッド（60px）のセル。使用中のセルでないか・ENGINEER_SPAWN_COL の列かは呼び出し側（initialPlacement.ts）が確かめる。
+export const addRouteAt = (
+  routes: readonly Route[],
+  spawn: GridCell,
+  random: () => number,
+): Route | undefined => {
+  if (routes.length >= MAX_ENGINEER_ROUTES) return undefined;
+  const id = routes.reduce((max, route) => Math.max(max, route.id), -1) + 1;
+  return createRoute(id, spawn, RELEASE_POINT_CELL, random);
+};
+
 // 指定 id のルートを除いた新しい配列を返す（退職 #32）。存在しない id なら同じ内容の新しい配列。入力と残るルートは変更しない。
 // 残るルートは作り直さない（createRoutes の方針と同じく、流れているコードの path とずれないため）。
 // addRoute の採番（既存の最大 id + 1）はそのまま。最大 id のルートを消すと次の追加で同じ id が再び使われるが、
@@ -167,6 +181,15 @@ export const cellCenter = (cell: GridCell): Point => ({
   x: (cell.col + 0.5) * CELL_SIZE,
   y: (cell.row + 0.5) * CELL_SIZE,
 });
+
+// ピクセル座標を含むルートグリッド（60px）のセル（cellCenter の逆）(#157)。セル境界ちょうどは次のセル（x=60 → col 1、x=59.99 → col 0）。
+// フィールド外（負、または幅・高さちょうど以上）は undefined。配置グリッド（16px）のセルは itemPlacement.ts の pointToPlacementCell を使う。
+export const pointToRouteCell = (point: Point): GridCell | undefined => {
+  const col = Math.floor(point.x / CELL_SIZE);
+  const row = Math.floor(point.y / CELL_SIZE);
+  if (col < 0 || col >= FIELD_COLS || row < 0 || row >= FIELD_ROWS) return undefined;
+  return { col, row };
+};
 
 // コードの移動などで使うピクセル座標の折れ線。
 export const routePixelPoints = (route: Route): Point[] =>

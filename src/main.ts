@@ -20,6 +20,8 @@ import {
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
+  INITIAL_PLACEMENT_MESSAGES,
+  INITIAL_PLACEMENT_START_BUTTON_ALPHA,
   INITIAL_PLACEMENT_START_KEYS,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
@@ -72,6 +74,8 @@ import {
   drawGameOver,
   drawHireButtons,
   drawHireMessage,
+  drawEngineerCandidateOverlay,
+  drawInitialPlacementEngineerButton,
   drawInitialPlacementMessage,
   drawInitialPlacementPanel,
   drawInitialPlacementStartButton,
@@ -85,6 +89,7 @@ import {
   drawRefactoringRatioControl,
   drawReleaseBurst,
   drawReleasePoint,
+  drawRemoveButton,
   drawRoutes,
   drawSalaryButtons,
   drawSelectedEngineer,
@@ -94,7 +99,7 @@ import {
   flashCode,
   setPlayerFacing,
 } from './render';
-import type { ItemBar, RouteDrawing, VacationMarker } from './render';
+import type { EngineerSelectButton, ItemBar, RouteDrawing, VacationMarker } from './render';
 import {
   CODE_RELEASED_EVENT,
   advanceCode,
@@ -197,7 +202,7 @@ import type {
   EngineerSelectDirection,
   SalaryDirection,
 } from './engineer';
-import { addRoute, cellCenter, removeRoute } from './route';
+import { addRoute, cellCenter, pointToRouteCell, removeRoute } from './route';
 import { CODE_DELETED_BY_CAT_EVENT, pickRandomCode } from './cat';
 import type { CodeDeletedByCatPayload } from './cat';
 import {
@@ -237,14 +242,24 @@ import {
 } from './itemPlacement';
 import type { ItemPlacedPayload, ItemUsedPayload, PlacedItem } from './itemPlacement';
 import {
+  canStartPlay,
+  countUnplacedEngineers,
   createInitialPlacementState,
+  engineerRemoveButtonCenter,
   finishInitialPlacement,
+  formatEngineerPlacementMessage,
+  formatInitialPlacementEngineerButton,
+  formatInitialPlacementItemButton,
   formatInitialPlacementMessage,
   formatInitialPlacementPanel,
+  itemRemoveButtonCenter,
+  listEngineerCandidateCells,
+  placeInitialEngineer,
   placeInitialItem,
+  removeInitialEngineer,
   removeInitialItem,
 } from './initialPlacement';
-import type { InitialPlacementState } from './initialPlacement';
+import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
 import { formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, stepItemPage } from './itemBar';
 import type { ItemPageDirection } from './itemBar';
 import {
@@ -334,10 +349,16 @@ class MainScene extends Phaser.Scene {
   // 初期配置(#47)。setup の間は時間を止め、ステージポイントでアイテムを置く。開始操作で playing に移る。create() で毎回 setup に戻す。
   private phase: 'setup' | 'playing' = 'setup';
   private initialPlacement: InitialPlacementState = createInitialPlacementState();
-  // 初期配置で置くアイテムの種類（購入ボタン・購入キーで選ぶ）。
-  private initialPlacementItemType: ItemType = ITEM_TYPES[0];
+  // 初期配置で次に置くもの（購入バーでアイテム、エンジニアの選択ボタンでエンジニアを選ぶ #157）。最初は未選択。
+  private initialPlacementSelection: InitialPlacementSelection = { kind: 'none' };
   // 初期配置で置いたアイテムの描画（アイテム id がキー）。撤去で destroy() する。プレイ開始後は使わない。
   private initialPlacementDrawings = new Map<number, Phaser.GameObjects.Container>();
+  // 初期配置の取消（×）ボタン(#157)。アイテム用はアイテム id、エンジニア用はエンジニア id がキー。撤去時・プレイ開始時に destroy() する。
+  private itemRemoveButtons = new Map<number, Phaser.GameObjects.Container>();
+  private engineerRemoveButtons = new Map<number, Phaser.GameObjects.Container>();
+  // エンジニアを置ける床の色分け(#157)。置く・外すたびに描き直し、プレイ開始時に destroy() する。
+  private engineerCandidateOverlay?: Phaser.GameObjects.Graphics;
+  private initialPlacementEngineerButton?: EngineerSelectButton;
   private initialPlacementPanelText?: Phaser.GameObjects.Text;
   private initialPlacementStartButton?: Phaser.GameObjects.Container;
   private initialPlacementMessageText?: Phaser.GameObjects.Text;
@@ -432,14 +453,26 @@ class MainScene extends Phaser.Scene {
     // 初期配置(#47)。scene.restart() でも毎回 STAGE_POINTS_INITIAL・配置なしの setup から始める。
     this.phase = 'setup';
     this.initialPlacement = createInitialPlacementState();
-    this.initialPlacementItemType = ITEM_TYPES[0];
+    this.initialPlacementSelection = { kind: 'none' };
     this.initialPlacementDrawings = new Map();
     this.initialPlacementMessageText = undefined;
     this.initialPlacementPanelText = drawInitialPlacementPanel(
       this,
-      formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementItemType),
+      formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementSelection),
+    );
+    this.initialPlacementEngineerButton = drawInitialPlacementEngineerButton(
+      this,
+      formatInitialPlacementEngineerButton(countUnplacedEngineers(this.engineers)),
+      () => this.selectInitialPlacementEngineer(),
     );
     this.initialPlacementStartButton = drawInitialPlacementStartButton(this, () => this.startPlay());
+    // 初期エンジニアは既定の出現場所に置いた状態で始める（何もしなくても開始できる）。位置を変えるときは×で外して置き直す(#157)。
+    this.itemRemoveButtons = new Map();
+    this.engineerRemoveButtons = new Map();
+    this.engineers.forEach((engineer) => this.addEngineerRemoveButton(engineer));
+    this.engineerCandidateOverlay = undefined;
+    // 購入バーは上の refreshItemBar() の時点では前回の phase のままなので、setup の文言で描き直す。
+    this.refreshInitialPlacementControls();
     drawReleasePoint(this);
     this.player = drawPlayer(this);
     const keyboard = this.input.keyboard;
@@ -503,16 +536,38 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  // 初期配置(#47)で置くアイテムの種類を選び、パネルの表示を更新する。
+  // 初期配置(#47)で置くアイテムの種類を選び、パネルと購入バーの表示を更新する。
   private selectInitialPlacementItem(itemType: ItemType): void {
-    this.initialPlacementItemType = itemType;
-    this.refreshInitialPlacementPanel();
+    this.initialPlacementSelection = { kind: 'item', itemType };
+    this.refreshInitialPlacementControls();
   }
 
-  private refreshInitialPlacementPanel(): void {
+  // 初期配置で次に置くものをエンジニアにする(#157)。未配置のエンジニアがいなくても選べる（置こうとしたときにメッセージを出す）。
+  private selectInitialPlacementEngineer(): void {
+    if (this.phase !== 'setup') {
+      return;
+    }
+    this.initialPlacementSelection = { kind: 'engineer' };
+    this.refreshInitialPlacementControls();
+  }
+
+  // 初期配置UIの表示を今の状態に合わせる(#157)。パネル・エンジニアの選択ボタン・購入バーの強調・エンジニアを置ける床・開始ボタンの見た目。
+  // 選ぶ・置く・外すたびに呼ぶ（アイテムを置くとエンジニアを置ける床が変わるため、床も毎回描き直す）。
+  private refreshInitialPlacementControls(): void {
     this.initialPlacementPanelText?.setText([
-      ...formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementItemType),
+      ...formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementSelection),
     ]);
+    this.initialPlacementEngineerButton?.setLabel(formatInitialPlacementEngineerButton(countUnplacedEngineers(this.engineers)));
+    this.initialPlacementEngineerButton?.setSelected(this.initialPlacementSelection.kind === 'engineer');
+    this.engineerCandidateOverlay?.destroy();
+    this.engineerCandidateOverlay = drawEngineerCandidateOverlay(
+      this,
+      listEngineerCandidateCells(this.routes, this.initialPlacement.itemState.placedItems),
+    );
+    this.initialPlacementStartButton?.setAlpha(
+      canStartPlay(this.engineers) ? INITIAL_PLACEMENT_START_BUTTON_ALPHA.enabled : INITIAL_PLACEMENT_START_BUTTON_ALPHA.disabled,
+    );
+    this.refreshItemBar();
   }
 
   private showInitialPlacementMessage(message: string): void {
@@ -520,9 +575,9 @@ class MainScene extends Phaser.Scene {
     this.initialPlacementMessageText = drawInitialPlacementMessage(this, message);
   }
 
-  // 初期配置(#47)の押下。ボタン・マーカー上の押下（currentlyOver あり）とフィールド外の押下は何もしない（ボタン側の処理だけ動く）。
-  // 押した点が置いてあるアイテムのフットプリント内なら撤去してポイントを全額返し、そうでなければ押した点を含む配置グリッド（16px #151）のセルに
-  // 選択中の種類を置く。資金は変えない（changeFunds は通さない）。
+  // 初期配置(#47)の押下。ボタン・マーカー・×ボタン上の押下（currentlyOver あり）とフィールド外の押下は何もしない（ボタン側の処理だけ動く）。
+  // 未選択なら案内を出す。アイテムを選んでいれば押した点を含む配置グリッド（16px #151）のセルにその種類を置き（選択は残して続けて置ける）、
+  // エンジニアを選んでいれば押した点を含むルートグリッド（60px）のセルに置く(#157)。撤去は×ボタンだけで行う。資金は変えない（changeFunds は通さない）。
   private onInitialPlacementPointerDown(
     point: { readonly x: number; readonly y: number },
     currentlyOver: readonly Phaser.GameObjects.GameObject[],
@@ -530,20 +585,16 @@ class MainScene extends Phaser.Scene {
     if (this.phase !== 'setup' || currentlyOver.length > 0 || !isPointInField(point)) {
       return;
     }
-    const removal = removeInitialItem(this.initialPlacement, point);
-    if (removal.ok) {
-      this.initialPlacement = removal.state;
-      const drawing = this.initialPlacementDrawings.get(removal.item.id);
-      if (drawing === undefined) {
-        throw new Error(`初期配置のアイテムの描画が見つかりません: id=${removal.item.id}`);
-      }
-      drawing.destroy();
-      this.initialPlacementDrawings.delete(removal.item.id);
-      this.showInitialPlacementMessage(formatInitialPlacementMessage(removal, removal.item.itemType));
-      this.refreshInitialPlacementPanel();
+    const selection = this.initialPlacementSelection;
+    if (selection.kind === 'none') {
+      this.showInitialPlacementMessage(INITIAL_PLACEMENT_MESSAGES.selectFirst);
       return;
     }
-    const itemType = this.initialPlacementItemType;
+    if (selection.kind === 'engineer') {
+      this.placeInitialEngineerAt(point);
+      return;
+    }
+    const itemType = selection.itemType;
     const cell = pointToPlacementCell(point);
     // 初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS）と重なる位置は、初期配置の間だけ置けない（UI はプレイ開始で消える）。
     const result = placeInitialItem(this.initialPlacement, itemType, cell, {
@@ -556,13 +607,116 @@ class MainScene extends Phaser.Scene {
     }
     this.initialPlacement = result.state;
     this.initialPlacementDrawings.set(result.item.id, drawPlacedItem(this, result.item));
-    this.refreshInitialPlacementPanel();
+    this.addItemRemoveButton(result.item);
+    this.refreshInitialPlacementControls();
+  }
+
+  // 初期配置で置いたアイテムの右上に取消（×）ボタンを付ける(#157)。
+  private addItemRemoveButton(item: PlacedItem): void {
+    this.itemRemoveButtons.set(
+      item.id,
+      drawRemoveButton(this, itemRemoveButtonCenter(item.cell), () => this.removeInitialPlacedItem(item)),
+    );
+  }
+
+  // ×ボタンで初期配置のアイテムを撤去して、そのコストを全額返す(#157)。アイテムの描画と×ボタンを消す。
+  // 撤去の判定は removeInitialItem にセルの中心（フットプリントの内側）を渡して行う。フットプリントは重ならないので対象はこのアイテムだけ。
+  private removeInitialPlacedItem(item: PlacedItem): void {
+    if (this.phase !== 'setup') {
+      return;
+    }
+    const removal = removeInitialItem(this.initialPlacement, placementCellCenter(item.cell));
+    if (!removal.ok || removal.item.id !== item.id) {
+      throw new Error(`初期配置のアイテムが見つかりません: id=${item.id}`);
+    }
+    this.initialPlacement = removal.state;
+    const drawing = this.initialPlacementDrawings.get(item.id);
+    if (drawing === undefined) {
+      throw new Error(`初期配置のアイテムの描画が見つかりません: id=${item.id}`);
+    }
+    drawing.destroy();
+    this.initialPlacementDrawings.delete(item.id);
+    this.itemRemoveButtons.get(item.id)?.destroy();
+    this.itemRemoveButtons.delete(item.id);
+    this.showInitialPlacementMessage(formatInitialPlacementMessage(removal, item.itemType));
+    this.refreshInitialPlacementControls();
+  }
+
+  // 押した点を含むルートグリッド（60px）のセルに、未配置の初期エンジニアを1人置いてルートを自動で作る(#157)。
+  // ルートと出現場所は雇用時（addEngineerRoute）と同じく1本だけ描き、休暇マーカーと×ボタンを付ける。未配置が0人になったら未選択に戻す。
+  private placeInitialEngineerAt(point: { readonly x: number; readonly y: number }): void {
+    const cell = pointToRouteCell(point);
+    if (cell === undefined) {
+      throw new Error(`フィールド内の点がルートグリッドのセルになりません: (${point.x}, ${point.y})`);
+    }
+    const result = placeInitialEngineer(
+      this.engineers,
+      this.routes,
+      this.initialPlacement.itemState.placedItems,
+      cell,
+      Math.random,
+    );
+    this.showInitialPlacementMessage(formatEngineerPlacementMessage(result));
+    if (!result.ok) {
+      return;
+    }
+    this.routes = result.routes;
+    this.engineers = result.engineers;
+    this.drawAddedRoute(result.route);
+    const engineer = this.engineers.find((candidate) => candidate.id === result.engineerId);
+    if (engineer === undefined) {
+      throw new Error(`配置したエンジニアが見つかりません: id=${result.engineerId}`);
+    }
+    this.addEngineerRemoveButton(engineer);
+    if (countUnplacedEngineers(this.engineers) === 0) {
+      this.initialPlacementSelection = { kind: 'none' };
+    }
+    this.refreshInitialPlacementControls();
+  }
+
+  // 配置済みのエンジニアの出現場所の右上に取消（×）ボタンを付ける(#157)。未配置（routeId が null）なら付けない。
+  private addEngineerRemoveButton(engineer: Engineer): void {
+    if (engineer.routeId === null) {
+      return;
+    }
+    const routeId = engineer.routeId;
+    const route = this.routes.find((candidate) => candidate.id === routeId);
+    if (route === undefined) {
+      throw new Error(`エンジニアのルートが見つかりません: engineerId=${engineer.id}, routeId=${routeId}`);
+    }
+    this.engineerRemoveButtons.set(
+      engineer.id,
+      drawRemoveButton(this, engineerRemoveButtonCenter(route.spawn), () => this.removeInitialPlacedEngineer(engineer.id)),
+    );
+  }
+
+  // ×ボタンで初期配置のエンジニアを外す(#157)。ルートを除き、線・出現場所・休暇マーカーと×ボタンを消す。エンジニアは未配置に戻る（名簿には残る）。
+  private removeInitialPlacedEngineer(engineerId: number): void {
+    if (this.phase !== 'setup') {
+      return;
+    }
+    const result = removeInitialEngineer(this.engineers, this.routes, engineerId);
+    if (!result.ok) {
+      throw new Error(`外すエンジニアが配置されていません: id=${engineerId}, reason=${result.reason}`);
+    }
+    this.routes = result.routes;
+    this.engineers = result.engineers;
+    this.destroyRouteDrawing(result.routeId);
+    this.engineerRemoveButtons.get(engineerId)?.destroy();
+    this.engineerRemoveButtons.delete(engineerId);
+    this.showInitialPlacementMessage(INITIAL_PLACEMENT_MESSAGES.engineerRemoved);
+    this.refreshInitialPlacementControls();
   }
 
   // 初期配置(#47)を終えてプレイを始める。配置ゼロ・残ポイントありでも始められる（残ポイントは破棄）。
-  // 順序: 配置を引き継ぐ → 初期配置UIを消す → playing にする → 押したままのポインターで主人公が動かないようにする。
+  // 未配置の初期エンジニアがいるときは始めず、メッセージを出して setup のままにする(#157)。
+  // 順序: 配置を引き継ぐ → 初期配置UIを消す → playing にする → 購入バーを通常の表示に戻す → 押したままのポインターで主人公が動かないようにする。
   private startPlay(): void {
     if (this.phase !== 'setup' || this.gameOver.over) {
+      return;
+    }
+    if (!canStartPlay(this.engineers)) {
+      this.showInitialPlacementMessage(INITIAL_PLACEMENT_MESSAGES.placeAllEngineers);
       return;
     }
     const itemState = finishInitialPlacement(this.initialPlacement);
@@ -574,6 +728,16 @@ class MainScene extends Phaser.Scene {
     this.initialPlacementStartButton = undefined;
     this.initialPlacementMessageText?.destroy();
     this.initialPlacementMessageText = undefined;
+    // エンジニアの選択ボタン・床の色分け・×ボタンを消す(#157)。残すとプレイ中のフィールドの押下を遮る。
+    this.initialPlacementEngineerButton?.container.destroy();
+    this.initialPlacementEngineerButton = undefined;
+    this.engineerCandidateOverlay?.destroy();
+    this.engineerCandidateOverlay = undefined;
+    this.itemRemoveButtons.forEach((button) => button.destroy());
+    this.itemRemoveButtons = new Map();
+    this.engineerRemoveButtons.forEach((button) => button.destroy());
+    this.engineerRemoveButtons = new Map();
+    this.initialPlacementSelection = { kind: 'none' };
     // 初期配置で置いた主人公についてまわるアイテム（ペアプロ相棒 #58）は、購入時と同じく followItemViews で主人公に付ける。
     this.placedItems
       .filter((item) => isFollowItem(item.itemType))
@@ -587,6 +751,7 @@ class MainScene extends Phaser.Scene {
     // アイテムの描画はプレイ中も残す（撤去はもうしないので参照だけ捨てる）。
     this.initialPlacementDrawings = new Map();
     this.phase = 'playing';
+    this.refreshItemBar();
     this.attackPointerHeld = this.input.activePointer.isDown;
   }
 
@@ -851,9 +1016,20 @@ class MainScene extends Phaser.Scene {
     this.refreshItemBar();
   }
 
+  // 購入バーの文言を今のページで描き直す。初期配置の間は金額の代わりにステージポイントのコストを出し、選んでいるアイテムの枠を強調する(#157)。
   private refreshItemBar(): void {
-    const labels = getItemsOnPage(ITEM_TYPES, this.itemPage).map((itemType, slot) => formatItemButton(slot, itemType));
-    this.itemBar?.showPage(labels, formatItemPage(this.itemPage, getItemPageCount(ITEM_TYPES.length)));
+    const setup = this.phase === 'setup';
+    const items = getItemsOnPage(ITEM_TYPES, this.itemPage);
+    const labels = items.map((itemType, slot) =>
+      setup ? formatInitialPlacementItemButton(itemType) : formatItemButton(slot, itemType),
+    );
+    const selection = this.initialPlacementSelection;
+    const selectedSlot = setup && selection.kind === 'item' ? items.indexOf(selection.itemType) : -1;
+    this.itemBar?.showPage(
+      labels,
+      formatItemPage(this.itemPage, getItemPageCount(ITEM_TYPES.length)),
+      selectedSlot === -1 ? null : selectedSlot,
+    );
   }
 
   // 仮・要確認(#53): 選択中のエンジニアに AIエージェントを付ける（付けていれば付け替える。前の種類の返金はしない）。ゲームオーバー中は何もしない。
@@ -1177,6 +1353,15 @@ class MainScene extends Phaser.Scene {
       return;
     }
     this.routes = removeRoute(this.routes, routeId);
+    this.destroyRouteDrawing(routeId);
+    this.spawnElapsed.delete(routeId);
+    const { remaining, removed } = partitionCodesByRoute(this.codes, routeId);
+    removed.forEach((code) => this.discardCode(code));
+    this.codes = remaining;
+  }
+
+  // ルート1本ぶんの描画（線・出現場所の円と装飾）と休暇マーカーを消す。退職(#32)と初期配置の取消(#157)で使う。
+  private destroyRouteDrawing(routeId: number): void {
     const drawing = this.routeDrawings.get(routeId);
     if (drawing !== undefined) {
       drawing.line.destroy();
@@ -1187,10 +1372,6 @@ class MainScene extends Phaser.Scene {
     // マーカーを destroy() すると入力も外れ、toggleVacation のコールバックは呼ばれなくなる。
     this.vacationMarkers.get(routeId)?.container.destroy();
     this.vacationMarkers.delete(routeId);
-    this.spawnElapsed.delete(routeId);
-    const { remaining, removed } = partitionCodesByRoute(this.codes, routeId);
-    removed.forEach((code) => this.discardCode(code));
-    this.codes = remaining;
   }
 
   // 流れているコードを精算せずに消す(#32)。CI の阻止(#55)の後処理でも使う。codes 配列からの削除は呼び出し側で行う。
@@ -1524,9 +1705,14 @@ class MainScene extends Phaser.Scene {
     const route = addRoute(this.routes, Math.random);
     if (route === undefined) return undefined;
     this.routes.push(route);
+    this.drawAddedRoute(route);
+    return route;
+  }
+
+  // 追加したルート1本の線・出現場所を描き、休暇マーカーを重ねる。雇用(addEngineerRoute)と初期配置のエンジニアの配置(#157)で使う。
+  private drawAddedRoute(route: Route): void {
     drawRoutes(this, [route]).forEach((drawing, routeId) => this.routeDrawings.set(routeId, drawing));
     this.addVacationMarker(route);
-    return route;
   }
 
   // ルートの出現場所に休暇の切り替えマーカーを重ねる(#35)。
