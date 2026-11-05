@@ -169,6 +169,7 @@ import { addRoute, cellCenter, removeRoute } from './route';
 import { CODE_DELETED_BY_CAT_EVENT, pickRandomCode } from './cat';
 import type { CodeDeletedByCatPayload } from './cat';
 import { getItemDamage, isRandomDeleteItem, ITEM_TYPES } from './item';
+import { advanceHold, applyHold, getItemHoldMs } from './itemHold';
 import type { ItemType } from './item';
 import {
   canItemAttack,
@@ -195,6 +196,8 @@ class MainScene extends Phaser.Scene {
   private nextCodeId = 0;
   // 不正なコードの残り hp（コードIDがキー）。FlowingCode は変更しない。撃破・リリースで削除する。
   private codeHp = new Map<number, number>();
+  // テストツールの足止め(#54)の残り時間（ミリ秒）。キーはコード id。足止め中のコードだけが持つ。
+  private codeHold = new Map<number, number>();
   private lastAttackTime: number | null = null;
   // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
   private attackPointerHeld = false;
@@ -278,6 +281,7 @@ class MainScene extends Phaser.Scene {
     this.spawnElapsed = new Map();
     this.nextCodeId = 0;
     this.codeHp = new Map();
+    this.codeHold = new Map();
     this.routeDrawings = drawRoutes(this, this.routes);
     this.vacationMarkers = new Map();
     this.routes.forEach((route) => this.addVacationMarker(route));
@@ -655,6 +659,11 @@ class MainScene extends Phaser.Scene {
       drawItemAttackEffect(this, cellCenter(item.cell), target.position);
       flashCode(this, target.graphics);
       this.damageMaliciousCode(target, getItemDamage(item.itemType, target.maliciousType));
+      // テストツールは撃破されずに残った不正コードを足止めする(#54)。足止め時間 0 の種別では何もしない。
+      const holdMs = getItemHoldMs(item.itemType);
+      if (holdMs > 0 && this.codeHp.has(target.id)) {
+        this.codeHold.set(target.id, applyHold(this.codeHold.get(target.id) ?? 0, holdMs));
+      }
       return { ...item, lastAttackTime: now };
     });
   }
@@ -743,6 +752,7 @@ class MainScene extends Phaser.Scene {
   // 流れているコードを精算せずに消す(#32)。codes 配列からの削除は呼び出し側で行う。
   private discardCode(code: ActiveCode): void {
     this.codeHp.delete(code.id);
+    this.codeHold.delete(code.id);
     this.tweens.killTweensOf(code.graphics);
     code.graphics.destroy();
   }
@@ -937,7 +947,7 @@ class MainScene extends Phaser.Scene {
       }
     }
 
-    const distance = (codeSpeedAt(this.elapsedMs) * delta) / 1000;
+    const speed = codeSpeedAt(this.elapsedMs);
     const flowing: ActiveCode[] = [];
     for (const [index, active] of this.codes.entries()) {
       // 同じフレームで倒産したら、残りのコードは処理せず流れたままにする（追加の損害を出さない）。
@@ -945,6 +955,9 @@ class MainScene extends Phaser.Scene {
         flowing.push(...this.codes.slice(index));
         break;
       }
+      // テストツールの足止め中(#54)は、足止めが切れたあとの時間だけ進む。足止めのないコードは delta のまま。
+      const movableMs = this.advanceCodeHold(active.id, delta);
+      const distance = (speed * movableMs) / 1000;
       // 担当者の休暇中はそのルートのコードを進めない(#36)。流れたまま残るので攻撃はできる。
       const moved = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId));
       const next: ActiveCode = { ...advanceCode(active, moved), graphics: active.graphics };
@@ -956,6 +969,7 @@ class MainScene extends Phaser.Scene {
       }
       if (fate === 'released') {
         this.codeHp.delete(next.id);
+        this.codeHold.delete(next.id);
         next.graphics.destroy();
         const payload: CodeReleasedPayload = {
           id: next.id,
@@ -970,6 +984,21 @@ class MainScene extends Phaser.Scene {
       }
     }
     this.codes = flowing;
+  }
+
+  // コードの足止め(#54)を1フレーム進め、このフレームで移動に使える時間を返す。足止めが切れたら記録を消す。
+  private advanceCodeHold(codeId: number, delta: number): number {
+    const remainingMs = this.codeHold.get(codeId);
+    if (remainingMs === undefined) {
+      return delta;
+    }
+    const step = advanceHold(remainingMs, delta);
+    if (step.remainingMs > 0) {
+      this.codeHold.set(codeId, step.remainingMs);
+    } else {
+      this.codeHold.delete(codeId);
+    }
+    return step.movableMs;
   }
 
   // エンジニアが増えたときに出現場所とルートを追加して描画する。上限などで追加できなければ undefined。

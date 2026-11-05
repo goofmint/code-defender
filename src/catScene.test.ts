@@ -60,6 +60,7 @@ type SceneUnderTest = {
   gameOver: GameOverState;
   codes: FakeCode[];
   codeHp: Map<number, number>;
+  codeHold: Map<number, number>;
   placedItems: readonly PlacedItem[];
   tweens: { readonly killTweensOf: Mock<(target: object) => void> };
   events: { readonly emit: Mock<(event: string, payload: object) => boolean> };
@@ -126,6 +127,7 @@ const createScene = (codes: FakeCode[], placedItems: readonly PlacedItem[]): Sce
   scene.codeHp = new Map(
     codes.filter((code) => code.kind === 'malicious').map((code) => [code.id, DEFAULT_MALICIOUS_CODE_HP]),
   );
+  scene.codeHold = new Map();
   scene.placedItems = placedItems;
   scene.tweens = { killTweensOf: vi.fn<(target: object) => void>() };
   scene.events = { emit: vi.fn<(event: string, payload: object) => boolean>(() => true) };

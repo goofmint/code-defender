@@ -84,6 +84,7 @@ type SceneUnderTest = {
   player?: Point;
   codes: FakeCode[];
   codeHp: Map<number, number>;
+  codeHold: Map<number, number>;
   placedItems: readonly PlacedItem[];
   nextItemId: number;
   time: { now: number };
@@ -190,6 +191,7 @@ const createScene = (options: SceneOptions = {}): SceneUnderTest => {
   scene.codeHp = new Map(
     codes.filter((code) => code.kind === 'malicious').map((code) => [code.id, DEFAULT_MALICIOUS_CODE_HP]),
   );
+  scene.codeHold = new Map();
   scene.placedItems = options.placedItems ?? [];
   scene.nextItemId = scene.placedItems.length;
   scene.time = { now: T0 };

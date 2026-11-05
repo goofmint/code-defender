@@ -47,6 +47,7 @@ type SceneUnderTest = {
   spawnElapsed: Map<number, number>;
   codes: FakeCode[];
   codeHp: Map<number, number>;
+  codeHold: Map<number, number>;
   funds: number;
   score: number;
   gameOver: GameOverState;
@@ -118,6 +119,7 @@ const createScene = (engineers: Engineer[], gameOver: GameOverState = NOT_OVER):
   scene.spawnElapsed = new Map(routes.map((route) => [route.id, 100]));
   scene.codes = routes.flatMap((route) => [0, 1].map((n) => ({ id: route.id * 10 + n, routeId: route.id, graphics: destroyable() })));
   scene.codeHp = new Map(scene.codes.map((code) => [code.id, 1]));
+  scene.codeHold = new Map();
   scene.funds = FUNDS;
   scene.score = SCORE;
   scene.gameOver = gameOver;
