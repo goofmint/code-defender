@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { getCatalogue, getPlaceholderNames } from './index';
+import { afterEach, describe, expect, it } from 'vitest';
+import { INITIAL_PLACEMENT_PANEL_LINES, STAGE_POINTS_INITIAL, VACATION_HINT_LINES } from '../config';
+import { formatVacationHint } from '../engineer';
+import { buildGameOverLines } from '../gameOver';
+import { formatInitialPlacementPanel } from '../initialPlacement';
+import { getCatalogue, getPlaceholderNames, setLocale } from './index';
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from './resolveLocale';
 import { SPAWN_MARKER_STYLE, VACATION_MARKER_STYLE } from '../route';
 import { estimateTextWidth } from '../textMetrics';
@@ -72,5 +76,18 @@ describe('休暇マーカーの文字', () => {
 
   it('英語は単独の英字にしない（操作キーと紛らわしいため）', () => {
     expect(getCatalogue('en').vacation.marker).not.toMatch(/^[A-Za-z]$/);
+  });
+});
+
+describe.each(SUPPORTED_LOCALES)('%s の複数行の文言は行数が決まっている', (locale) => {
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('ゲームオーバー画面は4行・休暇の案内文は VACATION_HINT_LINES 行・初期配置パネルは INITIAL_PLACEMENT_PANEL_LINES 行', () => {
+    setLocale(locale);
+    expect(buildGameOverLines(0, 0)).toHaveLength(4);
+    expect(formatVacationHint()).toHaveLength(VACATION_HINT_LINES);
+    expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'none' })).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
   });
 });
