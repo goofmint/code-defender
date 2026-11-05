@@ -40,7 +40,10 @@ type SceneUnderTest = {
   gameOver: GameOverState;
   vacationMarkers: Map<number, FakeVacationMarker>;
   events: { readonly emit: Mock<(event: string, payload: object) => boolean> };
-  fundsText: { readonly setText: Mock<(text: string) => void> };
+  // 右下の指標(#156)。資金の表示を更新したら記録する。
+  statusPanel: { readonly setFunds: Mock<(funds: number) => void> };
+  // エンジニアのポップオーバー(#156)は閉じた状態（クラスのフィールドの初期値は Object.create では入らないので明示する）。
+  popoverRouteId: null;
   toggleVacation(routeId: number): void;
 };
 
@@ -107,7 +110,8 @@ const createScene = (options: SceneOptions = {}): SceneUnderTest => {
     markerRouteIds.map((routeId) => [routeId, { setOnVacation: vi.fn<(onVacation: boolean) => void>() }]),
   );
   scene.events = { emit: vi.fn<(event: string, payload: object) => boolean>(() => true) };
-  scene.fundsText = { setText: vi.fn<(text: string) => void>() };
+  scene.statusPanel = { setFunds: vi.fn<(funds: number) => void>() };
+  scene.popoverRouteId = null;
   return scene;
 };
 
@@ -123,7 +127,7 @@ const expectNoFundsSideEffects = (scene: SceneUnderTest, funds: number, score: n
   expect(scene.funds).toBe(funds);
   expect(scene.score).toBe(score);
   expect(scene.events.emit).not.toHaveBeenCalledWith(FUNDS_CHANGED_EVENT, expect.anything());
-  expect(scene.fundsText.setText).not.toHaveBeenCalled();
+  expect(scene.statusPanel.setFunds).not.toHaveBeenCalled();
 };
 
 const vacationStates = (scene: SceneUnderTest): boolean[] => scene.engineers.map((engineer) => engineer.onVacation);

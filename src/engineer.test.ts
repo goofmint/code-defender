@@ -43,11 +43,12 @@ import {
   getRankLabel,
   shouldAddRouteOnHire,
   formatEngineerCount,
-  formatHireButton,
+  formatEngineerPopoverLines,
   formatHireMessage,
-  formatSalaryButton,
+  formatHireOption,
+  formatSelectedEngineerLines,
+  formatVacationButton,
   formatSalaryMessage,
-  formatSelectedEngineer,
   getInitialSalary,
   hireEngineer,
   isAssigneeOnVacation,
@@ -309,9 +310,9 @@ describe('表示用の文字列', () => {
   it('人数', () => {
     expect(formatEngineerCount(3, 9)).toBe('エンジニア: 3/9');
   });
-  it('ボタン', () => {
-    expect(formatHireButton(0, 'junior', 100000)).toBe('[1] ジュニア 10万円');
-    expect(formatHireButton(2, 'senior', 300000)).toBe('[3] シニア 30万円');
+  it('雇うボタン（エンジニアのメニュー #156。キー名は出さない）', () => {
+    expect(formatHireOption('junior', 100000)).toBe('ジュニアを雇う 10万円');
+    expect(formatHireOption('senior', 300000)).toBe('シニアを雇う 30万円');
   });
   it('メッセージ', () => {
     const state = { engineers: makeEngineers(3), funds: RICH, nextId: 3 };
@@ -1763,27 +1764,40 @@ describe('selectAdjacentEngineerId(#34)', () => {
   });
 });
 
-describe('formatSelectedEngineer / formatSalaryButton(#34)', () => {
-  it('通常の表示', () => {
-    expect(formatSelectedEngineer(makeEngineer(3, 'junior', 0))).toBe('選択: #3 ジュニア 月給 300,000円 AI: なし');
-    expect(formatSelectedEngineer({ ...makeEngineer(12, 'senior', 0), salary: ENGINEER_SALARY_MAX })).toBe(
-      '選択: #12 シニア 月給 1,000,000円 AI: なし',
-    );
+describe('formatSelectedEngineerLines(#34, #156)', () => {
+  it('通常の表示は2行（エンジニアのメニューの幅に収める）', () => {
+    expect(formatSelectedEngineerLines(makeEngineer(3, 'junior', 0))).toEqual(['選択: #3 ジュニア', '月給 300,000円 AI: なし']);
+    expect(formatSelectedEngineerLines({ ...makeEngineer(12, 'senior', 0), salary: ENGINEER_SALARY_MAX })).toEqual([
+      '選択: #12 シニア',
+      '月給 1,000,000円 AI: なし',
+    ]);
   });
   it.each([
     ['strong', '強い'],
     ['normal', '普通'],
     ['cheap', '安い'],
   ] as const)('AIエージェント %s を付けていれば短い名前「%s」を出す(#53)', (aiAgent, name) => {
-    expect(formatSelectedEngineer({ ...makeEngineer(3, 'junior', 0), aiAgent })).toBe(
-      `選択: #3 ジュニア 月給 300,000円 AI: ${name}`,
-    );
+    expect(formatSelectedEngineerLines({ ...makeEngineer(3, 'junior', 0), aiAgent })).toEqual([
+      '選択: #3 ジュニア',
+      `月給 300,000円 AI: ${name}`,
+    ]);
   });
-  it('null は対象なし', () => {
-    expect(formatSelectedEngineer(null)).toBe('選択: 対象なし');
+  it('null は対象なしの1行', () => {
+    expect(formatSelectedEngineerLines(null)).toEqual(['選択: 対象なし']);
   });
-  it('ボタンのラベル', () => {
-    expect(formatSalaryButton('Q', '前へ')).toBe('[Q] 前へ');
+});
+
+describe('エンジニアのポップオーバーの文言(#156)', () => {
+  it('見出しは「#id ランク AI: 種類」、2行目は休暇の状態', () => {
+    expect(formatEngineerPopoverLines(makeEngineer(5, 'middle', 0))).toEqual(['#5 ミドル AI: なし', '状態: 勤務中']);
+    expect(formatEngineerPopoverLines({ ...makeEngineer(5, 'middle', 0), aiAgent: 'cheap', onVacation: true })).toEqual([
+      '#5 ミドル AI: 安い',
+      '状態: 休暇中',
+    ]);
+  });
+  it('休暇ボタンは勤務中なら「休暇にする」、休暇中なら「復帰する」', () => {
+    expect(formatVacationButton(makeEngineer(0, 'junior', 0))).toBe('休暇にする');
+    expect(formatVacationButton({ ...makeEngineer(0, 'junior', 0), onVacation: true })).toBe('復帰する');
   });
 });
 

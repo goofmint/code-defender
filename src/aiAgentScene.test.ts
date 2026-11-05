@@ -1,11 +1,11 @@
-// 実際の MainScene.buyAiAgent() で、選択中のエンジニアに AIエージェントを付けたときの資金・イベント・表示を確かめる(#53)。
+// 実際の MainScene.buyAiAgent() で、選択中のエンジニア（または指定したエンジニア #156）に AIエージェントを付けたときの資金・イベント・表示を確かめる(#53)。
 // main.ts は読み込み時に new Phaser.Game(config) を実行するので、vacationNeutrality.test.ts と同じくこのファイルの中だけで phaser をモックする。
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { AI_AGENT_EQUIPPED_EVENT, getAiAgentPrice } from './aiAgent';
+import { AI_AGENT_EQUIPPED_EVENT, getAiAgentMonthlyFee, getAiAgentPrice } from './aiAgent';
 import type { AiAgentType } from './aiAgent';
 import { ENGINEER_MONTHLY_SALARY_BY_RANK, INITIAL_FUNDS } from './config';
-import { createEngineerParameters, formatSelectedEngineer } from './engineer';
+import { createEngineerParameters } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
 import { createFundsChangedEvent, FUNDS_CHANGED_EVENT } from './funds';
 import type { GameOverState } from './gameOver';
@@ -47,12 +47,17 @@ type SceneUnderTest = {
   selectedEngineerId: number | null;
   gameOver: GameOverState;
   events: { readonly emit: Mock<(event: string, payload: object) => boolean> };
-  fundsText: { readonly setText: Mock<(text: string) => void> };
-  selectedEngineerText: { readonly setText: Mock<(text: string) => void> };
+  // 右下の指標(#156)。資金と月末に支払うお金（AIエージェントの月額を含む）の更新を記録する。
+  statusPanel: { readonly setFunds: Mock<(funds: number) => void>; readonly setMonthEndPayment: Mock<(amount: number) => void> };
+  // メニュー・ポップオーバー(#156)は閉じた状態（クラスのフィールドの初期値は Object.create では入らないので明示する）。
+  openMenu: null;
+  popoverRouteId: null;
+  phase: 'playing';
+  placedItems: readonly [];
   hireMessageText: FakeText | undefined;
   add: { readonly text: Mock<(x: number, y: number, text: string) => FakeText> };
   time: { readonly delayedCall: Mock<(delay: number, callback: () => void) => void> };
-  buyAiAgent(agentType: AiAgentType): void;
+  buyAiAgent(agentType: AiAgentType, engineerId?: number): void;
 };
 
 const makeFakeText = (): FakeText => {
@@ -115,8 +120,11 @@ const createScene = (options: SceneOptions = {}): SceneUnderTest => {
   scene.selectedEngineerId = options.selectedEngineerId === undefined ? 0 : options.selectedEngineerId;
   scene.gameOver = options.gameOver ?? NOT_OVER;
   scene.events = { emit: vi.fn<(event: string, payload: object) => boolean>(() => true) };
-  scene.fundsText = { setText: vi.fn<(text: string) => void>() };
-  scene.selectedEngineerText = { setText: vi.fn<(text: string) => void>() };
+  scene.statusPanel = { setFunds: vi.fn<(funds: number) => void>(), setMonthEndPayment: vi.fn<(amount: number) => void>() };
+  scene.openMenu = null;
+  scene.popoverRouteId = null;
+  scene.phase = 'playing';
+  scene.placedItems = [];
   scene.hireMessageText = undefined;
   scene.add = { text: vi.fn<(x: number, y: number, text: string) => FakeText>(() => makeFakeText()) };
   scene.time = { delayedCall: vi.fn<(delay: number, callback: () => void) => void>() };
@@ -141,10 +149,38 @@ describe('MainScene.buyAiAgent: 成功', () => {
       price,
       replaced: null,
     });
-    expect(scene.selectedEngineerText.setText).toHaveBeenCalledExactlyOnceWith(
-      formatSelectedEngineer(scene.engineers[1] ?? null),
+    expect(scene.statusPanel.setFunds).toHaveBeenCalledExactlyOnceWith(1);
+    // 月末に支払うお金は給料 2 人分と付けた AIエージェントの月額(#156)。
+    expect(scene.statusPanel.setMonthEndPayment).toHaveBeenCalledExactlyOnceWith(
+      ENGINEER_MONTHLY_SALARY_BY_RANK.junior + ENGINEER_MONTHLY_SALARY_BY_RANK.middle + getAiAgentMonthlyFee('strong'),
     );
     expect(messageOf(scene)).toBe('AI(強い)を付けました');
+  });
+
+  it('エンジニアの id を渡すと、選択中のエンジニアではなくその人に付ける(#156、ポップオーバー)', () => {
+    const scene = createScene({ selectedEngineerId: 0 });
+
+    scene.buyAiAgent('normal', 1);
+
+    expect(scene.engineers.map((engineer) => engineer.aiAgent)).toEqual([null, 'normal']);
+    expect(scene.selectedEngineerId).toBe(0);
+    expect(scene.events.emit).toHaveBeenLastCalledWith(AI_AGENT_EQUIPPED_EVENT, {
+      engineerId: 1,
+      agentType: 'normal',
+      price: getAiAgentPrice('normal'),
+      replaced: null,
+    });
+  });
+
+  it('渡した id のエンジニアが名簿にいなければ、選択中のエンジニアにも付けない(#156)', () => {
+    const scene = createScene({ selectedEngineerId: 0 });
+    const before = structuredClone(scene.engineers);
+
+    scene.buyAiAgent('normal', 99);
+
+    expect(scene.engineers).toEqual(before);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+    expect(messageOf(scene)).toBe('対象のエンジニアがいません');
   });
 
   it('資金がちょうど価格なら付けられて 0 になる', () => {
@@ -177,8 +213,8 @@ describe('MainScene.buyAiAgent: 副作用なし', () => {
     expect(scene.funds).toBe(funds);
     expect(scene.engineers).toEqual(engineers);
     expect(scene.events.emit).not.toHaveBeenCalled();
-    expect(scene.fundsText.setText).not.toHaveBeenCalled();
-    expect(scene.selectedEngineerText.setText).not.toHaveBeenCalled();
+    expect(scene.statusPanel.setFunds).not.toHaveBeenCalled();
+    expect(scene.statusPanel.setMonthEndPayment).not.toHaveBeenCalled();
   };
 
   it('ゲームオーバー中は何もしない（メッセージも出さない）', () => {

@@ -11,6 +11,7 @@ import {
   ENGINEER_PERSONALITIES,
   ENGINEER_PERSONALITY_TENDENCIES,
   ENGINEER_PERSONALITY_WEIGHTS,
+  ENGINEER_POPOVER_TEXT,
   ENGINEER_RANKS,
   ENGINEER_SALARY_MAX,
   ENGINEER_SALARY_MIN,
@@ -20,6 +21,7 @@ import {
   FUNDS_FORMAT,
   INITIAL_ENGINEER_RANKS,
   CODE_MALICIOUS_RATE_MIN,
+  MENU_TEXT,
   VACATION_HINT_FORMAT,
   VACATION_MALICIOUS_RATE_REDUCTION,
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
@@ -476,8 +478,9 @@ export const formatEngineerCount = (count: number, max: number): string =>
 export const formatResignedMessage = (engineer: Engineer): string =>
   `#${engineer.id} ${getRankLabel(engineer.rank)}が退職しました`;
 
-export const formatHireButton = (index: number, rank: EngineerRank, cost: number): string =>
-  `[${index + 1}] ${getRankLabel(rank)} ${cost / 10000}万円`;
+// エンジニアのメニュー(#156)の雇うボタンの文言。「ジュニアを雇う 10万円」。キー名（1〜3）は出さない。
+export const formatHireOption = (rank: EngineerRank, cost: number): string =>
+  `${getRankLabel(rank)}${MENU_TEXT.hireSuffix}${cost / 10000}${MENU_TEXT.hireCostUnit}`;
 
 export const formatHireMessage = (
   result: HireResult,
@@ -592,27 +595,41 @@ export const selectAdjacentEngineerId = (
   return engineers[(index + offset + engineers.length) % engineers.length].id;
 };
 
-// 選択中のエンジニアの情報行。「選択: #id ランク 月給 300,000円 AI: 強い」（AIエージェント(#53)を付けていなければ「AI: なし」）。
-// 対象がいなければ「選択: 対象なし」。
-export const formatSelectedEngineer = (engineer: Engineer | null): string =>
-  engineer === null
-    ? '選択: 対象なし'
-    : `選択: #${engineer.id} ${getRankLabel(engineer.rank)} 月給 ${formatYen(engineer.salary)} AI: ${
-        engineer.aiAgent === null ? AI_AGENT_NONE_LABEL : AI_AGENT_SHORT_NAMES[engineer.aiAgent]
-      }`;
+// 付けている AIエージェント(#53)の短い名前。付けていなければ「なし」。
+const formatAiAgentName = (engineer: Engineer): string =>
+  engineer.aiAgent === null ? AI_AGENT_NONE_LABEL : AI_AGENT_SHORT_NAMES[engineer.aiAgent];
 
-// 昇給・減給の操作ボタンのラベル。「[Q] 前へ」。
-export const formatSalaryButton = (key: string, label: string): string => `[${key}] ${label}`;
+// 選択中のエンジニアの情報（エンジニアのメニュー #156 では幅に収めるため2行）。
+// 「選択: #id ランク」「月給 300,000円 AI: 強い」（AIエージェント(#53)を付けていなければ「AI: なし」）。対象がいなければ「選択: 対象なし」の1行。
+export const formatSelectedEngineerLines = (engineer: Engineer | null): readonly string[] =>
+  engineer === null
+    ? ['選択: 対象なし']
+    : [
+        `選択: #${engineer.id} ${getRankLabel(engineer.rank)}`,
+        `月給 ${formatYen(engineer.salary)} AI: ${formatAiAgentName(engineer)}`,
+      ];
+
+// エンジニアのポップオーバー(#156)の見出しと休暇の状態。「#id ランク AI: 種類」「状態: 勤務中」（休暇中なら「状態: 休暇中」）。
+export const formatEngineerPopoverLines = (engineer: Engineer): readonly string[] => [
+  `#${engineer.id} ${getRankLabel(engineer.rank)} AI: ${formatAiAgentName(engineer)}`,
+  `${ENGINEER_POPOVER_TEXT.statePrefix}${
+    isEngineerOnVacation(engineer) ? ENGINEER_POPOVER_TEXT.onVacation : ENGINEER_POPOVER_TEXT.working
+  }`,
+];
+
+// ポップオーバーの休暇ボタンの文言(#156)。勤務中は「休暇にする」、休暇中は「復帰する」。
+export const formatVacationButton = (engineer: Engineer): string =>
+  isEngineerOnVacation(engineer) ? ENGINEER_POPOVER_TEXT.endVacation : ENGINEER_POPOVER_TEXT.startVacation;
 
 // 0〜1 の割合をパーセントポイント（四捨五入した整数）にする。
 const toPercentPoints = (ratio: number): number => Math.round(ratio * 100);
 
-// 休暇の操作方法と効果の案内文(#150)。HUD に 3 行で常時表示する（VACATION_HINT_LINES 行）。
+// 休暇の操作方法と効果の案内文(#150)。#156 からはエンジニアのポップオーバーの中に 3 行で出す（VACATION_HINT_LINES 行）。
 // 1回あたりの低下量（VACATION_MALICIOUS_RATE_REDUCTION）、累積の上限（VACATION_MALICIOUS_RATE_REDUCTION_MAX。setEngineerVacation で止める）、
 // 補正後の下限（CODE_MALICIOUS_RATE_MIN。effectiveMaliciousRate で守る）をパーセントポイントにして並べる。低下量は復帰後も維持する(#39)。
-//   出現地点の「休」で休暇/復帰（プレイ開始後）
+//   休暇ボタンで休暇/復帰（給与は継続）
 //   不正率-10pt/回・最大-20pt・下限5%
-//   効果は復帰後も維持。休暇中は生産停止・給与継続
+//   効果は復帰後も維持。休暇中は生産停止
 export const formatVacationHint = (
   reduction: number = VACATION_MALICIOUS_RATE_REDUCTION,
   reductionMax: number = VACATION_MALICIOUS_RATE_REDUCTION_MAX,

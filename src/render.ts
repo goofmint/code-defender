@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { FIELD_HEIGHT, FIELD_WIDTH, GRID_LINE_WIDTH } from './field';
+import { CELL_SIZE, FIELD_HEIGHT, FIELD_WIDTH, GRID_LINE_WIDTH } from './field';
 import { burstParticleOffsets, RELEASE_POINT_CENTER, RELEASE_POINT_STYLE } from './releasePoint';
 import {
   cellCenter,
@@ -8,7 +8,7 @@ import {
   SPAWN_MARKER_STYLE,
   VACATION_MARKER_STYLE,
 } from './route';
-import type { Point, Route, RouteChevron } from './route';
+import type { GridCell, Point, Route, RouteChevron } from './route';
 import {
   CODE_CORNER_RADIUS_RATIO,
   CODE_SIZE,
@@ -22,11 +22,7 @@ import type { CodeKind } from './code';
 import { getMaliciousCodeAppearance } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
 import {
-  AI_AGENT_BUTTON_FONT_SIZE,
   AI_AGENT_BUTTON_ORDER,
-  AI_AGENT_BUTTON_SIZE,
-  AI_AGENT_BUY_KEYS,
-  AI_AGENT_UI_POSITION,
   ATTACK_EFFECT_COLOR,
   ATTACK_EFFECT_DURATION_MS,
   ATTACK_HIT_FLASH_DURATION_MS,
@@ -36,69 +32,65 @@ import {
   DEFEAT_EFFECT_DURATION_MS,
   DEFEAT_EFFECT_END_RADIUS_RATIO,
   DEFEAT_EFFECT_START_RADIUS_RATIO,
-  CUMULATIVE_SALES_POSITION,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
   FIELD_FLOOR_COLORS,
   FIELD_FLOOR_STYLE,
-  FUNDS_POSITION,
   GAME_OVER_OVERLAY,
   HIRE_BUTTON_COLORS,
-  HIRE_BUTTON_FONT_SIZE,
-  HIRE_BUTTON_SIZE,
-  HIRE_COUNT_POSITION,
   HIRE_MESSAGE_DURATION_MS,
   HIRE_MESSAGE_POSITION,
-  HIRE_UI_POSITION,
+  MENU_FONT_SIZE,
+  MENU_ICON_COLORS,
+  MENU_ICON_DIM_ALPHA,
+  MENU_ICON_GLYPH,
+  MENU_ICON_STROKE_WIDTH,
+  MENU_LINE_SPACING,
+  MENU_PANEL_COLORS,
+  MENU_PANEL_DEPTH,
+  MENU_TEXT,
   PENALTY_TEXT_COLOR,
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
   PENALTY_TEXT_RISE_PX,
   PLAYER_SCREEN_GLOW_ALPHA,
   PLAYER_SHADOW_ALPHA,
-  REFACTORING_RATIO_BUTTON_LABELS,
-  REFACTORING_RATIO_BUTTON_SIZE,
-  REFACTORING_RATIO_FONT_SIZE,
-  REFACTORING_RATIO_LABEL_WIDTH,
-  REFACTORING_RATIO_UI_GAP,
-  REFACTORING_RATIO_UI_POSITION,
   RELEASE_BURST,
   RELEASE_POINT_DECOR_COLORS,
   RELEASE_POINT_DECOR_STYLE,
   RELEASE_POINT_PULSE,
   ROUTE_COLORS,
   ROUTE_LINE_STYLE,
-  SALARY_ADJUST_KEYS,
-  SALARY_BUTTON_FONT_SIZE,
   SALARY_BUTTON_LABELS,
-  SALARY_BUTTON_ORDER,
-  SALARY_BUTTON_SIZE,
-  SALARY_SELECT_KEYS,
-  SALARY_UI_POSITION,
-  SELECTED_ENGINEER_FONT_SIZE,
-  SELECTED_ENGINEER_POSITION,
   SPAWN_MARKER_DECOR_COLORS,
   SPAWN_MARKER_DECOR_STYLE,
+  STATUS_PANEL_COLORS,
+  STATUS_PANEL_FONT_SIZE,
+  STATUS_PANEL_INDICATOR_GAP,
+  STATUS_PANEL_INDICATOR_RADIUS,
+  STATUS_PANEL_INDICATOR_WIDTH,
+  STATUS_PANEL_LINE_SPACING,
+  STATUS_PANEL_PADDING,
+  STATUS_PANEL_RECT,
+  STATUS_PANEL_TECH_DEBT_LABEL,
+  TECH_DEBT_LEVELS,
   TECH_DEBT_OUTAGE_TEXT,
   TECH_DEBT_OUTAGE_TEXT_COLOR,
   TECH_DEBT_OUTAGE_TEXT_DURATION_MS,
   TECH_DEBT_OUTAGE_TEXT_FONT_SIZE,
-  TECH_DEBT_POSITION,
-  VACATION_HINT_FONT_SIZE,
-  VACATION_HINT_LINE_SPACING,
-  VACATION_HINT_POSITION,
 } from './config';
 import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
 import { formatCumulativeSales } from './score';
-import { formatTechDebt } from './techDebt';
+import type { TechDebtLevel } from './techDebt';
 import { buildGameOverLines } from './gameOver';
 import {
   formatEngineerCount,
-  formatHireButton,
-  formatSalaryButton,
-  formatSelectedEngineer,
+  formatEngineerPopoverLines,
+  formatHireOption,
+  formatSelectedEngineerLines,
+  formatVacationButton,
   formatVacationHint,
 } from './engineer';
 import type { Engineer, EngineerRank, EngineerSelectDirection, SalaryDirection } from './engineer';
@@ -109,37 +101,42 @@ import {
   ITEM_BOX_SIZE,
   ITEM_BOX_STROKE,
   ITEM_BUTTON_COLORS,
-  ITEM_BUTTON_FILL_ALPHA,
-  ITEM_BUTTON_FONT_SIZE,
   ITEM_COLORS,
   ITEM_MARK_STYLE,
   ITEM_MARKS,
   ITEM_MESSAGE_COLOR,
   ITEM_MESSAGE_DURATION_MS,
   ITEM_MESSAGE_POSITION,
+  ENGINEER_CANDIDATE_OVERLAY,
+  INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION,
+  INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE,
   INITIAL_PLACEMENT_FONT_SIZE,
   INITIAL_PLACEMENT_LINE_SPACING,
   INITIAL_PLACEMENT_MESSAGE_COLOR,
   INITIAL_PLACEMENT_MESSAGE_DURATION_MS,
   INITIAL_PLACEMENT_MESSAGE_POSITION,
   INITIAL_PLACEMENT_PANEL_POSITION,
+  INITIAL_PLACEMENT_REMOVE_BUTTON,
+  INITIAL_PLACEMENT_SELECTED_COLORS,
   INITIAL_PLACEMENT_START_BUTTON_POSITION,
   INITIAL_PLACEMENT_START_BUTTON_SIZE,
   INITIAL_PLACEMENT_TEXT,
   ITEM_PAGE_BUTTON_LABELS,
-  ITEM_PAGE_SIZE,
   PLACEMENT_CELL_SIZE,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
   REVEALED_CODE_STYLE,
 } from './config';
-import { itemButtonRect, itemPageControlRects } from './itemBar';
-import type { ItemBarRect, ItemPageDirection } from './itemBar';
+import type { ItemPageDirection } from './itemBar';
 import { placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
-import type { RefactoringRatioDirection } from './refactoringRatioControl';
-import { formatAiAgentButton } from './aiAgent';
+import { formatRefactoringAllocation, isSameRefactoringOption } from './refactoringRatioControl';
+import { formatAiAgentOption } from './aiAgent';
 import type { AiAgentType } from './aiAgent';
+import { MENU_KINDS, menuIconRect, menuPanelLayout, popoverLayout, splitRow } from './floatingMenu';
+import type { MenuKind, PanelLayout } from './floatingMenu';
+import type { Rect } from './geometry';
+import { formatMonthEndPayment } from './monthBoundary';
 
 // 後続オブジェクトより常に下に描画する。
 const FIELD_DEPTH = -1;
@@ -333,12 +330,12 @@ export type VacationMarker = {
   readonly setOnVacation: (onVacation: boolean) => void;
 };
 
-// 出現場所の円に重ねる休暇の切り替えマーカー(#35)。タップで onToggle を呼ぶ。drawRoutes の線と円は変えない。
-// マーカー上の pointerdown で移動・攻撃が起きないようにする処理は main.ts 側（drawHireButtons と同じく currentlyOver で判定）。
+// 出現場所の円に重ねる休暇マーカー(#35)。タップで onPress を呼ぶ（#156 からは休暇を直接切り替えず、エンジニアのポップオーバーを開く）。drawRoutes の線と円は変えない。
+// マーカー上の pointerdown で移動・攻撃が起きないようにする処理は main.ts 側（メニューのボタンと同じく currentlyOver で判定）。
 export const drawVacationMarker = (
   scene: Phaser.Scene,
   route: Route,
-  onToggle: () => void,
+  onPress: () => void,
 ): VacationMarker => {
   const { x, y } = cellCenter(route.spawn);
   const { radius, strokeWidth } = SPAWN_MARKER_STYLE;
@@ -359,9 +356,9 @@ export const drawVacationMarker = (
   // 当たり判定は出現場所の円。InputManager は local 座標へ displayOrigin（幅・高さの半分）を加算するため、円の中心も半径ぶんずらす。
   container.setInteractive(new Phaser.Geom.Circle(radius, radius, radius), Phaser.Geom.Circle.Contains);
   // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
-  container.on('pointerdown', onToggle);
+  container.on('pointerdown', onPress);
   // コンテナ自体は表示したまま（非表示にすると当たり判定もなくなる）、中身の表示だけ切り替える。
-  // 勤務中も「休」を薄く出し、出現場所の円を押すと休暇になることが分かるようにする(#143)。
+  // 勤務中も「休」を薄く出し、出現場所の円を押すと休暇の操作ができることが分かるようにする(#143)。
   const setOnVacation = (onVacation: boolean): void => {
     circle.setVisible(onVacation);
     label.setAlpha(onVacation ? VACATION_MARKER_STYLE.vacationLabelAlpha : VACATION_MARKER_STYLE.workingLabelAlpha);
@@ -714,55 +711,6 @@ export const drawElapsedDays = (scene: Phaser.Scene, days: number): Phaser.GameO
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
 
-export const drawFunds = (scene: Phaser.Scene, funds: number): Phaser.GameObjects.Text =>
-  scene.add
-    .text(FUNDS_POSITION.x, FUNDS_POSITION.y, formatFunds(funds), {
-      fontSize: ELAPSED_DAYS_STYLE.fontSize,
-      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-      color: ELAPSED_DAYS_STYLE.color,
-      stroke: ELAPSED_DAYS_STYLE.strokeColor,
-      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
-    })
-    .setDepth(ELAPSED_DAYS_DEPTH);
-
-export const drawCumulativeSales = (scene: Phaser.Scene, score: number): Phaser.GameObjects.Text =>
-  scene.add
-    .text(CUMULATIVE_SALES_POSITION.x, CUMULATIVE_SALES_POSITION.y, formatCumulativeSales(score), {
-      fontSize: ELAPSED_DAYS_STYLE.fontSize,
-      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-      color: ELAPSED_DAYS_STYLE.color,
-      stroke: ELAPSED_DAYS_STYLE.strokeColor,
-      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
-    })
-    .setDepth(ELAPSED_DAYS_DEPTH);
-
-// 技術的負債（HUD 4行目）。値が変わったら MainScene が setText() で更新する。
-export const drawTechDebt = (scene: Phaser.Scene, debt: number): Phaser.GameObjects.Text =>
-  scene.add
-    .text(TECH_DEBT_POSITION.x, TECH_DEBT_POSITION.y, formatTechDebt(debt), {
-      fontSize: ELAPSED_DAYS_STYLE.fontSize,
-      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-      color: ELAPSED_DAYS_STYLE.color,
-      stroke: ELAPSED_DAYS_STYLE.strokeColor,
-      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
-    })
-    .setDepth(ELAPSED_DAYS_DEPTH);
-
-// 休暇の操作方法と効果の案内文(#150)。AIエージェントのボタンの下に 3 行で常時表示する。文言は変わらないので setText は不要。
-// 行の間隔は VACATION_HINT_LINE_SPACING（1 行の高さの見積もり VACATION_HINT_LINE_HEIGHT と同じ値。drawInitialPlacementPanel と同じ形）。
-// 入力は受け付けない（setInteractive しない）ので、currentlyOver に入らず主人公の移動・攻撃を妨げない。
-export const drawVacationHint = (scene: Phaser.Scene): Phaser.GameObjects.Text =>
-  scene.add
-    .text(VACATION_HINT_POSITION.x, VACATION_HINT_POSITION.y, [...formatVacationHint()], {
-      fontSize: VACATION_HINT_FONT_SIZE,
-      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-      color: ELAPSED_DAYS_STYLE.color,
-      stroke: ELAPSED_DAYS_STYLE.strokeColor,
-      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
-      lineSpacing: VACATION_HINT_LINE_SPACING,
-    })
-    .setDepth(ELAPSED_DAYS_DEPTH);
-
 // 仮・要確認(#46): HUD(2)より上、ゲームオーバー表示(GAME_OVER_DEPTH=3)より下。
 const OUTAGE_TEXT_DEPTH = 2.5;
 // 大障害の通知（フィールド中央の文字）。フェードアウトして自身を破棄する（drawPenaltyText と同じ形）。
@@ -826,113 +774,6 @@ const hireTextStyle = (fontSize: string): Phaser.Types.GameObjects.Text.TextStyl
   strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
 });
 
-// ランク別の「雇う」ボタン（HUD と同じ深さ）。クリックで onHire(rank) を呼ぶ。
-// ボタン上の pointerdown でフィールドの移動・攻撃が起きないようにする処理は main.ts 側（currentlyOver で判定）。
-export const drawHireButtons = (
-  scene: Phaser.Scene,
-  entries: readonly { readonly rank: EngineerRank; readonly cost: number }[],
-  onHire: (rank: EngineerRank) => void,
-): Phaser.GameObjects.Container[] =>
-  entries.map((entry, index) => {
-    const { width, height, gap } = HIRE_BUTTON_SIZE;
-    const x = HIRE_UI_POSITION.x + index * (width + gap);
-    const background = scene.add
-      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
-      .setOrigin(0)
-      .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
-    const label = scene.add
-      .text(width / 2, height / 2, formatHireButton(index, entry.rank, entry.cost), {
-        fontSize: HIRE_BUTTON_FONT_SIZE,
-        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-        color: HIRE_BUTTON_COLORS.text,
-      })
-      .setOrigin(0.5);
-    const button = scene.add
-      .container(x, HIRE_UI_POSITION.y, [background, label])
-      .setSize(width, height)
-      .setDepth(ELAPSED_DAYS_DEPTH);
-    // コンテナの表示位置は左上、原点は中心。InputManager は判定時に local 座標へ displayOrigin（幅・高さの半分）を加算するため、
-    // 矩形を半分ずらして、表示範囲（左上 0,0〜width,height）と当たり判定を一致させる。
-    button.setInteractive(
-      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
-      Phaser.Geom.Rectangle.Contains,
-    );
-    // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
-    button.on('pointerdown', () => onHire(entry.rank));
-    return button;
-  });
-
-// 機能開発とリファクタリングの割合UI(#40)。左から [機能開発へ寄せるボタン][割合の表示][リファクタリングへ寄せるボタン]。
-// ボタンは drawHireButtons と同じ構成（Rectangle と Text の Container、当たり判定は半分ずらす、深さは HUD と同じ）。
-// 返した割合表示の Text を MainScene が setText() で更新する。
-export const drawRefactoringRatioControl = (
-  scene: Phaser.Scene,
-  initialLabel: string,
-  onChange: (direction: RefactoringRatioDirection) => void,
-): Phaser.GameObjects.Text => {
-  const { width, height, strokeWidth } = REFACTORING_RATIO_BUTTON_SIZE;
-  const { x, y } = REFACTORING_RATIO_UI_POSITION;
-  const labelX = x + width + REFACTORING_RATIO_UI_GAP;
-  const buttons: readonly { readonly direction: RefactoringRatioDirection; readonly x: number }[] = [
-    { direction: 'feature', x },
-    { direction: 'refactoring', x: labelX + REFACTORING_RATIO_LABEL_WIDTH + REFACTORING_RATIO_UI_GAP },
-  ];
-  buttons.forEach((entry) => {
-    const background = scene.add
-      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
-      .setOrigin(0)
-      .setStrokeStyle(strokeWidth, HIRE_BUTTON_COLORS.stroke);
-    const label = scene.add
-      .text(width / 2, height / 2, REFACTORING_RATIO_BUTTON_LABELS[entry.direction], {
-        fontSize: REFACTORING_RATIO_FONT_SIZE,
-        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-        color: HIRE_BUTTON_COLORS.text,
-      })
-      .setOrigin(0.5);
-    const button = scene.add
-      .container(entry.x, y, [background, label])
-      .setSize(width, height)
-      .setDepth(ELAPSED_DAYS_DEPTH);
-    // drawHireButtons と同じく、矩形を半分ずらして表示範囲と当たり判定を一致させる。
-    button.setInteractive(
-      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
-      Phaser.Geom.Rectangle.Contains,
-    );
-    // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
-    button.on('pointerdown', () => onChange(entry.direction));
-  });
-  // 割合の表示の領域（x=labelX〜+REFACTORING_RATIO_LABEL_WIDTH、ボタンと同じ高さ）に当たり判定を置く。
-  // 表示の上で押し続けても主人公が動かないよう、ボタンと同じく currentlyOver に入れる（main.ts が移動・攻撃を止める）。
-  // 文字列の幅は割合で変わるため、Text ではなく領域と同じ大きさの Zone に当たり判定を持たせる。押下時の処理はない。
-  scene.add
-    .zone(labelX, y, REFACTORING_RATIO_LABEL_WIDTH, height)
-    .setOrigin(0)
-    .setDepth(ELAPSED_DAYS_DEPTH)
-    .setInteractive(
-      new Phaser.Geom.Rectangle(0, 0, REFACTORING_RATIO_LABEL_WIDTH, height),
-      Phaser.Geom.Rectangle.Contains,
-    );
-  return scene.add
-    .text(labelX + REFACTORING_RATIO_LABEL_WIDTH / 2, y + height / 2, initialLabel, {
-      fontSize: REFACTORING_RATIO_FONT_SIZE,
-      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-      color: ELAPSED_DAYS_STYLE.color,
-      stroke: ELAPSED_DAYS_STYLE.strokeColor,
-      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
-    })
-    .setOrigin(0.5)
-    .setDepth(ELAPSED_DAYS_DEPTH);
-};
-
-export const drawEngineerCount = (
-  scene: Phaser.Scene,
-  count: number,
-  max: number,
-): Phaser.GameObjects.Text =>
-  scene.add
-    .text(HIRE_COUNT_POSITION.x, HIRE_COUNT_POSITION.y, formatEngineerCount(count, max), hireTextStyle('20px'))
-    .setDepth(ELAPSED_DAYS_DEPTH);
-
 // 雇った結果のメッセージ。一定時間後に消す。置き換えるときは前のものを破棄してから呼ぶ。
 export const drawHireMessage = (scene: Phaser.Scene, message: string): Phaser.GameObjects.Text => {
   const text = scene.add
@@ -941,93 +782,6 @@ export const drawHireMessage = (scene: Phaser.Scene, message: string): Phaser.Ga
   scene.time.delayedCall(HIRE_MESSAGE_DURATION_MS, () => text.destroy());
   return text;
 };
-
-// 選択中のエンジニアの情報行(#34)。返した Text の setText(formatSelectedEngineer(...)) で更新する。
-export const drawSelectedEngineer = (scene: Phaser.Scene, engineer: Engineer | null): Phaser.GameObjects.Text =>
-  scene.add
-    .text(
-      SELECTED_ENGINEER_POSITION.x,
-      SELECTED_ENGINEER_POSITION.y,
-      formatSelectedEngineer(engineer),
-      hireTextStyle(SELECTED_ENGINEER_FONT_SIZE),
-    )
-    .setDepth(ELAPSED_DAYS_DEPTH);
-
-// 昇給・減給の操作ボタン(#34)。左から前へ・次へ・昇給・減給（SALARY_BUTTON_ORDER）。前へ・次へは onSelect、昇給・減給は onAdjust を呼ぶ。
-// 見た目・当たり判定・深さは drawHireButtons と同じ。stopPropagation はしない（main.ts が currentlyOver で移動・攻撃を止める）。
-export const drawSalaryButtons = (
-  scene: Phaser.Scene,
-  onSelect: (direction: EngineerSelectDirection) => void,
-  onAdjust: (direction: SalaryDirection) => void,
-): Phaser.GameObjects.Container[] => {
-  const keys = { ...SALARY_SELECT_KEYS, ...SALARY_ADJUST_KEYS };
-  const press = (action: (typeof SALARY_BUTTON_ORDER)[number]): void => {
-    if (action === 'previous' || action === 'next') {
-      onSelect(action);
-      return;
-    }
-    onAdjust(action);
-  };
-  return SALARY_BUTTON_ORDER.map((action, index) => {
-    const { width, height, gap } = SALARY_BUTTON_SIZE;
-    const x = SALARY_UI_POSITION.x + index * (width + gap);
-    const background = scene.add
-      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
-      .setOrigin(0)
-      .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
-    const label = scene.add
-      .text(width / 2, height / 2, formatSalaryButton(keys[action], SALARY_BUTTON_LABELS[action]), {
-        fontSize: SALARY_BUTTON_FONT_SIZE,
-        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-        color: HIRE_BUTTON_COLORS.text,
-      })
-      .setOrigin(0.5);
-    const button = scene.add
-      .container(x, SALARY_UI_POSITION.y, [background, label])
-      .setSize(width, height)
-      .setDepth(ELAPSED_DAYS_DEPTH);
-    // drawHireButtons と同じ。表示範囲と当たり判定を一致させるため矩形を半分ずらす。
-    button.setInteractive(
-      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
-      Phaser.Geom.Rectangle.Contains,
-    );
-    button.on('pointerdown', () => press(action));
-    return button;
-  });
-};
-
-// AIエージェント(#53)のボタン。左から強い・普通・安い（AI_AGENT_BUTTON_ORDER）。クリックで onBuy(agentType) を呼ぶ（選択中のエンジニアに付ける）。
-// 見た目・当たり判定・深さは drawSalaryButtons と同じ。stopPropagation はしない（main.ts が currentlyOver で移動・攻撃を止める）。
-export const drawAiAgentButtons = (
-  scene: Phaser.Scene,
-  onBuy: (agentType: AiAgentType) => void,
-): Phaser.GameObjects.Container[] =>
-  AI_AGENT_BUTTON_ORDER.map((agentType, index) => {
-    const { width, height, gap } = AI_AGENT_BUTTON_SIZE;
-    const x = AI_AGENT_UI_POSITION.x + index * (width + gap);
-    const background = scene.add
-      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
-      .setOrigin(0)
-      .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
-    const label = scene.add
-      .text(width / 2, height / 2, formatAiAgentButton(AI_AGENT_BUY_KEYS[agentType], agentType), {
-        fontSize: AI_AGENT_BUTTON_FONT_SIZE,
-        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-        color: HIRE_BUTTON_COLORS.text,
-      })
-      .setOrigin(0.5);
-    const button = scene.add
-      .container(x, AI_AGENT_UI_POSITION.y, [background, label])
-      .setSize(width, height)
-      .setDepth(ELAPSED_DAYS_DEPTH);
-    // drawHireButtons と同じ。表示範囲と当たり判定を一致させるため矩形を半分ずらす。
-    button.setInteractive(
-      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
-      Phaser.Geom.Rectangle.Contains,
-    );
-    button.on('pointerdown', () => onBuy(agentType));
-    return button;
-  });
 
 // 置いたアイテム（色付き四角と短い文字）。主人公(1)より下、コード(0.5)と同じ深さ。
 const ITEM_DEPTH = 0.4;
@@ -1061,92 +815,6 @@ export const drawItemAttackEffect = (scene: Phaser.Scene, from: Point, to: Point
   scene.time.delayedCall(ITEM_ATTACK_LINE.durationMs, () => line.destroy());
 };
 
-// 仮: 購入ボタンはコード(0.5)より下に描く。下端の行を流れるコードを隠さないため。コードは当たり判定を持たないのでクリックはボタンに届く。
-const ITEM_BUTTON_DEPTH = 0.45;
-
-// アイテム購入バー(#58)。ページ内の枠の操作を MainScene に返す。
-export type ItemBar = {
-  // 枠ごとのボタンの文言（空の枠は null で隠す）とページ表示を差し替える。
-  readonly showPage: (labels: readonly (string | null)[], pageLabel: string) => void;
-};
-
-// 購入バーのボタン1つ（Rectangle と Text の Container）。drawHireButtons と同じく、表示範囲と当たり判定を一致させるため矩形を半分ずらす。
-// stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
-const drawItemBarButton = (
-  scene: Phaser.Scene,
-  rect: ItemBarRect,
-  text: string,
-  onPress: () => void,
-): { readonly container: Phaser.GameObjects.Container; readonly label: Phaser.GameObjects.Text } => {
-  const { width, height } = rect;
-  const background = scene.add
-    .rectangle(0, 0, width, height, ITEM_BUTTON_COLORS.fill, ITEM_BUTTON_FILL_ALPHA)
-    .setOrigin(0)
-    .setStrokeStyle(2, ITEM_BUTTON_COLORS.stroke);
-  const label = scene.add
-    .text(width / 2, height / 2, text, {
-      fontSize: ITEM_BUTTON_FONT_SIZE,
-      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-      color: ITEM_BUTTON_COLORS.text,
-    })
-    .setOrigin(0.5);
-  const container = scene.add
-    .container(rect.x, rect.y, [background, label])
-    .setSize(width, height)
-    .setDepth(ITEM_BUTTON_DEPTH);
-  container.setInteractive(
-    new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
-    Phaser.Geom.Rectangle.Contains,
-  );
-  container.on('pointerdown', onPress);
-  return { container, label };
-};
-
-// アイテム購入バー（画面下端）。ページ内の枠（ITEM_PAGE_SIZE 個）と、ページ切替UI（前・ページ表示・次）を描く(#58)。
-// 枠のクリックで onBuySlot(枠番号)、切替ボタンのクリックで onPage(向き) を呼ぶ。文言は返した showPage で差し替える。
-// ボタン上の pointerdown で移動・攻撃が起きないようにする処理は main.ts 側（currentlyOver で判定）。
-export const drawItemButtons = (
-  scene: Phaser.Scene,
-  onBuySlot: (slot: number) => void,
-  onPage: (direction: ItemPageDirection) => void,
-): ItemBar => {
-  const slots = Array.from({ length: ITEM_PAGE_SIZE }, (_, slot) =>
-    drawItemBarButton(scene, itemButtonRect(slot), '', () => onBuySlot(slot)),
-  );
-  const controls = itemPageControlRects();
-  drawItemBarButton(scene, controls.previous, ITEM_PAGE_BUTTON_LABELS.previous, () => onPage('previous'));
-  drawItemBarButton(scene, controls.next, ITEM_PAGE_BUTTON_LABELS.next, () => onPage('next'));
-  // ページ表示の上で押しても主人公が動かないよう、割合UIの表示と同じく Zone に当たり判定を持たせる（押下時の処理はない）。
-  const { label: labelRect } = controls;
-  scene.add
-    .zone(labelRect.x, labelRect.y, labelRect.width, labelRect.height)
-    .setOrigin(0)
-    .setDepth(ITEM_BUTTON_DEPTH)
-    .setInteractive(
-      new Phaser.Geom.Rectangle(0, 0, labelRect.width, labelRect.height),
-      Phaser.Geom.Rectangle.Contains,
-    );
-  const pageText = scene.add
-    .text(labelRect.x + labelRect.width / 2, labelRect.y + labelRect.height / 2, '', {
-      fontSize: ITEM_BUTTON_FONT_SIZE,
-      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-      color: ITEM_BUTTON_COLORS.text,
-    })
-    .setOrigin(0.5)
-    .setDepth(ITEM_BUTTON_DEPTH);
-  return {
-    showPage: (labels, pageLabel) => {
-      slots.forEach((slot, index) => {
-        const text = labels[index] ?? null;
-        // 隠した枠は当たり判定もなくなる（Phaser は非表示のオブジェクトを入力の対象にしない）。
-        slot.container.setVisible(text !== null);
-        slot.label.setText(text ?? '');
-      });
-      pageText.setText(pageLabel);
-    },
-  };
-};
-
 // アイテム購入の結果メッセージ。一定時間後に消す。置き換えるときは前のものを破棄してから呼ぶ。
 export const drawItemMessage = (scene: Phaser.Scene, message: string): Phaser.GameObjects.Text => {
   const text = scene.add
@@ -1169,7 +837,7 @@ export const drawInitialPlacementPanel = (scene: Phaser.Scene, lines: readonly s
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
 
-// 初期配置(#47)の開始ボタン。クリックで onStart() を呼ぶ。見た目・当たり判定・深さは drawHireButtons と同じ。
+// 初期配置(#47)の開始ボタン。クリックで onStart() を呼ぶ。見た目は雇うボタンと同じ色（HIRE_BUTTON_COLORS）、当たり判定は表示範囲と一致させる。
 // stopPropagation はしない（main.ts が currentlyOver で配置を止める）。プレイ開始時に MainScene が destroy() する。
 export const drawInitialPlacementStartButton = (
   scene: Phaser.Scene,
@@ -1209,4 +877,486 @@ export const drawInitialPlacementMessage = (scene: Phaser.Scene, message: string
     .setDepth(ELAPSED_DAYS_DEPTH);
   scene.time.delayedCall(INITIAL_PLACEMENT_MESSAGE_DURATION_MS, () => text.destroy());
   return text;
+};
+
+// 初期配置(#157)のエンジニアの選択ボタン。クリックで onSelect() を呼ぶ。見た目・当たり判定・深さは開始ボタンと同じ。
+// 文言（残りの人数）は setLabel、選んでいる間の強調は setSelected で切り替える。プレイ開始時に MainScene が container を destroy() する。
+export type EngineerSelectButton = {
+  readonly container: Phaser.GameObjects.Container;
+  readonly setLabel: (text: string) => void;
+  readonly setSelected: (selected: boolean) => void;
+};
+
+export const drawInitialPlacementEngineerButton = (
+  scene: Phaser.Scene,
+  text: string,
+  onSelect: () => void,
+): EngineerSelectButton => {
+  const { width, height } = INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE;
+  const background = scene.add
+    .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+    .setOrigin(0)
+    .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
+  const label = scene.add
+    .text(width / 2, height / 2, text, {
+      fontSize: INITIAL_PLACEMENT_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: HIRE_BUTTON_COLORS.text,
+    })
+    .setOrigin(0.5);
+  const container = scene.add
+    .container(INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION.x, INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION.y, [background, label])
+    .setSize(width, height)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  container.setInteractive(
+    new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+    Phaser.Geom.Rectangle.Contains,
+  );
+  // stopPropagation はしない（main.ts が currentlyOver で配置を止める）。
+  container.on('pointerdown', () => onSelect());
+  return {
+    container,
+    setLabel: (next) => {
+      label.setText(next);
+    },
+    setSelected: (selected) => {
+      background
+        .setFillStyle(selected ? INITIAL_PLACEMENT_SELECTED_COLORS.fill : HIRE_BUTTON_COLORS.fill)
+        .setStrokeStyle(2, selected ? INITIAL_PLACEMENT_SELECTED_COLORS.stroke : HIRE_BUTTON_COLORS.stroke);
+    },
+  };
+};
+
+// 初期配置(#157)でエンジニアを置ける床（ルートグリッド 60px のセル）を半透明で塗る。入力は持たない。
+// 置く・外すたびに MainScene が destroy() して描き直し、プレイ開始時に destroy() する（drawField は変えない）。
+export const drawEngineerCandidateOverlay = (
+  scene: Phaser.Scene,
+  cells: readonly GridCell[],
+): Phaser.GameObjects.Graphics => {
+  const g = scene.add.graphics();
+  g.setDepth(ENGINEER_CANDIDATE_OVERLAY.depth);
+  const { fillColor, fillAlpha, strokeColor, strokeWidth, strokeAlpha } = ENGINEER_CANDIDATE_OVERLAY;
+  // 枠線はセルの内側に収める（隣のセルの枠と重ならないよう、線幅の半分だけ内側に描く）。
+  const inset = strokeWidth / 2;
+  cells.forEach((cell) => {
+    const x = cell.col * CELL_SIZE;
+    const y = cell.row * CELL_SIZE;
+    g.fillStyle(fillColor, fillAlpha);
+    g.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+    g.lineStyle(strokeWidth, strokeColor, strokeAlpha);
+    g.strokeRect(x + inset, y + inset, CELL_SIZE - strokeWidth, CELL_SIZE - strokeWidth);
+  });
+  return g;
+};
+
+// 初期配置(#157)の取消（×）ボタン。center を中心とする一辺 INITIAL_PLACEMENT_REMOVE_BUTTON.size の正方形で、クリックで onRemove() を呼ぶ。
+// 当たり判定は見た目の正方形と同じ（setSize と半分ずらした矩形）。
+// stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で配置を止める。撤去時・プレイ開始時に MainScene が destroy() する。
+export const drawRemoveButton = (
+  scene: Phaser.Scene,
+  center: Point,
+  onRemove: () => void,
+): Phaser.GameObjects.Container => {
+  const { size, fillColor, strokeColor, strokeWidth, label, fontSize, labelColor, depth } = INITIAL_PLACEMENT_REMOVE_BUTTON;
+  const background = scene.add
+    .rectangle(0, 0, size, size, fillColor)
+    .setOrigin(0)
+    .setStrokeStyle(strokeWidth, strokeColor);
+  const mark = scene.add
+    .text(size / 2, size / 2, label, {
+      fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: labelColor,
+    })
+    .setOrigin(0.5);
+  const container = scene.add
+    .container(center.x - size / 2, center.y - size / 2, [background, mark])
+    .setSize(size, size)
+    .setDepth(depth);
+  container.setInteractive(new Phaser.Geom.Rectangle(size / 2, size / 2, size, size), Phaser.Geom.Rectangle.Contains);
+  container.on('pointerdown', () => onRemove());
+  return container;
+};
+
+// メニュー・ポップオーバー(#156)の文字スタイル。小さい文字なので縁取りは付けない（背景の上に出す）。
+const menuTextStyle = (): Phaser.Types.GameObjects.Text.TextStyle => ({
+  fontSize: MENU_FONT_SIZE,
+  fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+  color: HIRE_BUTTON_COLORS.text,
+  lineSpacing: MENU_LINE_SPACING,
+});
+
+// 右上のアイコン(#156)。開いているアイコンの強調（setOpen）と、初期配置の間に開けないアイコンを薄くする（setDimmed）を MainScene が切り替える。
+export type MenuIcons = {
+  readonly setOpen: (kind: MenuKind | null) => void;
+  readonly setDimmed: (kind: MenuKind, dimmed: boolean) => void;
+};
+
+// アイコンの絵（Graphics）。座標はアイコンの左上を原点に、一辺 size に対する比率（MENU_ICON_GLYPH）から求める。
+const drawMenuIconGlyph = (g: Phaser.GameObjects.Graphics, kind: MenuKind, size: number): void => {
+  const glyph = MENU_ICON_GLYPH;
+  switch (kind) {
+    case 'engineer':
+      // 人: 頭の円と胴体の角丸の四角。
+      g.fillStyle(MENU_ICON_COLORS.glyph);
+      g.fillCircle(size * glyph.headX, size * glyph.headY, size * glyph.headRadius);
+      g.fillRoundedRect(
+        size * glyph.bodyX,
+        size * glyph.bodyY,
+        size * glyph.bodyWidth,
+        size * glyph.bodyHeight,
+        size * glyph.bodyRadius,
+      );
+      return;
+    case 'item':
+      // 箱: 四角の輪郭と、ふたの線。
+      g.lineStyle(glyph.lineWidth, MENU_ICON_COLORS.glyph);
+      g.strokeRect(size * glyph.boxX, size * glyph.boxY, size * glyph.boxSize, size * glyph.boxSize);
+      g.lineBetween(size * glyph.boxX, size * glyph.lidY, size * (glyph.boxX + glyph.boxSize), size * glyph.lidY);
+      return;
+    case 'balance': {
+      // 開発バランス: 機能開発とリファクタリングの2色に分けた横棒。
+      const barX = size * glyph.barX;
+      const barY = size * glyph.barY;
+      const barWidth = size * glyph.barWidth;
+      const barHeight = size * glyph.barHeight;
+      const featureWidth = barWidth * glyph.featureRatio;
+      g.fillStyle(MENU_ICON_COLORS.feature);
+      g.fillRect(barX, barY, featureWidth, barHeight);
+      g.fillStyle(MENU_ICON_COLORS.refactoring);
+      g.fillRect(barX + featureWidth, barY, barWidth - featureWidth, barHeight);
+      return;
+    }
+  }
+};
+
+// 右上の3つのアイコン(#156)。クリックで onPress(種類) を呼ぶ。位置は menuIconRect（floatingMenu.ts）。
+// 当たり判定は見た目の正方形と同じ（drawRemoveButton と同じく setSize と半分ずらした矩形）。stopPropagation はしない（main.ts が currentlyOver で移動・攻撃・配置を止める）。
+export const drawMenuIcons = (scene: Phaser.Scene, onPress: (kind: MenuKind) => void): MenuIcons => {
+  const icons = MENU_KINDS.map((kind) => {
+    const rect = menuIconRect(kind);
+    const background = scene.add
+      .rectangle(0, 0, rect.width, rect.height, MENU_ICON_COLORS.fill)
+      .setOrigin(0)
+      .setStrokeStyle(MENU_ICON_STROKE_WIDTH, MENU_ICON_COLORS.stroke);
+    const glyph = scene.add.graphics();
+    drawMenuIconGlyph(glyph, kind, rect.width);
+    const container = scene.add
+      .container(rect.x, rect.y, [background, glyph])
+      .setSize(rect.width, rect.height)
+      .setDepth(ELAPSED_DAYS_DEPTH);
+    container.setInteractive(
+      new Phaser.Geom.Rectangle(rect.width / 2, rect.height / 2, rect.width, rect.height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    container.on('pointerdown', () => onPress(kind));
+    return { kind, background, container };
+  });
+  return {
+    setOpen: (openKind) => {
+      icons.forEach((icon) => {
+        const open = icon.kind === openKind;
+        icon.background
+          .setFillStyle(open ? INITIAL_PLACEMENT_SELECTED_COLORS.fill : MENU_ICON_COLORS.fill)
+          .setStrokeStyle(MENU_ICON_STROKE_WIDTH, open ? INITIAL_PLACEMENT_SELECTED_COLORS.stroke : MENU_ICON_COLORS.stroke);
+      });
+    },
+    setDimmed: (kind, dimmed) => {
+      icons.find((icon) => icon.kind === kind)?.container.setAlpha(dimmed ? MENU_ICON_DIM_ALPHA : 1);
+    },
+  };
+};
+
+// 開いているメニュー・ポップオーバー(#156)。開くときに作り、閉じるとき（別のものを開く・外を押す・ゲームオーバー）に destroy() する。
+export type FloatingPanel = { readonly destroy: () => void };
+
+// パネルのボタン1つ。selected は現在値・選択中の強調。colors は通常の色（アイテムの枠だけ ITEM_BUTTON_COLORS）。
+type PanelButton = {
+  readonly label: string;
+  readonly onPress: () => void;
+  readonly selected: boolean;
+};
+type PanelButtonColors = { readonly fill: number; readonly stroke: number; readonly text: string };
+
+// パネルの1行の中身。text は文字の行、buttons は横に並べるボタン（null の枠は文字だけを出す。ページ表示に使う）。
+type PanelEntry =
+  | { readonly kind: 'text'; readonly lines: readonly string[] }
+  | { readonly kind: 'buttons'; readonly buttons: readonly (PanelButton | { readonly label: string; readonly onPress: null })[] };
+
+// パネルのボタン（Rectangle と Text の Container）。当たり判定は drawRemoveButton と同じく、表示範囲と一致させるため矩形を半分ずらす。
+const drawPanelButton = (
+  scene: Phaser.Scene,
+  rect: Rect,
+  button: PanelButton,
+  colors: PanelButtonColors,
+): Phaser.GameObjects.Container => {
+  const { width, height } = rect;
+  const background = scene.add
+    .rectangle(0, 0, width, height, button.selected ? INITIAL_PLACEMENT_SELECTED_COLORS.fill : colors.fill)
+    .setOrigin(0)
+    .setStrokeStyle(MENU_ICON_STROKE_WIDTH, button.selected ? INITIAL_PLACEMENT_SELECTED_COLORS.stroke : colors.stroke);
+  const label = scene.add
+    .text(width / 2, height / 2, button.label, { ...menuTextStyle(), color: colors.text })
+    .setOrigin(0.5);
+  const container = scene.add
+    .container(rect.x, rect.y, [background, label])
+    .setSize(width, height)
+    .setDepth(MENU_PANEL_DEPTH);
+  container.setInteractive(
+    new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+    Phaser.Geom.Rectangle.Contains,
+  );
+  container.on('pointerdown', button.onPress);
+  return container;
+};
+
+// メニュー・ポップオーバーの共通の描画(#156)。半透明の背景の上に、行ごとの中身（entries。layout.rows と同じ順・同じ数）を並べる。
+// 背景全体を interactive にして、背景・余白・ボタンの間の押下も currentlyOver に入れる（main.ts が移動・攻撃・配置を止め、パネルも閉じない）。
+// stopPropagation はしない。背景とボタンは同じ深さで、後から作るボタンが手前になり、押下はボタンに届く。
+export const drawFloatingPanel = (
+  scene: Phaser.Scene,
+  layout: PanelLayout,
+  entries: readonly PanelEntry[],
+  buttonColors: PanelButtonColors = HIRE_BUTTON_COLORS,
+): FloatingPanel => {
+  if (entries.length !== layout.rows.length) {
+    throw new Error(`パネルの行数が配置と一致しません: entries=${entries.length}, rows=${layout.rows.length}`);
+  }
+  const { rect } = layout;
+  const background = scene.add
+    .rectangle(rect.x, rect.y, rect.width, rect.height, MENU_PANEL_COLORS.fill, MENU_PANEL_COLORS.fillAlpha)
+    .setOrigin(0)
+    .setStrokeStyle(MENU_PANEL_COLORS.strokeWidth, MENU_PANEL_COLORS.stroke)
+    .setDepth(MENU_PANEL_DEPTH);
+  background.setInteractive(new Phaser.Geom.Rectangle(0, 0, rect.width, rect.height), Phaser.Geom.Rectangle.Contains);
+  const objects: Phaser.GameObjects.GameObject[] = [background];
+  entries.forEach((entry, index) => {
+    const row = layout.rows[index];
+    if (entry.kind === 'text') {
+      objects.push(scene.add.text(row.x, row.y, [...entry.lines], menuTextStyle()).setDepth(MENU_PANEL_DEPTH));
+      return;
+    }
+    splitRow(row, entry.buttons.length).forEach((cell, cellIndex) => {
+      const button = entry.buttons[cellIndex];
+      if (button.onPress === null) {
+        objects.push(
+          scene.add
+            .text(cell.x + cell.width / 2, cell.y + cell.height / 2, button.label, menuTextStyle())
+            .setOrigin(0.5)
+            .setDepth(MENU_PANEL_DEPTH),
+        );
+        return;
+      }
+      objects.push(drawPanelButton(scene, cell, button, buttonColors));
+    });
+  });
+  return { destroy: () => objects.forEach((object) => object.destroy()) };
+};
+
+// エンジニアのメニュー(#156)の中身。人数、雇うボタン（ランクごと）、選択中のエンジニア、前へ・次へ、昇給・減給。
+export type EngineerMenuView = {
+  readonly count: number;
+  readonly max: number;
+  readonly hireOptions: readonly { readonly rank: EngineerRank; readonly cost: number }[];
+  readonly selected: Engineer | null;
+};
+export type EngineerMenuCallbacks = {
+  readonly onHire: (rank: EngineerRank) => void;
+  readonly onSelect: (direction: EngineerSelectDirection) => void;
+  readonly onAdjust: (direction: SalaryDirection) => void;
+};
+
+export const drawEngineerMenu = (
+  scene: Phaser.Scene,
+  view: EngineerMenuView,
+  callbacks: EngineerMenuCallbacks,
+): FloatingPanel =>
+  drawFloatingPanel(scene, menuPanelLayout('engineer'), [
+    { kind: 'text', lines: [formatEngineerCount(view.count, view.max)] },
+    ...view.hireOptions.map(
+      (option): PanelEntry => ({
+        kind: 'buttons',
+        buttons: [{ label: formatHireOption(option.rank, option.cost), onPress: () => callbacks.onHire(option.rank), selected: false }],
+      }),
+    ),
+    { kind: 'text', lines: formatSelectedEngineerLines(view.selected) },
+    {
+      kind: 'buttons',
+      buttons: [
+        { label: SALARY_BUTTON_LABELS.previous, onPress: () => callbacks.onSelect('previous'), selected: false },
+        { label: SALARY_BUTTON_LABELS.next, onPress: () => callbacks.onSelect('next'), selected: false },
+      ],
+    },
+    {
+      kind: 'buttons',
+      buttons: [
+        { label: SALARY_BUTTON_LABELS.raise, onPress: () => callbacks.onAdjust('raise'), selected: false },
+        { label: SALARY_BUTTON_LABELS.cut, onPress: () => callbacks.onAdjust('cut'), selected: false },
+      ],
+    },
+  ]);
+
+// アイテムのメニュー(#156)の中身。ページ内の枠の文言（ITEM_PAGE_SIZE 個。最後のページの空きは null で、ボタンを出さない）、ページ表示、
+// 強調する枠（初期配置で選んでいるアイテム #157。強調しないなら null）。
+export type ItemMenuView = {
+  readonly labels: readonly (string | null)[];
+  readonly pageLabel: string;
+  readonly selectedSlot: number | null;
+};
+export type ItemMenuCallbacks = {
+  readonly onBuySlot: (slot: number) => void;
+  readonly onPage: (direction: ItemPageDirection) => void;
+};
+
+export const drawItemMenu = (scene: Phaser.Scene, view: ItemMenuView, callbacks: ItemMenuCallbacks): FloatingPanel =>
+  drawFloatingPanel(
+    scene,
+    menuPanelLayout('item'),
+    [
+      ...view.labels.map(
+        (label, slot): PanelEntry =>
+          label === null
+            ? { kind: 'text', lines: [] }
+            : {
+                kind: 'buttons',
+                buttons: [{ label, onPress: () => callbacks.onBuySlot(slot), selected: slot === view.selectedSlot }],
+              },
+      ),
+      {
+        kind: 'buttons',
+        buttons: [
+          { label: ITEM_PAGE_BUTTON_LABELS.previous, onPress: () => callbacks.onPage('previous'), selected: false },
+          { label: view.pageLabel, onPress: null },
+          { label: ITEM_PAGE_BUTTON_LABELS.next, onPress: () => callbacks.onPage('next'), selected: false },
+        ],
+      },
+    ],
+    ITEM_BUTTON_COLORS,
+  );
+
+// 開発バランスのメニュー(#156)。見出しと、リファクタリングの割合の選択肢（options、上から順）を「機能80:リファ20」の形で縦に並べ、現在値（current）を強調する。
+export const drawBalanceMenu = (
+  scene: Phaser.Scene,
+  view: { readonly options: readonly number[]; readonly current: number },
+  onSelect: (ratio: number) => void,
+): FloatingPanel =>
+  drawFloatingPanel(scene, menuPanelLayout('balance'), [
+    { kind: 'text', lines: [MENU_TEXT.balanceTitle] },
+    ...view.options.map(
+      (ratio): PanelEntry => ({
+        kind: 'buttons',
+        buttons: [
+          {
+            label: formatRefactoringAllocation(ratio),
+            onPress: () => onSelect(ratio),
+            selected: isSameRefactoringOption(ratio, view.current),
+          },
+        ],
+      }),
+    ),
+  ]);
+
+export type EngineerPopoverCallbacks = {
+  readonly onToggleVacation: () => void;
+  readonly onBuyAiAgent: (agentType: AiAgentType) => void;
+};
+
+// エンジニアのポップオーバー(#156)。出現地点（anchor はその中心）の右に、見出し「#id ランク AI: 種類」・休暇の状態・休暇／復帰ボタン・
+// AIエージェントのボタン（価格付き。付けている種類を強調）・休暇の案内文(#150)を縦に並べる。位置は popoverLayout（フィールドの内側に収める）。
+export const drawEngineerPopover = (
+  scene: Phaser.Scene,
+  anchor: Point,
+  engineer: Engineer,
+  callbacks: EngineerPopoverCallbacks,
+): FloatingPanel =>
+  drawFloatingPanel(scene, popoverLayout(anchor), [
+    { kind: 'text', lines: formatEngineerPopoverLines(engineer) },
+    {
+      kind: 'buttons',
+      buttons: [{ label: formatVacationButton(engineer), onPress: callbacks.onToggleVacation, selected: false }],
+    },
+    ...AI_AGENT_BUTTON_ORDER.map(
+      (agentType): PanelEntry => ({
+        kind: 'buttons',
+        buttons: [
+          {
+            label: formatAiAgentOption(agentType),
+            onPress: () => callbacks.onBuyAiAgent(agentType),
+            selected: engineer.aiAgent === agentType,
+          },
+        ],
+      }),
+    ),
+    { kind: 'text', lines: formatVacationHint() },
+  ]);
+
+// 右下の小さな指標(#156)。資金・累計売上・月末に支払うお金の3行と、技術的負債の段階（色付きの丸と「負債 正常」）。
+// 入力は受け付けない（setInteractive しない）ので、currentlyOver に入らず主人公の移動・攻撃を妨げない。値が変わったら MainScene が各 set で更新する。
+export type StatusPanel = {
+  readonly setFunds: (funds: number) => void;
+  readonly setScore: (score: number) => void;
+  readonly setMonthEndPayment: (amount: number) => void;
+  readonly setTechDebtLevel: (level: TechDebtLevel) => void;
+};
+
+export type StatusPanelValues = {
+  readonly funds: number;
+  readonly score: number;
+  readonly monthEndPayment: number;
+  readonly techDebtLevel: TechDebtLevel;
+};
+
+export const drawStatusPanel = (scene: Phaser.Scene, initial: StatusPanelValues): StatusPanel => {
+  const rect = STATUS_PANEL_RECT;
+  scene.add
+    .rectangle(rect.x, rect.y, rect.width, rect.height, STATUS_PANEL_COLORS.fill, STATUS_PANEL_COLORS.fillAlpha)
+    .setOrigin(0)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  const textStyle: Phaser.Types.GameObjects.Text.TextStyle = {
+    fontSize: STATUS_PANEL_FONT_SIZE,
+    fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+    color: ELAPSED_DAYS_STYLE.color,
+    lineSpacing: STATUS_PANEL_LINE_SPACING,
+  };
+  // 負債の丸と文言は左の欄（STATUS_PANEL_INDICATOR_WIDTH）の縦中央。
+  const centerY = rect.y + rect.height / 2;
+  const circleX = rect.x + STATUS_PANEL_PADDING + STATUS_PANEL_INDICATOR_RADIUS;
+  const circle = scene.add
+    .circle(circleX, centerY, STATUS_PANEL_INDICATOR_RADIUS, TECH_DEBT_LEVELS[initial.techDebtLevel].color)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  const levelText = scene.add
+    .text(circleX + STATUS_PANEL_INDICATOR_RADIUS + STATUS_PANEL_INDICATOR_GAP, centerY, '', textStyle)
+    .setOrigin(0, 0.5)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  const lines = scene.add
+    .text(rect.x + STATUS_PANEL_INDICATOR_WIDTH, rect.y + STATUS_PANEL_PADDING, '', textStyle)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  let values = initial;
+  const showLines = (): void => {
+    lines.setText([formatFunds(values.funds), formatCumulativeSales(values.score), formatMonthEndPayment(values.monthEndPayment)]);
+  };
+  const showLevel = (): void => {
+    circle.setFillStyle(TECH_DEBT_LEVELS[values.techDebtLevel].color);
+    levelText.setText(`${STATUS_PANEL_TECH_DEBT_LABEL}${TECH_DEBT_LEVELS[values.techDebtLevel].label}`);
+  };
+  showLines();
+  showLevel();
+  return {
+    setFunds: (funds) => {
+      values = { ...values, funds };
+      showLines();
+    },
+    setScore: (score) => {
+      values = { ...values, score };
+      showLines();
+    },
+    setMonthEndPayment: (monthEndPayment) => {
+      values = { ...values, monthEndPayment };
+      showLines();
+    },
+    setTechDebtLevel: (techDebtLevel) => {
+      values = { ...values, techDebtLevel };
+      showLevel();
+    },
+  };
 };

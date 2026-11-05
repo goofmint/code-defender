@@ -9,6 +9,7 @@ import {
   CODE_SPAWN_INTERVAL_MIN_MS,
   ITEM_MONTHLY_FEE_RATIO,
   ITEM_PRICE_TIERS,
+  MENU_TEXT,
 } from './config';
 import type { Engineer } from './engineer';
 import { getMessages } from './i18n';
@@ -131,12 +132,9 @@ export const formatAiAgentMessage = (result: EquipAiAgentResult, agentType: stri
   }
 };
 
-// ボタンの文言。「[V] 強い 20万/月」。月額は精算と同じ計算（getAiAgentMonthlyFee）。
-export const formatAiAgentButton = (
-  key: string,
-  agentType: AiAgentType,
-  ratio: number = ITEM_MONTHLY_FEE_RATIO,
-): string => `[${key}] ${AI_AGENT_SHORT_NAMES[agentType]} ${getAiAgentMonthlyFee(agentType, ratio) / 10000}万/月`;
+// エンジニアのポップオーバー(#156)のボタンの文言。「AI 強い 10万/月」。月額は精算と同じ計算（getAiAgentMonthlyFee）。キー名（V/B/N）は出さない。
+export const formatAiAgentOption = (agentType: AiAgentType, ratio: number = ITEM_MONTHLY_FEE_RATIO): string =>
+  `${MENU_TEXT.aiPrefix}${AI_AGENT_SHORT_NAMES[agentType]} ${getAiAgentMonthlyFee(agentType, ratio) / 10000}${MENU_TEXT.monthlyUnit}`;
 
 // 倍率が 0 以下・有限でないなら 1（効果なし）として扱う。
 const sanitizeMultiplier = (multiplier: number): number =>

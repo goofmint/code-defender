@@ -1,18 +1,27 @@
 // ステージポイントによる初期配置(#47)の純粋関数。Phaser には依存しない（テスト可能にするため）。
 // ステージポイントは資金(funds)とは別の単位。資金は変えない（changeFunds は通さない）。仮の規則は config.ts の #47 の注記を参照。
 import {
+  ENGINEER_SPAWN_COL,
+  FIELD_ROWS,
+  INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
+  INITIAL_PLACEMENT_MESSAGES,
+  INITIAL_PLACEMENT_REMOVE_BUTTON,
   INITIAL_PLACEMENT_TEXT,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_SHORT_NAMES,
+  RELEASE_POINT_CELL,
   STAGE_POINT_COST_BY_TIER,
   STAGE_POINTS_INITIAL,
 } from './config';
-import { pointInRect, rectsOverlap } from './geometry';
+import { assignEngineerRoute } from './engineer';
+import type { Engineer } from './engineer';
+import { pointInRect, rectIntersectsCircle, rectsOverlap } from './geometry';
 import { getItemPlacement, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
-import { createItemState, isPlaceableCell, itemFootprint } from './itemPlacement';
+import { createItemState, isPlaceableCell, itemFootprint, SPAWN_CLEARANCE_RADIUS } from './itemPlacement';
 import type { ItemPriceTier, ItemState, PlacedItem, PlacementCell, PlacementContext } from './itemPlacement';
-import type { Point } from './route';
+import { addRouteAt, cellCenter, removeRoute, SPAWN_MARKER_STYLE } from './route';
+import type { GridCell, Point, Route } from './route';
 
 export type InitialPlacementState = {
   readonly points: number;
@@ -139,14 +148,166 @@ export const formatInitialPlacementMessage = (
   }
 };
 
-// 初期配置パネルの4行（残ポイント・選択中のアイテムとコスト・操作説明2行）。行数は config の INITIAL_PLACEMENT_PANEL_LINES と同じ。
-// 例: 「初期配置 残りポイント: 6pt」「選択: Linter 1pt」。キーは購入ボタンに出ているので、パネル幅に収めるため省く。
-export const formatInitialPlacementPanel = (points: number, selected: ItemType): readonly string[] => {
+// 初期配置で次に置くもの(#157)。最初は未選択。アイテムのメニュー(#156)でアイテムの種類を、エンジニアの選択ボタンでエンジニアを選ぶ。
+export type InitialPlacementSelection =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'item'; readonly itemType: ItemType }
+  | { readonly kind: 'engineer' };
+
+// 初期配置パネルの3行（残ポイント・選択中のもの・マウス操作の説明）(#157)。行数は config の INITIAL_PLACEMENT_PANEL_LINES と同じ。
+// 例: 「初期配置 残りポイント: 6pt」「選択: Linter 1pt」「選択: エンジニア」「選択: なし」。キーボード操作の説明は出さない。
+export const formatInitialPlacementPanel = (points: number, selection: InitialPlacementSelection): readonly string[] => {
   const text = INITIAL_PLACEMENT_TEXT;
-  return [
-    `${text.title} ${text.points}${points}${text.pointUnit}`,
-    `${text.selected}${ITEM_SHORT_NAMES[selected]} ${getStagePointCost(selected)}${text.pointUnit}`,
-    text.instructionSelect,
-    text.instructionPlace,
-  ];
+  const selected = ((): string => {
+    switch (selection.kind) {
+      case 'item':
+        return `${ITEM_SHORT_NAMES[selection.itemType]} ${getStagePointCost(selection.itemType)}${text.pointUnit}`;
+      case 'engineer':
+        return text.selectedEngineer;
+      case 'none':
+        return text.selectedNone;
+    }
+  })();
+  return [`${text.title} ${text.points}${points}${text.pointUnit}`, `${text.selected}${selected}`, text.instruction];
+};
+
+// 初期配置の間のアイテムのメニュー(#156)の枠の文言(#157)。「Linter 1pt」。金額の代わりにステージポイントのコストを出し、キーの表示は省く。
+export const formatInitialPlacementItemButton = (itemType: ItemType): string =>
+  `${ITEM_SHORT_NAMES[itemType]} ${getStagePointCost(itemType)}${INITIAL_PLACEMENT_TEXT.pointUnit}`;
+
+// エンジニアの選択ボタンの文言(#157)。「エンジニア 残り3人」（残りは未配置の初期エンジニアの人数）。
+export const formatInitialPlacementEngineerButton = (unplaced: number): string =>
+  `${INITIAL_PLACEMENT_TEXT.engineerButton}${unplaced}${INITIAL_PLACEMENT_TEXT.engineerButtonUnit}`;
+
+// 未配置（routeId が null）のエンジニアの人数(#157)。初期配置の間は雇えないので、名簿は初期エンジニアだけ。
+export const countUnplacedEngineers = (engineers: readonly Engineer[]): number =>
+  engineers.filter((engineer) => engineer.routeId === null).length;
+
+// プレイを始められるか(#157)。初期エンジニア全員にルート（出現場所）があるときだけ始められる。アイテムは置かなくてもよい。
+export const canStartPlay = (engineers: readonly Engineer[]): boolean => countUnplacedEngineers(engineers) === 0;
+
+const isSameCell = (a: GridCell, b: GridCell): boolean => a.col === b.col && a.row === b.row;
+
+// エンジニアを置けるセルか(#157)。cell はルートグリッド（60px）のセル。条件: 整数で ENGINEER_SPAWN_COL の列・行が範囲内、
+// 既存ルートの出現セルでもリリースセルでもない、出現場所の円の外側リング（SPAWN_CLEARANCE_RADIUS）が配置済みアイテムの見た目の四角に重ならない。
+// 列を ENGINEER_SPAWN_COL に限るのは、createRoute が出現列を左端として右向きに進み、主人公の初期セルを避ける前提のため（雇用時の nextSpawnCell と同じ列）。
+export const isEngineerCandidateCell = (
+  cell: GridCell,
+  routes: readonly Route[],
+  placedItems: readonly PlacedItem[],
+): boolean => {
+  if (!Number.isInteger(cell.row) || cell.col !== ENGINEER_SPAWN_COL) return false;
+  if (cell.row < 0 || cell.row >= FIELD_ROWS) return false;
+  if (routes.some((route) => isSameCell(route.spawn, cell))) return false;
+  if (isSameCell(cell, RELEASE_POINT_CELL)) return false;
+  const center = cellCenter(cell);
+  return !placedItems.some((item) => rectIntersectsCircle(itemFootprint(item.cell), center, SPAWN_CLEARANCE_RADIUS));
+};
+
+// エンジニアを置けるセルの一覧（上の行から）(#157)。setup の間の床の色分けに使う。
+export const listEngineerCandidateCells = (
+  routes: readonly Route[],
+  placedItems: readonly PlacedItem[],
+): GridCell[] =>
+  Array.from({ length: FIELD_ROWS }, (_, row): GridCell => ({ col: ENGINEER_SPAWN_COL, row })).filter((cell) =>
+    isEngineerCandidateCell(cell, routes, placedItems),
+  );
+
+export type EngineerPlacementFailReason = 'notCandidate' | 'noUnplacedEngineer' | 'overlapsItem';
+
+export type EngineerPlacementResult =
+  | {
+      readonly ok: true;
+      readonly engineerId: number;
+      readonly route: Route;
+      readonly routes: Route[];
+      readonly engineers: Engineer[];
+    }
+  | { readonly ok: false; readonly reason: EngineerPlacementFailReason };
+
+// ルートが配置済みアイテムの見た目の四角に重ならないか。アイテムを置くときと同じ判定（isPlaceableCell）を、そのルートだけ・UI の矩形なしで行う。
+const routeAvoidsItems = (route: Route, placedItems: readonly PlacedItem[]): boolean =>
+  placedItems.every((item) => isPlaceableCell(item.cell, { routes: [route], placedItems: [], blockedRects: [] }));
+
+// 未配置の初期エンジニアのうち名簿で最初の1人を cell に置き、ルートを自動で作る(#157)。判定順: 置けないセル → 未配置のエンジニアがいない →
+// アイテムと重なる。ルートが配置済みアイテムに重なるときは random で作り直し、INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS 回（最初の1回を含む）
+// すべて重なったら overlapsItem にする（アイテムは撤去しない）。失敗時は理由だけを返し、入力は変更しない。
+export const placeInitialEngineer = (
+  engineers: readonly Engineer[],
+  routes: readonly Route[],
+  placedItems: readonly PlacedItem[],
+  cell: GridCell,
+  random: () => number,
+  attempts: number = INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
+): EngineerPlacementResult => {
+  if (!isEngineerCandidateCell(cell, routes, placedItems)) return { ok: false, reason: 'notCandidate' };
+  const engineer = engineers.find((candidate) => candidate.routeId === null);
+  if (engineer === undefined) return { ok: false, reason: 'noUnplacedEngineer' };
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const route = addRouteAt(routes, cell, random);
+    // 候補のセルは使用中の出現セルを除いた ENGINEER_SPAWN_COL の行なので、ルートは上限（MAX_ENGINEER_ROUTES = 行数）に達しない。
+    if (route === undefined) throw new Error(`ルートの上限で出現場所を追加できません: (${cell.col}, ${cell.row})`);
+    if (routeAvoidsItems(route, placedItems)) {
+      return {
+        ok: true,
+        engineerId: engineer.id,
+        route,
+        routes: [...routes, route],
+        engineers: assignEngineerRoute(engineers, engineer.id, route.id),
+      };
+    }
+  }
+  return { ok: false, reason: 'overlapsItem' };
+};
+
+export type EngineerRemovalResult =
+  | { readonly ok: true; readonly routeId: number; readonly routes: Route[]; readonly engineers: Engineer[] }
+  | { readonly ok: false; readonly reason: 'notFound' | 'notPlaced' };
+
+// 置いたエンジニアを外す(#157)。そのエンジニアのルートを除き、routeId を null に戻す（名簿からは外さない）。入力は変更しない。
+export const removeInitialEngineer = (
+  engineers: readonly Engineer[],
+  routes: readonly Route[],
+  engineerId: number,
+): EngineerRemovalResult => {
+  const engineer = engineers.find((candidate) => candidate.id === engineerId);
+  if (engineer === undefined) return { ok: false, reason: 'notFound' };
+  if (engineer.routeId === null) return { ok: false, reason: 'notPlaced' };
+  return {
+    ok: true,
+    routeId: engineer.routeId,
+    routes: removeRoute(routes, engineer.routeId),
+    engineers: assignEngineerRoute(engineers, engineerId, null),
+  };
+};
+
+// エンジニアの配置の結果メッセージ(#157)。
+export const formatEngineerPlacementMessage = (result: EngineerPlacementResult): string => {
+  if (result.ok) return INITIAL_PLACEMENT_MESSAGES.engineerPlaced;
+  switch (result.reason) {
+    case 'notCandidate':
+      return INITIAL_PLACEMENT_MESSAGES.engineerNotCandidate;
+    case 'noUnplacedEngineer':
+      return INITIAL_PLACEMENT_MESSAGES.noUnplacedEngineer;
+    case 'overlapsItem':
+      return INITIAL_PLACEMENT_MESSAGES.engineerOverlapsItem;
+  }
+};
+
+// アイテムの取消（×）ボタンの中心(#157)。見た目の四角（itemFootprint）の右上の角。四角の大きさが変わっても角に付く。
+export const itemRemoveButtonCenter = (cell: PlacementCell): Point => {
+  const footprint = itemFootprint(cell);
+  return { x: footprint.x + footprint.width, y: footprint.y };
+};
+
+// エンジニアの取消（×）ボタンの中心から出現場所の円の中心までの、右・上それぞれのずれ(#157)。
+// ボタンの左下の角が休暇マーカーの当たり判定（半径 SPAWN_MARKER_STYLE.radius の円）の外になる最小の整数（radius / √2 + size / 2 を切り上げ）。
+export const ENGINEER_REMOVE_BUTTON_OFFSET = Math.ceil(
+  SPAWN_MARKER_STYLE.radius / Math.SQRT2 + INITIAL_PLACEMENT_REMOVE_BUTTON.size / 2,
+);
+
+// エンジニアの取消（×）ボタンの中心(#157)。spawn はルートグリッド（60px）の出現セルで、円の中心から右上へ ENGINEER_REMOVE_BUTTON_OFFSET ずらす。
+export const engineerRemoveButtonCenter = (spawn: GridCell): Point => {
+  const center = cellCenter(spawn);
+  return { x: center.x + ENGINEER_REMOVE_BUTTON_OFFSET, y: center.y - ENGINEER_REMOVE_BUTTON_OFFSET };
 };
