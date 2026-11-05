@@ -241,7 +241,8 @@ export const REFACTORING_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 // 開発スピードはコードの生成頻度と解釈し、生成間隔（CODE_SPAWN_INTERVAL_MS）に倍率を掛けて延ばす。コードの移動速度には掛けない。
 // 倍率は負債に比例し、負債0で1（既存の挙動と同じ）、負債が上限（TECH_DEBT_MAX）でこの値。2 なら上限で生成間隔が2倍（2000ms→4000ms）。
 // 仮・要確認(#150): 「25日過ぎると一気に生産性が落ちる」ため 2→1 にし、負債で生産量（コード＋バグの総生成数）を落とさないようにする。
-// 1 なら負債がいくつでも生成間隔は基準のまま（techDebt.ts の techDebtSpawnIntervalMs）。仕組みは残し、負債の影響は不正コード率の増加(#45)だけにする。
+// 1 なら負債がいくつでも生成間隔は基準のまま（techDebt.ts の techDebtSpawnIntervalMs）。倍率 1 で無効になるのは生成間隔の延長だけで、
+// 負債による不正コード率の増加(#45)と、閾値超えの放置による大障害(#46、main.ts の updateTechDebtNeglect)はそのまま残る。
 export const TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER = 1;
 // 仮・要確認(#43): 技術的負債の表示書式。「技術的負債: 40」。数値は四捨五入した整数。
 export const TECH_DEBT_FORMAT = { prefix: '技術的負債: ', suffix: '' } as const;
@@ -552,10 +553,13 @@ export const AI_AGENT_BUTTON_SIZE = { width: 112, height: 28, gap: 4 } as const;
 export const AI_AGENT_BUTTON_FONT_SIZE = '12px';
 // 仮・要確認(#150): 休暇の操作方法と効果の案内文（HUD に常時表示。setup 中・プレイ中とも表示し、入力は受け付けない）。
 // 「休憩する機能が見当たらない」(#150) への対応で、既存の休暇(#35/#39)の操作を案内する。休暇のロジックは変えない。
-// 数値は VACATION_MALICIOUS_RATE_REDUCTION から作る（engineer.ts の formatVacationHint）。「出現地点の「休」を押すと休暇: 不正コード率 -10ポイント（もう一度押すと復帰）」の形。
+// 数値は VACATION_MALICIOUS_RATE_REDUCTION から作る（engineer.ts の formatVacationHint）。
+// 「出現地点の「休」で休暇（プレイ開始後）：不正コード率 -10ポイント。休暇中はそのルートの生産停止・給与は継続。再度押すと復帰」の形。
+// 休暇の切り替えは setup 中は受け付けない（toggleVacation）ので「プレイ開始後」を添える。休暇中は生成・移動が止まり(#36)、給料は引かれる(#37)。
+// 1 行に収める。全角 1 文字 = 14px で見積もって x=72 からフィールド右端（960）までの 63 文字以内（hudLayout.test.ts で検証）。
 export const VACATION_HINT_FORMAT = {
-  prefix: '出現地点の「休」を押すと休暇: 不正コード率 -',
-  suffix: 'ポイント（もう一度押すと復帰）',
+  prefix: '出現地点の「休」で休暇（プレイ開始後）：不正コード率 -',
+  suffix: 'ポイント。休暇中はそのルートの生産停止・給与は継続。再度押すと復帰',
 } as const;
 // 仮・要確認(#150): 案内文の配置。AIエージェントのボタン（y=270〜298）の下に間隔 4px をあける（y=302〜、x=72〜）。文字サイズ 14px なら高さ約18px。
 // 重ならない根拠: 出現列 x<60 の右、昇給減給・AIエージェントのボタン y≦298 の下、購入バー y≧506 の上、初期配置UI（x≧668・y≦228）の左下、リリース地点（行4、y<300）の下。

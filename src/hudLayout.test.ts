@@ -722,9 +722,14 @@ describe('休暇の案内文のレイアウト(#150)', () => {
 
   it('文言は VACATION_MALICIOUS_RATE_REDUCTION から作る（0.1 → -10ポイント）。数値は四捨五入した整数', () => {
     expect(formatVacationHint()).toBe(
-      `出現地点の「休」を押すと休暇: 不正コード率 -${Math.round(VACATION_MALICIOUS_RATE_REDUCTION * 100)}ポイント（もう一度押すと復帰）`,
+      `出現地点の「休」で休暇（プレイ開始後）：不正コード率 -${Math.round(VACATION_MALICIOUS_RATE_REDUCTION * 100)}ポイント。休暇中はそのルートの生産停止・給与は継続。再度押すと復帰`,
     );
     expect(formatVacationHint()).toContain('-10ポイント');
+    // setup 中は切り替えられないこと、休暇中の生産停止と給与の継続、復帰の操作も 1 行で伝える。
+    expect(formatVacationHint()).toContain('プレイ開始後');
+    expect(formatVacationHint()).toContain('生産停止');
+    expect(formatVacationHint()).toContain('給与は継続');
+    expect(formatVacationHint()).not.toContain('\n');
     // 境界値: 0.005 未満は 0、0.005 は 1、0.2 は 20。
     expect(formatVacationHint(0.004)).toContain('-0ポイント');
     expect(formatVacationHint(0.005)).toContain('-1ポイント');
@@ -735,6 +740,15 @@ describe('休暇の案内文のレイアウト(#150)', () => {
     expect(VACATION_HINT_POSITION).toEqual({ x: 72, y: 302 });
     expect(rect.y).toBeGreaterThanOrEqual(aiAgentBottom);
     expect(rect.x).toBe(ELAPSED_DAYS_POSITION.x);
+  });
+
+  it('境界値: 全角相当（14px/文字）で見積もった幅が x=72 からフィールド右端までに収まる（文字数は 63 以下）', () => {
+    const fontPx = parseInt(VACATION_HINT_FONT_SIZE, 10);
+    const maxChars = Math.floor((FIELD_WIDTH - VACATION_HINT_POSITION.x) / fontPx);
+    expect(maxChars).toBe(63);
+    expect(formatVacationHint().length).toBeLessThanOrEqual(maxChars);
+    expect(rect.width).toBe(formatVacationHint().length * fontPx);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
   });
 
   it('HUD の4行・選択中のエンジニア・昇給減給ボタン・AIエージェントのボタンと交差しない', () => {
