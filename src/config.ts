@@ -577,7 +577,7 @@ export const ITEM_BUY_KEY_LABELS = ['4', '5', '6', '7', '8', '9'] as const;
 // 仮・要確認(#58): 購入バー1ページの枠数。購入キーの数と同じ。
 export const ITEM_PAGE_SIZE = ITEM_BUY_KEYS.length;
 // 仮・要確認(#58): 購入バーのページ切替キー（前のページ・次のページ）。他の操作キーと重ならない。端では反対側の端へ回り込む。
-export const ITEM_PAGE_KEYS = { previous: 'C', next: 'V' } as const;
+export const ITEM_PAGE_KEYS = { previous: 'G', next: 'H' } as const;
 export const ITEM_PAGE_BUTTON_LABELS = {
   previous: `◀${ITEM_PAGE_KEYS.previous}`,
   next: `${ITEM_PAGE_KEYS.next}▶`,
