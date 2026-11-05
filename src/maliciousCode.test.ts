@@ -4,6 +4,7 @@ import {
   getMaliciousCodeAppearance,
   MALICIOUS_CODE_TYPE_DEFINITIONS,
   MALICIOUS_CODE_TYPES,
+  pickMaliciousType,
 } from './maliciousCode';
 
 const SPEC_LABELS = [
@@ -73,4 +74,47 @@ describe('不正なコードの種類', () => {
     damages.slice(1).forEach((d, i) => expect(d).toBeLessThanOrEqual(damages[i]));
   });
 
+});
+
+describe('pickMaliciousType（一様抽選・境界値）', () => {
+  const count = MALICIOUS_CODE_TYPES.length;
+  const EPSILON = 1e-9;
+  const first = MALICIOUS_CODE_TYPES[0];
+  const second = MALICIOUS_CODE_TYPES[1];
+  const secondLast = MALICIOUS_CODE_TYPES[count - 2];
+  const last = MALICIOUS_CODE_TYPES[count - 1];
+
+  it.each([
+    ['0 は先頭', 0, first],
+    ['1/種類数 − ε は先頭', 1 / count - EPSILON, first],
+    ['1/種類数 は2番目', 1 / count, second],
+    ['(種類数−1)/種類数 − ε は末尾の1つ前', (count - 1) / count - EPSILON, secondLast],
+    ['(種類数−1)/種類数 は末尾', (count - 1) / count, last],
+    ['1 − ε は末尾', 1 - EPSILON, last],
+  ])('random = %s', (_label, value, expected) => {
+    expect(pickMaliciousType(() => value)).toBe(expected);
+  });
+
+  it.each([
+    ['1 は末尾に丸める', 1, last],
+    ['1 より大きい値は末尾に丸める', 2, last],
+    ['負の値は先頭に丸める', -0.5, first],
+    ['NaN は先頭に丸める', Number.NaN, first],
+  ])('範囲外: %s', (_label, value, expected) => {
+    expect(pickMaliciousType(() => value)).toBe(expected);
+  });
+
+  it('各区間の中央の乱数で9種類すべてに到達する', () => {
+    const picked = MALICIOUS_CODE_TYPES.map((_, index) => pickMaliciousType(() => (index + 0.5) / count));
+    expect(picked).toEqual([...MALICIOUS_CODE_TYPES]);
+  });
+
+  it('乱数は1回だけ使う', () => {
+    let calls = 0;
+    pickMaliciousType(() => {
+      calls += 1;
+      return 0;
+    });
+    expect(calls).toBe(1);
+  });
 });

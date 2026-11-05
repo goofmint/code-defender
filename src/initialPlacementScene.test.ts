@@ -10,6 +10,8 @@ import {
   INITIAL_PLACEMENT_START_KEYS,
   ITEM_BLOCKED_CELLS,
   ITEM_BUY_KEYS,
+  ITEM_PAGE_KEYS,
+  ITEM_PAGE_SIZE,
   STAGE_POINTS_INITIAL,
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
@@ -95,10 +97,11 @@ vi.mock('./render', () => {
     drawInitialPlacementPanel: vi.fn(object),
     drawInitialPlacementStartButton: vi.fn(object),
     drawItemAttackEffect: vi.fn(),
-    drawItemButtons: vi.fn(() => []),
+    drawItemButtons: vi.fn(() => ({ showPage: () => undefined })),
+    drawAiAgentButtons: vi.fn(() => []),
     drawItemMessage: vi.fn(object),
     drawOutageText: vi.fn(),
-    drawPlacedItem: vi.fn(() => ({ box: fakes.make(), mark: fakes.make() })),
+    drawPlacedItem: vi.fn(object),
     drawPenaltyText: vi.fn(),
     drawPlayer: vi.fn(object),
     drawRefactoringRatioControl: vi.fn(object),
@@ -128,6 +131,8 @@ type SceneUnderTest = {
   initialPlacementItemType: ItemType;
   placedItems: readonly PlacedItem[];
   nextItemId: number;
+  itemPage: number;
+  followItemViews: Map<number, object>;
   elapsedMs: number;
   funds: number;
   codes: readonly object[];
@@ -301,14 +306,12 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(render.drawPlacedItem).toHaveBeenCalledOnce();
     const drawing = vi.mocked(render.drawPlacedItem).mock.results[0];
     if (drawing === undefined || drawing.type !== 'return') throw new Error('描画の結果がありません');
-    const box = vi.spyOn(drawing.value.box, 'destroy');
-    const mark = vi.spyOn(drawing.value.mark, 'destroy');
+    const view = vi.spyOn(drawing.value, 'destroy');
 
     pointerDown(centerOf(cell));
     expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
     expect(scene.initialPlacement.points).toBe(STAGE_POINTS_INITIAL);
-    expect(box).toHaveBeenCalledOnce();
-    expect(mark).toHaveBeenCalledOnce();
+    expect(view).toHaveBeenCalledOnce();
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(scene.events.emit).not.toHaveBeenCalled();
   });
@@ -321,14 +324,52 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(render.drawInitialPlacementMessage).not.toHaveBeenCalled();
   });
 
-  it('購入キーは setup の間は種類を選ぶだけで、買わない', () => {
+  it('購入キーは setup の間は現在のページの種類を選ぶだけで、買わない。ページ切り替え(#58)は setup の間も動く', () => {
     const { scene, pressKey } = createHarness();
     const catIndex = ITEM_TYPES.indexOf('cat');
-    pressKey(ITEM_BUY_KEYS[catIndex]);
+    const catPage = Math.floor(catIndex / ITEM_PAGE_SIZE);
+    for (let page = 0; page < catPage; page += 1) {
+      pressKey(ITEM_PAGE_KEYS.next);
+    }
+    expect(scene.itemPage).toBe(catPage);
+    pressKey(ITEM_BUY_KEYS[catIndex % ITEM_PAGE_SIZE]);
     expect(scene.initialPlacementItemType).toBe('cat');
     expect(scene.placedItems).toEqual([]);
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(render.drawItemMessage).not.toHaveBeenCalled();
+  });
+
+  it('置かないアイテム（placement: none #58）は選べても置けず、「そこには置けません」を出す。資金は変えない', () => {
+    const { scene, pressKey, pointerDown } = createHarness();
+    const index = ITEM_TYPES.indexOf('codeFreeze');
+    for (let page = 0; page < Math.floor(index / ITEM_PAGE_SIZE); page += 1) {
+      pressKey(ITEM_PAGE_KEYS.next);
+    }
+    pressKey(ITEM_BUY_KEYS[index % ITEM_PAGE_SIZE]);
+    expect(scene.initialPlacementItemType).toBe('codeFreeze');
+    const [cell] = placeableCells(scene.routes, 1);
+    pointerDown(centerOf(cell));
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+    expect(scene.initialPlacement.points).toBe(STAGE_POINTS_INITIAL);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'そこには置けません');
+    expect(render.drawItemMessage).not.toHaveBeenCalled();
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+  });
+
+  it('初期配置で置いた主人公についてまわるアイテム（ペアプロ相棒 #58）は、開始時に followItemViews へ登録する', () => {
+    const { scene, pressKey, pointerDown } = createHarness();
+    const index = ITEM_TYPES.indexOf('pairProgrammer');
+    for (let page = 0; page < Math.floor(index / ITEM_PAGE_SIZE); page += 1) {
+      pressKey(ITEM_PAGE_KEYS.next);
+    }
+    pressKey(ITEM_BUY_KEYS[index % ITEM_PAGE_SIZE]);
+    const [cell] = placeableCells(scene.routes, 1);
+    pointerDown(centerOf(cell));
+    const drawing = vi.mocked(render.drawPlacedItem).mock.results[0];
+    if (drawing === undefined || drawing.type !== 'return') throw new Error('描画の結果がありません');
+    expect(scene.followItemViews.size).toBe(0);
+    pressKey(startKey);
+    expect(scene.followItemViews.get(0)).toBe(drawing.value);
   });
 
   it('ポイントが足りないときは置かずにメッセージを出す', () => {

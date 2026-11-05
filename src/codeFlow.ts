@@ -13,7 +13,7 @@ export type FlowingCode = {
   readonly segmentIndex: number;
   readonly position: Point;
   readonly released: boolean;
-  // 不正コードの種別。種別の抽選が入るまでは持たない。
+  // 不正コードの種別（#56）。不正なコードで、生成時に種別を渡したときだけ持つ。正常なコードは持たない。
   readonly maliciousType?: MaliciousCodeType;
 };
 
@@ -27,9 +27,15 @@ export type CodeReleasedPayload = {
   readonly maliciousType?: MaliciousCodeType;
 };
 
-export const spawnCode = (id: number, kind: CodeKind, route: Route): FlowingCode => {
+// maliciousType は不正なコードのときだけ設定する。省略時（または正常なコード）は種別を持たない。
+export const spawnCode = (
+  id: number,
+  kind: CodeKind,
+  route: Route,
+  maliciousType?: MaliciousCodeType,
+): FlowingCode => {
   const path = routePixelPoints(route);
-  return {
+  const code: FlowingCode = {
     id,
     kind,
     routeId: route.id,
@@ -38,6 +44,7 @@ export const spawnCode = (id: number, kind: CodeKind, route: Route): FlowingCode
     position: path[0],
     released: false,
   };
+  return kind === 'malicious' && maliciousType !== undefined ? { ...code, maliciousType } : code;
 };
 
 // 距離ぶん進める。残距離は次の区間へ持ち越し、終点を越えない。入力は変更しない。
@@ -68,6 +75,21 @@ export const advanceCode = (code: FlowingCode, distance: number): FlowingCode =>
   return { ...code, segmentIndex, position, released: true };
 };
 
+// リリース地点（経路の終点）までの経路に沿った残り距離。現在位置から path[segmentIndex + 1] までと、後続の区間の長さの合計（CI の効果範囲 #55）。
+// リリース済み・空の経路・1点の経路は 0。入力は変更しない。
+export const remainingPathDistance = (code: FlowingCode): number => {
+  const { path } = code;
+  if (code.released || path.length <= 1) return 0;
+  let total = 0;
+  let from = code.position;
+  for (let index = code.segmentIndex + 1; index < path.length; index++) {
+    const to = path[index];
+    total += Math.hypot(to.x - from.x, to.y - from.y);
+    from = to;
+  }
+  return total;
+};
+
 // 初期値を間隔と同じにすると、最初の更新ですぐ 1 個生成される。
 export const initialSpawnElapsed = (intervalMs: number): number => intervalMs;
 
@@ -93,6 +115,14 @@ export const stepSpawnTimerUnlessPaused = (
 
 // そのコードを進める距離。停止中（担当者の休暇中 #36）は 0 で、advanceCode は元のコードをそのまま返す。
 export const moveDistanceUnlessPaused = (distance: number, paused: boolean): number => (paused ? 0 : distance);
+
+// コードをルートの始点に戻す（仕様変更の嵐 #58）。位置と区間を始点にし、id・種類・ルート・種別などほかの値はそのまま。
+// シーン側の Graphics 付きのコードにも使えるよう総称型にする。入力は変更しない。path が空のコードは戻す先がないので例外にする。
+export const rewindCode = <T extends FlowingCode>(code: T): T => {
+  const start: Point | undefined = code.path[0];
+  if (start === undefined) throw new Error(`戻す先のないコードです: id=${code.id}`);
+  return { ...code, segmentIndex: 0, position: start, released: false };
+};
 
 // routeId が一致するコード(removed)と、それ以外(remaining)に分ける（退職でルートが消えるとき #32）。
 // どちらも元の並び順で、要素は入力と同じ参照。入力は変更しない。シーン側の Graphics 付きのコードにも使えるよう総称型にする。

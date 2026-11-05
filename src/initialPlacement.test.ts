@@ -11,7 +11,7 @@ import {
   STAGE_POINTS_INITIAL,
 } from './config';
 import { FIELD_COLS, FIELD_ROWS } from './field';
-import { ITEM_TYPES } from './item';
+import { getItemPlacement, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import {
   createInitialPlacementState,
@@ -41,6 +41,9 @@ const route: Route = {
 const context = { routes: [route] };
 const free: GridCell = { col: 8, row: 2 };
 const linterCost = STAGE_POINT_COST_BY_TIER[ITEM_PRICE_TIER_BY_TYPE.linter];
+// 初期配置で置けるのはセルに置くアイテム（placement: cell）だけ。置かないアイテム（placement: none #58）は notPlaceable。
+const CELL_ITEM_TYPES = ITEM_TYPES.filter((itemType) => getItemPlacement(itemType) === 'cell');
+const NONE_ITEM_TYPES = ITEM_TYPES.filter((itemType) => getItemPlacement(itemType) === 'none');
 
 // 置けたことを確かめて結果の状態を返す（テスト用）。
 const placeOrThrow = (
@@ -95,7 +98,7 @@ describe('getStagePointCost: 価格の段階からの換算', () => {
 });
 
 describe('placeInitialItem: ポイントの境界値', () => {
-  it.each(ITEM_TYPES)('%s: コスト−1 は insufficientPoints、ちょうどは残り 0、+1 は残り 1', (itemType) => {
+  it.each(CELL_ITEM_TYPES)('%s: コスト−1 は insufficientPoints、ちょうどは残り 0、+1 は残り 1', (itemType) => {
     const cost = getStagePointCost(itemType);
     expect(placeInitialItem(createInitialPlacementState(cost - 1), itemType, free, context)).toEqual({
       ok: false,
@@ -109,7 +112,7 @@ describe('placeInitialItem: ポイントの境界値', () => {
   });
 
   it('ポイント 0 ではどのアイテムも置けない', () => {
-    ITEM_TYPES.forEach((itemType) => {
+    CELL_ITEM_TYPES.forEach((itemType) => {
       expect(placeInitialItem(createInitialPlacementState(0), itemType, free, context)).toEqual({
         ok: false,
         reason: 'insufficientPoints',
@@ -205,6 +208,19 @@ describe('placeInitialItem: 置けるセルの境界値', () => {
   });
 });
 
+describe('placeInitialItem: 置かないアイテム（placement: none #58）', () => {
+  it('置かないアイテムが存在する', () => {
+    expect(NONE_ITEM_TYPES.length).toBeGreaterThan(0);
+  });
+
+  it.each(NONE_ITEM_TYPES)('%s は置けるセル・十分なポイントでも notPlaceable で、入力を変更しない', (itemType) => {
+    const state = createInitialPlacementState(10);
+    const snapshot = structuredClone(state);
+    expect(placeInitialItem(state, itemType, free, context)).toEqual({ ok: false, reason: 'notPlaceable' });
+    expect(state).toEqual(snapshot);
+  });
+});
+
 describe('placeInitialItem: 占有と判定順', () => {
   it('置いたセルに2個目は occupied、隣は置ける', () => {
     const state = placeOrThrow(createInitialPlacementState(), 'linter', free);
@@ -257,7 +273,7 @@ describe('placeInitialItem: 成功時の結果と入力の不変性', () => {
 });
 
 describe('removeInitialItem: 撤去と全額返却', () => {
-  it.each(ITEM_TYPES)('%s を撤去するとコストを全額返し、配置前のポイントに戻る', (itemType) => {
+  it.each(CELL_ITEM_TYPES)('%s を撤去するとコストを全額返し、配置前のポイントに戻る', (itemType) => {
     const before = createInitialPlacementState(10);
     const placed = placeOrThrow(before, itemType, free);
     const removal = removeInitialItem(placed, free);

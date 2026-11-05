@@ -7,7 +7,7 @@ import {
   STAGE_POINT_COST_BY_TIER,
   STAGE_POINTS_INITIAL,
 } from './config';
-import { ITEM_TYPES } from './item';
+import { getItemPlacement, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { createItemState, isPlaceableCell } from './itemPlacement';
 import type { ItemPriceTier, ItemState, PlacedItem, PlacementContext } from './itemPlacement';
@@ -59,7 +59,8 @@ const isItemType = (value: string): value is ItemType => (ITEM_TYPES as readonly
 
 const isSameCell = (a: GridCell, b: GridCell): boolean => a.col === b.col && a.row === b.row;
 
-// ステージポイントでアイテムを置く。判定順: 不明なアイテム → 置けない場所 → 既にある → ポイント不足。
+// ステージポイントでアイテムを置く。判定順: 不明なアイテム → 置かないアイテム（placement: none #58）・置けない場所 → 既にある → ポイント不足。
+// 置かないアイテムは購入時に効果を発動するもので、セルに置けないため初期配置では notPlaceable にする。
 // ポイントがちょうどコストなら置けて 0 になる。id と lastAttackTime は purchaseItem と同じ（id は nextId、lastAttackTime は null）。
 // 失敗時は理由だけを返し、入力は変更しない。
 export const placeInitialItem = (
@@ -69,6 +70,7 @@ export const placeInitialItem = (
   context: InitialPlacementContext,
 ): InitialPlacementResult => {
   if (!isItemType(itemType)) return { ok: false, reason: 'unknownItem' };
+  if (getItemPlacement(itemType) === 'none') return { ok: false, reason: 'notPlaceable' };
   const placedItems = state.itemState.placedItems;
   // 既存アイテムを除いた地形だけで判定してから、占有を別に判定する（purchaseItem と同じく occupied を区別するため）。
   if (!isPlaceableCell(cell, { ...context, placedItems: [] })) return { ok: false, reason: 'notPlaceable' };
