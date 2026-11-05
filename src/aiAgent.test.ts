@@ -20,12 +20,12 @@ import {
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MIN_MS,
   CODE_SPAWN_INTERVAL_MS,
-  DIFFICULTY_STEP_MS,
   ENGINEER_RANKS,
   GAME_OVER_RESTART_KEYS,
   HIRE_KEYS,
   ITEM_BUY_KEYS,
   ITEM_PRICE_TIERS,
+  MALICIOUS_RATE_STEP_MS,
   PLAYER_MOVE_KEYS,
   REFACTORING_RATIO_KEYS,
   SALARY_ADJUST_KEYS,
@@ -389,7 +389,8 @@ describe('aiAgentMaliciousRateModifiers: 不正コード率の補正', () => {
   it('ランク表の上限（シニア）を補正後に超えてもよい（上限は再適用しない）', () => {
     const senior = ENGINEER_RANKS.find((entry) => entry.id === 'senior');
     if (senior === undefined) throw new Error('シニアがランク表にない');
-    const late = DIFFICULTY_STEP_MS * 1000;
+    // 不正コード率の段階間隔（#150）の 1000 倍。全ランクが上限に達した後。
+    const late = MALICIOUS_RATE_STEP_MS * 1000;
     expect(maliciousRateForRank('senior', late)).toBeCloseTo(senior.maliciousRateMax);
     const rate = effectiveMaliciousRate(
       'senior',

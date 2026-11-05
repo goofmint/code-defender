@@ -11,8 +11,9 @@ import {
 
 // 技術的負債の状態。Phaser に依存しない純粋関数だけを置く（funds.ts と同じ構成）。
 // 負債は 0〜上限の数値。資金や借入ではない（資金には影響しない）。
-// 負債の影響のうち、開発スピード低下（コードの生成間隔が延びる、#44）は techDebtSpawnIntervalMs で実装済み。
-// 不具合率の増加(#45)は techDebtMaliciousRateModifier で実装済み（不正コード率の補正として生成時に合成する）。
+// 負債の影響のうち、開発スピード低下（コードの生成間隔が延びる、#44）は techDebtSpawnIntervalMs で実装済みだが、
+// 設定（TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER = 1、#150）で無効にしており、負債がいくつでも生成間隔は基準のまま（生産量は落とさない）。
+// 負債が実際に効くのは不具合率の増加(#45)だけで、techDebtMaliciousRateModifier で実装済み（不正コード率の補正として生成時に合成する）。
 // リファクタリングの割合による不正コード率の減少差分（#41）は refactoringMaliciousRateModifier で供給する（effectiveMaliciousRate の modifiers に渡す）。
 
 // 技術的負債が変化したときに scene.events で発行するイベント名。

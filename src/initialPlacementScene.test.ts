@@ -113,6 +113,8 @@ vi.mock('./render', () => {
     drawSalaryButtons: vi.fn(() => []),
     drawSelectedEngineer: vi.fn(object),
     drawTechDebt: vi.fn(object),
+    // 休暇の案内文(#150)。create() で1回描く。
+    drawVacationHint: vi.fn(object),
     drawVacationMarker: vi.fn(() => ({ container: fakes.make(), setOnVacation: () => undefined })),
     flashCode: vi.fn(),
   };

@@ -120,14 +120,16 @@ export const CODE_SPAWN_INTERVAL_MS = 2000;
 export const CODE_MALICIOUS_RATE = 0.3;
 
 // 仮・要確認(#14): 企画書は「時間とともにコードの流れが速くなり、不正なコードも増える」とだけで、数値・増え方は未記載。
-// 難易度を上げる間隔（ミリ秒）。経過時間をこの間隔で区切り、1段階ごとに速度と不正コード率を上げる。
+// コード速度を上げる間隔（ミリ秒）。経過時間をこの間隔で区切り、1段階ごとに速度を上げる。
+// 仮・要確認(#150): 不正コード率の間隔はこの値を共用せず、MALICIOUS_RATE_STEP_MS（ゲーム内10日）で別に刻む。
 export const DIFFICULTY_STEP_MS = 30000;
 // 仮・要確認(#14): 1段階ごとのコード速度の増加量（ピクセル/秒）。
 export const CODE_SPEED_INCREMENT = 8;
 // 仮・要確認(#14): コード速度の上限（ピクセル/秒）。主人公(PLAYER_SPEED)より遅くする。
 export const CODE_SPEED_MAX = 160;
-// 仮・要確認(#14): 1段階ごとの不正コード率の増加量（0〜1）。担当エンジニアのランク別の割合(#12)でも同じ増加量を使う。
-export const CODE_MALICIOUS_RATE_INCREMENT = 0.02;
+// 仮・要確認(#150): 1段階（MALICIOUS_RATE_STEP_MS = ゲーム内10日）ごとの不正コード率の増加量（0〜1）。0.03 で +3 ポイント。
+// 担当エンジニアのランク別の割合(#12)でも同じ増加量を使う。#14 の 0.02（30秒ごと）から「10日ごとに3%刻み」(#150) に変更。
+export const CODE_MALICIOUS_RATE_INCREMENT = 0.03;
 // 仮・要確認(#14): 担当エンジニアがいないルートの不正コード率の上限（0〜1）。
 export const CODE_MALICIOUS_RATE_MAX = 0.5;
 // 仮・要確認(#13): 補正後の不正コード率の下限（0〜1）。企画書(6)「一定以上の割合を確保する」(docs/game_plan.md) に対応する。
@@ -162,6 +164,12 @@ export const ATTACK_HIT_FLASH_DURATION_MS = 300;
 export const MS_PER_GAME_MONTH = 60000;
 // 仮: 1か月 = 30日。企画書には日数の記載なし。1日 = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH = 2000ms になる。
 export const DAYS_PER_GAME_MONTH = 30;
+// ゲーム内1日のミリ秒（gameTime.ts の MS_PER_GAME_DAY と同じ計算。config は gameTime を読み込めないためここで求める）。
+const GAME_DAY_MS = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH;
+// 仮・要確認(#150): 不正コード率を1段階上げる間隔（ゲーム内の日数と、そのミリ秒）。10日 = 20,000ms。
+// コード速度の間隔（DIFFICULTY_STEP_MS）とは分け、1段階ごとに CODE_MALICIOUS_RATE_INCREMENT（+3 ポイント）ずつ上げる（difficulty.ts の maliciousRateAt）。
+export const MALICIOUS_RATE_STEP_DAYS = 10;
+export const MALICIOUS_RATE_STEP_MS = GAME_DAY_MS * MALICIOUS_RATE_STEP_DAYS;
 // 仮: 経過日数の表示書式。「経過日数: N日」。接頭辞と接尾辞で挟む。企画書には表示書式の記載なし。
 export const ELAPSED_DAYS_FORMAT = { prefix: '経過日数: ', suffix: '日' } as const;
 // 仮・要確認(#59追加対応): HUD（経過日数・資金・累計売上）の左端 x。企画書には未記載。
@@ -232,7 +240,9 @@ export const REFACTORING_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 // 仮・要確認(#44): 企画書(7)は「技術的負債が増えると、開発スピードが低下する」とだけで、下がり方は未定。
 // 開発スピードはコードの生成頻度と解釈し、生成間隔（CODE_SPAWN_INTERVAL_MS）に倍率を掛けて延ばす。コードの移動速度には掛けない。
 // 倍率は負債に比例し、負債0で1（既存の挙動と同じ）、負債が上限（TECH_DEBT_MAX）でこの値。2 なら上限で生成間隔が2倍（2000ms→4000ms）。
-export const TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER = 2;
+// 仮・要確認(#150): 「25日過ぎると一気に生産性が落ちる」ため 2→1 にし、負債で生産量（コード＋バグの総生成数）を落とさないようにする。
+// 1 なら負債がいくつでも生成間隔は基準のまま（techDebt.ts の techDebtSpawnIntervalMs）。仕組みは残し、負債の影響は不正コード率の増加(#45)だけにする。
+export const TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER = 1;
 // 仮・要確認(#43): 技術的負債の表示書式。「技術的負債: 40」。数値は四捨五入した整数。
 export const TECH_DEBT_FORMAT = { prefix: '技術的負債: ', suffix: '' } as const;
 // 仮・要確認(#43): 技術的負債の表示位置（HUD 4行目）。累計売上の1行下（y=176〜約206）。文字スタイルは ELAPSED_DAYS_STYLE（24px）。
@@ -314,7 +324,7 @@ export const PENALTY_TEXT_FONT_SIZE = '20px';
 // 仮・要確認(#12): maliciousRate は担当ルートの開始時の不正コード率、maliciousRateMax は時間が経った後の上限（どちらも 0〜1）。
 // 企画書(6)「不正なコードの割合」の叩き台（ジュニア 40%→60%・ミドル 25%→45%・シニア 10%→25%）。
 // 数値は docs/tasks.md の「各ランクの不正コード率（開始時・上限）を確定する」で調整する。
-// 増え方（増加量・間隔）は CODE_MALICIOUS_RATE_INCREMENT / DIFFICULTY_STEP_MS を共用する。
+// 増え方（増加量・間隔）は CODE_MALICIOUS_RATE_INCREMENT / MALICIOUS_RATE_STEP_MS(#150) を共用する。
 export const ENGINEER_RANKS = [
   { id: 'junior', label: 'ジュニア', maliciousRate: 0.4, maliciousRateMax: 0.6 },
   { id: 'middle', label: 'ミドル', maliciousRate: 0.25, maliciousRateMax: 0.45 },
@@ -540,6 +550,21 @@ export const AI_AGENT_UI_POSITION = {
 } as const;
 export const AI_AGENT_BUTTON_SIZE = { width: 112, height: 28, gap: 4 } as const;
 export const AI_AGENT_BUTTON_FONT_SIZE = '12px';
+// 仮・要確認(#150): 休暇の操作方法と効果の案内文（HUD に常時表示。setup 中・プレイ中とも表示し、入力は受け付けない）。
+// 「休憩する機能が見当たらない」(#150) への対応で、既存の休暇(#35/#39)の操作を案内する。休暇のロジックは変えない。
+// 数値は VACATION_MALICIOUS_RATE_REDUCTION から作る（engineer.ts の formatVacationHint）。「出現地点の「休」を押すと休暇: 不正コード率 -10ポイント（もう一度押すと復帰）」の形。
+export const VACATION_HINT_FORMAT = {
+  prefix: '出現地点の「休」を押すと休暇: 不正コード率 -',
+  suffix: 'ポイント（もう一度押すと復帰）',
+} as const;
+// 仮・要確認(#150): 案内文の配置。AIエージェントのボタン（y=270〜298）の下に間隔 4px をあける（y=302〜、x=72〜）。文字サイズ 14px なら高さ約18px。
+// 重ならない根拠: 出現列 x<60 の右、昇給減給・AIエージェントのボタン y≦298 の下、購入バー y≧506 の上、初期配置UI（x≧668・y≦228）の左下、リリース地点（行4、y<300）の下。
+const VACATION_HINT_GAP_Y = 4;
+export const VACATION_HINT_POSITION = {
+  x: AI_AGENT_UI_POSITION.x,
+  y: AI_AGENT_UI_POSITION.y + AI_AGENT_BUTTON_SIZE.height + VACATION_HINT_GAP_Y,
+} as const;
+export const VACATION_HINT_FONT_SIZE = '14px';
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
@@ -927,8 +952,7 @@ export const LINTER_HESITATION_PROBABILITY = 0.3;
 export const PAIR_PROGRAMMER_FOLLOW_OFFSET = { x: CELL_SIZE * 0.6, y: -CELL_SIZE * 0.6 } as const;
 // 仮・要確認(#58): ラバーダックで正体がバレた不正なコードの見た目。塗りと枠を濃い色にする。
 export const REVEALED_CODE_STYLE = { fillColor: 0x8b0000, strokeColor: 0x3d0000 } as const;
-// ゲーム内1日のミリ秒（gameTime.ts の MS_PER_GAME_DAY と同じ計算。config は gameTime を読み込めないためここで求める）。
-const GAME_DAY_MS = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH;
+// ゲーム内1日のミリ秒 GAME_DAY_MS は DAYS_PER_GAME_MONTH の直後で定義している。
 // 仮・要確認(#58): コードフリーズの継続時間（ミリ秒）。ゲーム内5日。
 export const CODE_FREEZE_DURATION_MS = GAME_DAY_MS * 5;
 // 仮・要確認(#58): コーヒーマシン。範囲内（担当ルートの出現場所が範囲内のエンジニア）の台数がクラッシュ閾値以下なら生成間隔に BOOST を掛け、

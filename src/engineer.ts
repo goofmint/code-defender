@@ -19,6 +19,7 @@ import {
   ENGINEER_TENDENCY_OFFSETS,
   FUNDS_FORMAT,
   INITIAL_ENGINEER_RANKS,
+  VACATION_HINT_FORMAT,
   VACATION_MALICIOUS_RATE_REDUCTION,
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
@@ -599,3 +600,8 @@ export const formatSelectedEngineer = (engineer: Engineer | null): string =>
 
 // 昇給・減給の操作ボタンのラベル。「[Q] 前へ」。
 export const formatSalaryButton = (key: string, label: string): string => `[${key}] ${label}`;
+
+// 休暇の操作方法と効果の案内文(#150)。HUD に常時表示する。低下量は VACATION_MALICIOUS_RATE_REDUCTION をパーセントポイント（四捨五入した整数）にする。
+// 「出現地点の「休」を押すと休暇: 不正コード率 -10ポイント（もう一度押すと復帰）」の形。
+export const formatVacationHint = (reduction: number = VACATION_MALICIOUS_RATE_REDUCTION): string =>
+  `${VACATION_HINT_FORMAT.prefix}${Math.round(reduction * 100)}${VACATION_HINT_FORMAT.suffix}`;
