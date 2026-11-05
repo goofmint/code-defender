@@ -6,6 +6,8 @@ import {
   ATTACK_DAMAGE,
   ATTACK_KEYS,
   CAT_DELETE_INTERVAL_MS,
+  CI_INTERCEPT_RATE,
+  CI_SLOW_MULTIPLIER,
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_REFACTORING_RATIO,
   ENGINEER_HIRE_COST,
@@ -80,6 +82,7 @@ import {
   moveDistanceUnlessPaused,
   partitionCodesByRoute,
   pickCodeKind,
+  remainingPathDistance,
   spawnCode,
   stepSpawnTimerUnlessPaused,
 } from './codeFlow';
@@ -168,8 +171,9 @@ import type {
 import { addRoute, cellCenter, removeRoute } from './route';
 import { CODE_DELETED_BY_CAT_EVENT, pickRandomCode } from './cat';
 import type { CodeDeletedByCatPayload } from './cat';
-import { getItemDamage, isRandomDeleteItem, ITEM_TYPES } from './item';
+import { getItemActivation, getItemDamage, getItemRange, isRandomDeleteItem, ITEM_TYPES } from './item';
 import { advanceHold, applyHold, getItemHoldMs } from './itemHold';
+import { ciSlowedDistance, hasActiveCi, rollCiInterception } from './ci';
 import type { ItemType } from './item';
 import {
   canItemAttack,
@@ -649,6 +653,10 @@ class MainScene extends Phaser.Scene {
       if (isRandomDeleteItem(item.itemType)) {
         return this.deleteCodeByCat(item, now);
       }
+      // CI(releaseGate) は汎用攻撃をしない。効果は updateCodes のリリース直前の減速と阻止(#55)。
+      if (getItemActivation(item.itemType) !== 'nearestTarget') {
+        return item;
+      }
       if (!canItemAttack(now, item.lastAttackTime)) {
         return item;
       }
@@ -749,7 +757,7 @@ class MainScene extends Phaser.Scene {
     this.codes = remaining;
   }
 
-  // 流れているコードを精算せずに消す(#32)。codes 配列からの削除は呼び出し側で行う。
+  // 流れているコードを精算せずに消す(#32)。CI の阻止(#55)の後処理でも使う。codes 配列からの削除は呼び出し側で行う。
   private discardCode(code: ActiveCode): void {
     this.codeHp.delete(code.id);
     this.codeHold.delete(code.id);
@@ -948,6 +956,9 @@ class MainScene extends Phaser.Scene {
     }
 
     const speed = codeSpeedAt(this.elapsedMs);
+    // CI(#55): 置いていればリリース地点までの残り距離がゾーン長以下の部分を減速する。複数あっても重ねがけしない。
+    const ciActive = hasActiveCi(this.placedItems);
+    const ciZoneLength = getItemRange('ci');
     const flowing: ActiveCode[] = [];
     for (const [index, active] of this.codes.entries()) {
       // 同じフレームで倒産したら、残りのコードは処理せず流れたままにする（追加の損害を出さない）。
@@ -959,12 +970,27 @@ class MainScene extends Phaser.Scene {
       const movableMs = this.advanceCodeHold(active.id, delta);
       const distance = (speed * movableMs) / 1000;
       // 担当者の休暇中はそのルートのコードを進めない(#36)。流れたまま残るので攻撃はできる。
-      const moved = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId));
+      const unslowed = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId));
+      // CI の減速(#55)。休暇中の 0 は 0 のまま。正常・不正どちらのコードにも効く。
+      const moved = ciActive
+        ? ciSlowedDistance(remainingPathDistance(active), unslowed, ciZoneLength, CI_SLOW_MULTIPLIER)
+        : unslowed;
       const next: ActiveCode = { ...advanceCode(active, moved), graphics: active.graphics };
       // hp を持つのは不正なコードだけ。正常なコードは撃破されない。
       const hp = this.codeHp.get(next.id);
       const fate = resolveCodeFate(hp !== undefined && isDefeated(hp), next.released);
       if (fate === 'defeated') {
+        continue;
+      }
+      // 判定順は 撃破 → CI の阻止(#55) → リリース。阻止は撃破として扱い、リリース・資金・障害・売上は発生させない。
+      const interceptor =
+        fate === 'released' ? rollCiInterception(this.placedItems, next, Math.random, CI_INTERCEPT_RATE) : null;
+      if (interceptor !== null) {
+        drawItemAttackEffect(this, cellCenter(interceptor.cell), next.position);
+        this.discardCode(next);
+        drawDefeatEffect(this, next.position);
+        const defeatedPayload: CodeDefeatedPayload = { id: next.id, routeId: next.routeId };
+        this.events.emit(CODE_DEFEATED_EVENT, defeatedPayload);
         continue;
       }
       if (fate === 'released') {

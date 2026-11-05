@@ -42,6 +42,10 @@ export type ItemEffect = 'attack' | 'deleteRandomCode';
 // 支払い区分（企画書 8 の「支払い」列）。monthly は月額払い、oneTime は購入時の1回払い。
 export type ItemPayment = 'monthly' | 'oneTime';
 
+// 効果の発動方式。nearestTarget は範囲内で最も近い対象を自動攻撃する（main.ts の updateItems）。
+// releaseGate はリリース直前の減速と確率阻止（CI #55。ci.ts と main.ts の updateCodes）で、汎用攻撃はしない。
+export type ItemActivation = 'nearestTarget' | 'releaseGate';
+
 type ItemDefinition = {
   readonly label: string;
   readonly payment: ItemPayment;
@@ -52,6 +56,7 @@ type ItemDefinition = {
   // このアイテムが正常なコードも対象にするか。
   // true にしてよいのは猫だけ（企画書 8 の例外、#57）。それ以外は false（正常なコードは攻撃しない）。
   readonly targetsNormalCode: boolean;
+  readonly activation: ItemActivation;
   readonly effect: ItemEffect;
 };
 
@@ -63,6 +68,7 @@ export const ITEM_DEFINITIONS = {
     range: 'long',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
   },
   linter: {
@@ -72,6 +78,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'weak',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
   },
   testTool: {
@@ -81,6 +88,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'weak',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
   },
   ci: {
@@ -90,6 +98,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'releaseGate',
     effect: 'attack',
   },
   securityScanner: {
@@ -102,6 +111,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'strong',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
   },
   pairProgrammer: {
@@ -111,6 +121,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
   },
   cat: {
@@ -120,6 +131,7 @@ export const ITEM_DEFINITIONS = {
     range: 'random',
     power: 'none',
     targetsNormalCode: true,
+    activation: 'nearestTarget',
     effect: 'deleteRandomCode',
   },
 } as const satisfies Record<ItemType, ItemDefinition>;
@@ -128,6 +140,8 @@ export const ITEM_DEFINITIONS = {
 export const itemTargetsNormalCode = (itemType: ItemType): boolean =>
   ITEM_DEFINITIONS[itemType].targetsNormalCode;
 
+// アイテムの発動方式（nearestTarget は汎用の自動攻撃、releaseGate は CI のリリース直前の効果）。
+export const getItemActivation = (itemType: ItemType): ItemActivation => ITEM_DEFINITIONS[itemType].activation;
 // 場のコードをランダムに消すアイテムか（猫 #57）。true なら攻撃（findItemTarget・damageMaliciousCode）を通さない。
 export const isRandomDeleteItem = (itemType: ItemType): boolean =>
   ITEM_DEFINITIONS[itemType].effect === 'deleteRandomCode';

@@ -232,7 +232,8 @@ describe('MainScene: テストツールの足止め（境界値）', () => {
 });
 
 describe('MainScene: テストツール以外・重ね掛け', () => {
-  it.each<ItemType>(['codeRabbit', 'linter', 'ci', 'securityScanner', 'pairProgrammer'])(
+  // CI(#55) は汎用攻撃をしない（releaseGate）ので対象外。
+  it.each<ItemType>(['codeRabbit', 'linter', 'securityScanner', 'pairProgrammer'])(
     '%s の攻撃では足止めしない',
     (itemType) => {
       const scene = createScene({ codes: [makeCode(1)], placedItems: [placedItem(0, itemType)] });
