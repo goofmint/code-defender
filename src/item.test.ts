@@ -8,6 +8,7 @@ import {
 } from './config';
 import {
   calculateItemDamage,
+  getItemActivation,
   getItemDamage,
   getItemRange,
   ITEM_DEFINITIONS,
@@ -20,7 +21,7 @@ import {
   isTargetInItemRange,
   isWithinRange,
 } from './item';
-import type { ItemEffect, ItemPlacement, ItemPower, ItemRange, ItemRangeSpec, ItemType } from './item';
+import type { ItemActivation, ItemEffect, ItemPlacement, ItemPower, ItemRange, ItemRangeSpec, ItemType } from './item';
 import { applyHit, getInitialHp } from './defeat';
 import { MALICIOUS_CODE_TYPES } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
@@ -103,6 +104,7 @@ describe('アイテムのデータ', () => {
       range: 'random',
       power: 'none',
       targetsNormalCode: true,
+      activation: 'nearestTarget',
       effect: 'deleteRandomCode',
       placement: 'cell',
       followsPlayer: false,
@@ -130,6 +132,7 @@ describe('アイテムのデータ', () => {
       range,
       power: 'none',
       targetsNormalCode: false,
+      activation: 'nearestTarget',
       effect,
       placement,
       followsPlayer: false,
@@ -171,6 +174,36 @@ describe('アイテムのデータ', () => {
     ['codeFreeze', false],
   ])('isRandomDeleteItem(%s) は %s', (itemType, expected) => {
     expect(isRandomDeleteItem(itemType)).toBe(expected);
+  });
+});
+
+describe('発動方式（CI #55）', () => {
+  it('全アイテムの発動方式が表にある（releaseGate は CI だけ）', () => {
+    expect(ITEM_TYPES.filter((itemType) => getItemActivation(itemType) === 'releaseGate')).toEqual(['ci']);
+  });
+
+  it.each<[ItemType, ItemActivation]>([
+    ['codeRabbit', 'nearestTarget'],
+    ['linter', 'nearestTarget'],
+    ['testTool', 'nearestTarget'],
+    ['ci', 'releaseGate'],
+    ['securityScanner', 'nearestTarget'],
+    ['pairProgrammer', 'nearestTarget'],
+    ['cat', 'nearestTarget'],
+    ['rubberDuck', 'nearestTarget'],
+    ['codeFreeze', 'nearestTarget'],
+    ['specChangeStorm', 'nearestTarget'],
+    ['coffeeMachine', 'nearestTarget'],
+    ['energyDrink', 'nearestTarget'],
+    ['pizza', 'nearestTarget'],
+    ['documentation', 'nearestTarget'],
+    ['fridayDeploy', 'nearestTarget'],
+    ['rollbackButton', 'nearestTarget'],
+    ['worksFine', 'nearestTarget'],
+    ['seniorNote', 'nearestTarget'],
+  ])('%s の発動方式は %s', (itemType, activation) => {
+    expect(getItemActivation(itemType)).toBe(activation);
+    expect(ITEM_DEFINITIONS[itemType].activation).toBe(activation);
   });
 });
 

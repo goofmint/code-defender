@@ -196,6 +196,11 @@ export const DEFAULT_REFACTORING_RATIO = 0.2;
 // 企画書(7)「技術的負債が増えると、不具合率（不正コード率）が徐々に増えていく」(docs/game_plan.md) に対応する。関数形（線形）と数値は企画書に記載がなく叩き台。
 // 補正後の割合は [CODE_MALICIOUS_RATE_MIN, 1] に収める（difficulty.ts の effectiveMaliciousRate）。
 export const TECH_DEBT_MALICIOUS_RATE_MAX_BONUS = 0.2;
+// 仮・要確認(#41): リファクタリングの割合 1（すべてリファクタリング）のときに不正コード率を下げる最大量
+// （0〜1 のパーセントポイントの差分。0.2 で -20 ポイント）。割合 r のときの差分は −r × この値（techDebt.ts の refactoringMaliciousRateModifier）。
+// 企画書(7)「リファクタリングを強化するとプロダクトの品質は良くなる」(docs/game_plan.md) に対応する。数値は企画書に記載がなく叩き台。0 以上 1 以下にする。
+// 補正後の割合の下限 CODE_MALICIOUS_RATE_MIN は difficulty.ts の effectiveMaliciousRate で適用する。
+export const REFACTORING_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 // 仮・要確認(#44): 企画書(7)は「技術的負債が増えると、開発スピードが低下する」とだけで、下がり方は未定。
 // 開発スピードはコードの生成頻度と解釈し、生成間隔（CODE_SPAWN_INTERVAL_MS）に倍率を掛けて延ばす。コードの移動速度には掛けない。
 // 倍率は負債に比例し、負債0で1（既存の挙動と同じ）、負債が上限（TECH_DEBT_MAX）でこの値。2 なら上限で生成間隔が2倍（2000ms→4000ms）。
@@ -246,7 +251,9 @@ export const MALICIOUS_CODE_PARAMS = {
   typo: { badgeColor: 0xec407a, badgeRadiusRatio: 0.18, hp: 1, damage: 3 },
 } as const;
 
-// 仮: 種類（#10）が未割り当ての不正なコードの hp。種類のランダム割り当ては未決定のため、当面は全員これを使う。企画書には未記載。
+// 仮・要確認(#56): 通常生成の不正なコードには、上の9種類から一様抽選で種類を割り当てる（maliciousCode.ts の pickMaliciousType）。
+// 種類ごとの出現割合と導入順（ゲーム序盤から全種類を出すか）は企画書で未決定。決まったら抽選を差し替える。
+// 仮: 種類（#10）が未割り当ての不正なコードの hp。通常生成では種類を割り当てるため、種類なしで生成したときだけ使う。企画書には未記載。
 export const DEFAULT_MALICIOUS_CODE_HP = 3;
 // 仮: 攻撃1回（1ヒット）あたりのダメージ。企画書には未記載。
 export const ATTACK_DAMAGE = 1;
@@ -475,6 +482,36 @@ export const SALARY_UI_POSITION = {
 } as const;
 export const SALARY_BUTTON_SIZE = { width: 80, height: 28, gap: 8 } as const;
 export const SALARY_BUTTON_FONT_SIZE = '14px';
+// 仮・要確認(#53): AIコーディングエージェント（強い・普通・安い）。企画書(8)は「エンジニアに付けて出力ペースを上げる」「普通は強いより、安いは最も不正なコードを混ぜやすい」
+// 「価格は高い・普通・安い」「月額」とだけで、具体的な数値・操作は未記載。以下はすべて仮の値。
+// 価格の段階（ITEM_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
+export const AI_AGENT_PRICE_TIER_BY_TYPE = { strong: 'expensive', normal: 'normal', cheap: 'cheap' } as const;
+// 仮・要確認(#53): 装着中のエンジニアが担当するルートのコード生成間隔に掛ける倍率。0.5 なら間隔が半分（出力ペース2倍）。
+// 企画書は3種とも「出力ペースを上げる」とだけで差の記載がないため、全種同じ値にする。0 以下・有限でない値は 1（効果なし）として扱う。
+export const AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE = { strong: 0.5, normal: 0.5, cheap: 0.5 } as const;
+// 仮・要確認(#53): 装着中のエンジニアの不正コード率に加える差分（0〜1 のパーセントポイント。0.05 で +5 ポイント）。
+// 強い=0（増えない）、普通=+5、安い=+10 ポイント（「強いより混ぜやすい」「最も混ぜやすい」の順）。[CODE_MALICIOUS_RATE_MIN, 1] への制限は effectiveMaliciousRate に任せる。
+export const AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE = { strong: 0, normal: 0.05, cheap: 0.1 } as const;
+// 仮・要確認(#53): 倍率を掛けた後のコード生成間隔の下限（ミリ秒）。倍率の調整で生成が速くなりすぎないようにする。
+export const CODE_SPAWN_INTERVAL_MIN_MS = 500;
+// 仮・要確認(#53): ボタン・メッセージ・選択中のエンジニアの情報行に使う短い名前。
+export const AI_AGENT_SHORT_NAMES = { strong: '強い', normal: '普通', cheap: '安い' } as const;
+// 仮・要確認(#53): 選択中のエンジニアの情報行で、AIエージェントを付けていないときの表示。
+export const AI_AGENT_NONE_LABEL = 'なし';
+// 仮・要確認(#53): AIエージェントを選択中のエンジニアに付けるキー（strong / normal / cheap）。Phaser の KeyCodes のキー名。
+// 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給(Q/E/R/F)・割合UI(Z/X)と重ならない。
+export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as const;
+// 仮・要確認(#53): AIエージェントのボタンの並び順（左から）。
+export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
+// 仮・要確認(#53): AIエージェントのボタンの配置。昇給・減給ボタン（y=238〜266）の下に間隔 4px をあけて並べる（y=270〜298、x=72〜416）。
+// 右端は昇給・減給ボタンと同じ 416 で、アイテムを置けないセル（行1〜4 × col 1〜6）に収まる。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+const AI_AGENT_UI_GAP_Y = 4;
+export const AI_AGENT_UI_POSITION = {
+  x: SALARY_UI_POSITION.x,
+  y: SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height + AI_AGENT_UI_GAP_Y,
+} as const;
+export const AI_AGENT_BUTTON_SIZE = { width: 112, height: 28, gap: 4 } as const;
+export const AI_AGENT_BUTTON_FONT_SIZE = '12px';
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
@@ -556,12 +593,22 @@ const salaryUiRight =
   SALARY_UI_POSITION.x +
   SALARY_BUTTON_ORDER.length * SALARY_BUTTON_SIZE.width +
   (SALARY_BUTTON_ORDER.length - 1) * SALARY_BUTTON_SIZE.gap;
+// 仮・要確認(#53): AIエージェントのボタン（y=270〜298、x=72〜416）も範囲の計算に含める（今の値では行1〜4 × col 1〜6 のまま）。
+const aiAgentUiRight =
+  AI_AGENT_UI_POSITION.x +
+  AI_AGENT_BUTTON_ORDER.length * AI_AGENT_BUTTON_SIZE.width +
+  (AI_AGENT_BUTTON_ORDER.length - 1) * AI_AGENT_BUTTON_SIZE.gap;
 const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
-const itemHudMaxCol = Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight) / CELL_SIZE) - 1;
+const itemHudMaxCol =
+  Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight, aiAgentUiRight) / CELL_SIZE) - 1;
 const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
 const itemHudMaxRow =
   Math.ceil(
-    Math.max(TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT, SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height) / CELL_SIZE,
+    Math.max(
+      TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT,
+      SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height,
+      AI_AGENT_UI_POSITION.y + AI_AGENT_BUTTON_SIZE.height,
+    ) / CELL_SIZE,
   ) - 1;
 export const ITEM_BLOCKED_CELLS = Array.from(
   { length: itemHudMaxRow - itemHudMinRow + 1 },
@@ -626,6 +673,9 @@ export const ITEM_MARKS = {
 } as const;
 // 仮・要確認(#48): アイテムの攻撃間隔（ミリ秒）。全アイテム共通。置いた直後はクールダウンなしで攻撃できる。
 export const ITEM_ATTACK_COOLDOWN_MS = 1000;
+// 仮・要確認(#54): テストツールが攻撃した不正コードを足止めする時間（ミリ秒）。企画書(8)は「足止め」とだけで、時間は未定。
+// ITEM_ATTACK_COOLDOWN_MS より短くし、テストツール1つで同じコードを止め続けられないようにする（次の攻撃までに必ず少し動く）。
+export const TEST_TOOL_HOLD_MS = 500;
 // 仮・要確認(#57): 猫がコードを1つ消す間隔（ミリ秒）。企画書は「ランダムで消す」だけで間隔は未記載。
 // 正常なコードも消して売上を減らすため、攻撃間隔(ITEM_ATTACK_COOLDOWN_MS)より長くする。置いた直後は待たずに消せる。
 export const CAT_DELETE_INTERVAL_MS = 5000;
@@ -723,3 +773,10 @@ export const WORKS_FINE_DURATION_MS = GAME_DAY_MS * 5;
 export const WORKS_FINE_CODE_SPEED_MULTIPLIER = 2;
 // 仮・要確認(#58): 伝説のシニアの書き置きで障害を防いだときのメッセージ。
 export const SENIOR_NOTE_PREVENTED_MESSAGE = '書き置きのおかげで障害を防いだ（中身は誰も読めない）';
+
+// 仮・要確認(#55): 企画書(8)は CI を「リリース直前で不正なコードを確率で止める・減速させる」とだけで、数値は未定。以下はすべて仮の値。
+// 効果範囲の長さは CI の範囲（getItemRange('ci')、近距離）を、リリース地点までの経路の残り距離として使う。
+// 基本の阻止確率（0〜1）。CI 1個ごとに独立に判定する。得意な種類（bug・lowPerformance）は ITEM_STRONG_AGAINST_MULTIPLIER 倍（上限 1）。
+export const CI_INTERCEPT_RATE = 0.4;
+// 効果範囲内の移動速度の倍率（0〜1）。正常・不正どちらのコードにも効く。CI が複数あっても重ねがけしない。
+export const CI_SLOW_MULTIPLIER = 0.8;

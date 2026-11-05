@@ -92,3 +92,12 @@ export const getMaliciousCodeAppearance = (type: MaliciousCodeType): MaliciousCo
     badgeRadius: CODE_SIZE * badgeRadiusRatio,
   };
 };
+
+// 不正コードの種別を抽選する。random(0以上1未満) を種類の数で等分し、添字を決める（一様抽選。仮・要確認。config.ts 参照）。
+// 範囲外の乱数（1以上・0未満・NaN）は有効な添字に丸める（1以上は末尾、0未満とNaNは先頭）。
+export const pickMaliciousType = (random: () => number): MaliciousCodeType => {
+  const value = random();
+  const index = Number.isNaN(value) ? 0 : Math.floor(value * MALICIOUS_CODE_TYPES.length);
+  const clamped = Math.min(Math.max(index, 0), MALICIOUS_CODE_TYPES.length - 1);
+  return MALICIOUS_CODE_TYPES[clamped];
+};

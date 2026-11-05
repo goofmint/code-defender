@@ -61,6 +61,7 @@ type SceneUnderTest = {
   gameOver: GameOverState;
   codes: FakeCode[];
   codeHp: Map<number, number>;
+  codeHold: Map<number, number>;
   placedItems: readonly PlacedItem[];
   // 購入時に発動したアイテムの時限効果(#58)。updateItems が「動いてるからヨシ！」を読む。
   activeEffects: readonly ActiveEffect[];
@@ -129,6 +130,7 @@ const createScene = (codes: FakeCode[], placedItems: readonly PlacedItem[]): Sce
   scene.codeHp = new Map(
     codes.filter((code) => code.kind === 'malicious').map((code) => [code.id, DEFAULT_MALICIOUS_CODE_HP]),
   );
+  scene.codeHold = new Map();
   scene.placedItems = placedItems;
   scene.activeEffects = [];
   scene.tweens = { killTweensOf: vi.fn<(target: object) => void>() };

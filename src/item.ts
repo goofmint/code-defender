@@ -76,6 +76,10 @@ export type ItemPlacement = 'cell' | 'none';
 // 支払い区分（企画書 8 の「支払い」列）。monthly は月額払い、oneTime は購入時の1回払い。
 export type ItemPayment = 'monthly' | 'oneTime';
 
+// 効果の発動方式。nearestTarget は範囲内で最も近い対象を自動攻撃する（main.ts の updateItems）。
+// releaseGate はリリース直前の減速と確率阻止（CI #55。ci.ts と main.ts の updateCodes）で、汎用攻撃はしない。
+export type ItemActivation = 'nearestTarget' | 'releaseGate';
+
 type ItemDefinition = {
   readonly label: string;
   readonly payment: ItemPayment;
@@ -85,6 +89,7 @@ type ItemDefinition = {
   // このアイテムが正常なコードも対象にするか。
   // true にしてよいのは猫だけ（企画書 8 の例外、#57）。それ以外は false（正常なコードは攻撃しない）。
   readonly targetsNormalCode: boolean;
+  readonly activation: ItemActivation;
   readonly effect: ItemEffect;
   readonly placement: ItemPlacement;
   // 主人公についてまわるか（ペアプロ相棒 #58）。true なら置いたセルではなく主人公の位置から攻撃し、セルを占有しない。
@@ -101,6 +106,7 @@ export const ITEM_DEFINITIONS = {
     range: 'long',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
     placement: 'cell',
     followsPlayer: false,
@@ -113,6 +119,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'weak',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
     placement: 'cell',
     followsPlayer: false,
@@ -125,6 +132,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'weak',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
     placement: 'cell',
     followsPlayer: false,
@@ -137,11 +145,14 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'releaseGate',
     effect: 'attack',
     placement: 'cell',
     followsPlayer: false,
     attackCooldownMs: null,
   },
+  // 企画書 8（docs/game_plan.md の表）: 得意は脆弱性クリティカル・メジャー、中距離、強、月額。
+  // 「クリティカル・メジャーは、セキュリティスキャナーがないと苦戦する」（同ファイル）。ダメージ・範囲の数値は config.ts の仮の値（仮・要確認）。
   securityScanner: {
     label: 'セキュリティスキャナー',
     payment: 'monthly',
@@ -152,6 +163,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'strong',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
     placement: 'cell',
     followsPlayer: false,
@@ -164,6 +176,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'medium',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'attack',
     placement: 'cell',
     followsPlayer: true,
@@ -176,6 +189,7 @@ export const ITEM_DEFINITIONS = {
     range: 'random',
     power: 'none',
     targetsNormalCode: true,
+    activation: 'nearestTarget',
     effect: 'deleteRandomCode',
     placement: 'cell',
     followsPlayer: false,
@@ -189,6 +203,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'reveal',
     placement: 'cell',
     followsPlayer: false,
@@ -201,6 +216,7 @@ export const ITEM_DEFINITIONS = {
     range: 'none',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'codeFreeze',
     placement: 'none',
     followsPlayer: false,
@@ -213,6 +229,7 @@ export const ITEM_DEFINITIONS = {
     range: 'none',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'specChangeStorm',
     placement: 'none',
     followsPlayer: false,
@@ -225,6 +242,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'coffee',
     placement: 'cell',
     followsPlayer: false,
@@ -237,6 +255,7 @@ export const ITEM_DEFINITIONS = {
     range: 'none',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'energyDrink',
     placement: 'none',
     followsPlayer: false,
@@ -249,6 +268,7 @@ export const ITEM_DEFINITIONS = {
     range: 'none',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'pizza',
     placement: 'none',
     followsPlayer: false,
@@ -261,6 +281,7 @@ export const ITEM_DEFINITIONS = {
     range: 'none',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'documentation',
     placement: 'none',
     followsPlayer: false,
@@ -273,6 +294,7 @@ export const ITEM_DEFINITIONS = {
     range: 'none',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'fridayDeploy',
     placement: 'none',
     followsPlayer: false,
@@ -285,6 +307,7 @@ export const ITEM_DEFINITIONS = {
     range: 'none',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'rollback',
     placement: 'none',
     followsPlayer: false,
@@ -297,6 +320,7 @@ export const ITEM_DEFINITIONS = {
     range: 'none',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'worksFine',
     placement: 'none',
     followsPlayer: false,
@@ -309,6 +333,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'none',
     targetsNormalCode: false,
+    activation: 'nearestTarget',
     effect: 'seniorNote',
     placement: 'cell',
     followsPlayer: false,
@@ -320,6 +345,8 @@ export const ITEM_DEFINITIONS = {
 export const itemTargetsNormalCode = (itemType: ItemType): boolean =>
   ITEM_DEFINITIONS[itemType].targetsNormalCode;
 
+// アイテムの発動方式（nearestTarget は汎用の自動攻撃、releaseGate は CI のリリース直前の効果）。
+export const getItemActivation = (itemType: ItemType): ItemActivation => ITEM_DEFINITIONS[itemType].activation;
 // 場のコードをランダムに消すアイテムか（猫 #57）。true なら攻撃（findItemTarget・damageMaliciousCode）を通さない。
 export const isRandomDeleteItem = (itemType: ItemType): boolean =>
   ITEM_DEFINITIONS[itemType].effect === 'deleteRandomCode';

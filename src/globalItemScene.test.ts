@@ -7,6 +7,7 @@ import {
   CODE_FREEZE_DURATION_MS,
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_MALICIOUS_CODE_HP,
+  DEFAULT_REFACTORING_RATIO,
   ENERGY_DRINK_BOOST_SPEED_MULTIPLIER,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
   ITEM_POWER_DAMAGE,
@@ -103,6 +104,8 @@ type SceneUnderTest = {
   nextCodeId: number;
   placedItems: readonly PlacedItem[];
   activeEffects: readonly ActiveEffect[];
+  codeHold: Map<number, number>;
+  refactoringRatio: number;
   scheduledIncidents: readonly ScheduledIncident[];
   lastIncident: IncidentRecord | null;
   documentationPurchasedAtMs: number | null;
@@ -196,6 +199,8 @@ const createScene = (funds: number = FUNDS): SceneUnderTest => {
   scene.nextCodeId = 100;
   scene.placedItems = [];
   scene.activeEffects = [];
+  scene.codeHold = new Map();
+  scene.refactoringRatio = DEFAULT_REFACTORING_RATIO;
   scene.scheduledIncidents = [];
   scene.lastIncident = null;
   scene.documentationPurchasedAtMs = null;
@@ -337,6 +342,7 @@ describe('ドキュメント(#58): ジュニアの不正コード率の補正', 
     vacationRateReduction: 0,
     salary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
     initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
+    aiAgent: null,
     ...createEngineerParameters(rank, 'meticulous'),
   });
 
@@ -347,7 +353,8 @@ describe('ドキュメント(#58): ジュニアの不正コード率の補正', 
 
     expect(scene.maliciousRateModifiersFor(engineer('junior'))).toContain(-reduction);
     expect(scene.maliciousRateModifiersFor(engineer('senior'))).not.toContain(-reduction);
-    expect(scene.maliciousRateModifiersFor(engineer('senior'))).toHaveLength(1);
+    // シニアは技術的負債(#45)とリファクタリング(#41)の2つだけ（AIエージェントなし・休暇なし）。
+    expect(scene.maliciousRateModifiersFor(engineer('senior'))).toHaveLength(2);
   });
 });
 

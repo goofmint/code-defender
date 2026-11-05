@@ -1,5 +1,6 @@
 import {
   DEFAULT_REFACTORING_RATIO,
+  REFACTORING_MALICIOUS_RATE_REDUCTION_MAX,
   TECH_DEBT_FORMAT,
   TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
@@ -12,6 +13,7 @@ import {
 // 負債は 0〜上限の数値。資金や借入ではない（資金には影響しない）。
 // 負債の影響のうち、開発スピード低下（コードの生成間隔が延びる、#44）は techDebtSpawnIntervalMs で実装済み。
 // 不具合率の増加(#45)は techDebtMaliciousRateModifier で実装済み（不正コード率の補正として生成時に合成する）。
+// リファクタリングの割合による不正コード率の減少差分（#41）は refactoringMaliciousRateModifier で供給する（effectiveMaliciousRate の modifiers に渡す）。
 
 // 技術的負債が変化したときに scene.events で発行するイベント名。
 export const TECH_DEBT_CHANGED_EVENT = 'tech-debt-changed';
@@ -63,6 +65,17 @@ export const sanitizeRefactoringRatio = (
     return defaultRatio;
   }
   return Math.min(1, Math.max(0, ratio));
+};
+
+// リファクタリングの割合による不正コード率の補正（#41）。effectiveMaliciousRate の modifiers に渡す差分（パーセントポイント）。
+// 差分は −maxReduction × 割合。割合は sanitizeRefactoringRatio で 0〜1 に丸める（NaN は既定の割合）。
+// 割合 0 なら 0（-0 を返さない）。下限 CODE_MALICIOUS_RATE_MIN への制限は effectiveMaliciousRate に任せる。
+export const refactoringMaliciousRateModifier = (
+  ratio: number,
+  maxReduction: number = REFACTORING_MALICIOUS_RATE_REDUCTION_MAX,
+): number => {
+  const reduction = maxReduction * sanitizeRefactoringRatio(ratio);
+  return reduction === 0 ? 0 : -reduction;
 };
 
 // 作業1単位（正常なコードのリリース1件）を精算する。割合 r のぶんリファクタリング、残り (1 − r) を機能開発に充てる。

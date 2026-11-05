@@ -6,6 +6,7 @@ import {
   moveDistanceUnlessPaused,
   partitionCodesByRoute,
   pickCodeKind,
+  remainingPathDistance,
   rewindCode,
   spawnCode,
   stepSpawnTimer,
@@ -29,6 +30,47 @@ describe('spawnCode', () => {
     expect(code.position).toEqual(cellCenter(topRoute.spawn));
     expect(code.released).toBe(false);
     expect(code.routeId).toBe(topRoute.id);
+  });
+});
+
+describe('spawnCode の不正コード種別（#56）', () => {
+  it('不正なコードは渡した種別を持つ', () => {
+    const code = spawnCode(1, 'malicious', topRoute, 'vulnerabilityCritical');
+    expect(code.maliciousType).toBe('vulnerabilityCritical');
+  });
+
+  it('正常なコードは種別を渡しても持たない', () => {
+    const code = spawnCode(1, 'normal', topRoute, 'vulnerabilityCritical');
+    expect(code.maliciousType).toBeUndefined();
+    expect('maliciousType' in code).toBe(false);
+  });
+
+  it.each(['normal', 'malicious'] as const)('種別を省略した %s のコードは種別を持たず、既存の初期状態と同じ', (kind) => {
+    const path = routePixelPoints(topRoute);
+    expect(spawnCode(1, kind, topRoute)).toEqual({
+      id: 1,
+      kind,
+      routeId: topRoute.id,
+      path,
+      segmentIndex: 0,
+      position: path[0],
+      released: false,
+    });
+  });
+
+  it('種別以外の初期状態は、種別を省略したときと同じ', () => {
+    const { maliciousType, ...rest } = spawnCode(1, 'malicious', topRoute, 'bug');
+    expect(maliciousType).toBe('bug');
+    expect(rest).toEqual(spawnCode(1, 'malicious', topRoute));
+  });
+
+  it('advanceCode で進めても、リリース地点に着いても種別を保つ', () => {
+    const code = spawnCode(1, 'malicious', topRoute, 'vulnerabilityMajor');
+    const moved = advanceCode(code, 30);
+    const released = advanceCode(code, pathLength(code.path));
+    expect(moved.maliciousType).toBe('vulnerabilityMajor');
+    expect(released.released).toBe(true);
+    expect(released.maliciousType).toBe('vulnerabilityMajor');
   });
 });
 
@@ -109,6 +151,57 @@ describe('advanceCode のリリース到達（境界値）', () => {
     expect(advanceCode(single, 1).released).toBe(true);
     const empty: FlowingCode = { ...code, path: [], segmentIndex: 0 };
     expect(advanceCode(empty, 1).released).toBe(true);
+  });
+});
+
+describe('remainingPathDistance（CI の効果範囲 #55・境界値）', () => {
+  const code = spawnCode(1, 'normal', topRoute);
+  const total = pathLength(code.path);
+  const path = routePixelPoints(topRoute);
+  const first = Math.hypot(path[1].x - path[0].x, path[1].y - path[0].y);
+
+  it('出現直後は経路の全長', () => {
+    expect(remainingPathDistance(code)).toBeCloseTo(total);
+  });
+
+  it('区間の途中では、進んだ距離だけ全長より短い', () => {
+    expect(remainingPathDistance(advanceCode(code, 30))).toBeCloseTo(total - 30);
+  });
+
+  it('区間の終点（曲がり角）ちょうどでも残り距離は連続する', () => {
+    const atCorner = advanceCode(code, first);
+    expect(atCorner.segmentIndex).toBe(1);
+    expect(remainingPathDistance(atCorner)).toBeCloseTo(total - first);
+  });
+
+  it('曲がり角の微小量手前でも残り距離は連続する', () => {
+    const beforeCorner = advanceCode(code, first - 1e-6);
+    expect(beforeCorner.segmentIndex).toBe(0);
+    expect(remainingPathDistance(beforeCorner)).toBeCloseTo(total - first + 1e-6);
+  });
+
+  it('終点の微小量手前は正の微小量', () => {
+    const near = advanceCode(code, total - 1e-6);
+    expect(near.released).toBe(false);
+    const remaining = remainingPathDistance(near);
+    expect(remaining).toBeGreaterThan(0);
+    expect(remaining).toBeCloseTo(1e-6);
+  });
+
+  it('リリース済みは 0', () => {
+    expect(remainingPathDistance(advanceCode(code, total))).toBe(0);
+  });
+
+  it('空の経路・1点の経路は 0', () => {
+    expect(remainingPathDistance({ ...code, path: [] })).toBe(0);
+    expect(remainingPathDistance({ ...code, path: [code.path[0]] })).toBe(0);
+  });
+
+  it('入力を変更しない', () => {
+    const moved = advanceCode(code, 30);
+    const snapshot = JSON.parse(JSON.stringify(moved));
+    remainingPathDistance(moved);
+    expect(JSON.parse(JSON.stringify(moved))).toEqual(snapshot);
   });
 });
 

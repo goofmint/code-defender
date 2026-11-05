@@ -85,6 +85,7 @@ type SceneUnderTest = {
   player?: Point;
   codes: FakeCode[];
   codeHp: Map<number, number>;
+  codeHold: Map<number, number>;
   placedItems: readonly PlacedItem[];
   // 購入時に発動したアイテムの時限効果(#58)。updateItems が「動いてるからヨシ！」を読む。
   activeEffects: readonly ActiveEffect[];
@@ -149,6 +150,7 @@ const makeJunior = (id: number): Engineer => ({
   vacationRateReduction: 0,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK.junior,
   initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK.junior,
+  aiAgent: null,
   ...createEngineerParameters('junior', 'meticulous'),
 });
 
@@ -192,6 +194,7 @@ const createScene = (options: SceneOptions = {}): SceneUnderTest => {
   scene.codeHp = new Map(
     codes.filter((code) => code.kind === 'malicious').map((code) => [code.id, DEFAULT_MALICIOUS_CODE_HP]),
   );
+  scene.codeHold = new Map();
   scene.placedItems = options.placedItems ?? [];
   scene.activeEffects = [];
   scene.nextItemId = scene.placedItems.length;
