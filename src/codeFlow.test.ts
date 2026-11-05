@@ -7,6 +7,7 @@ import {
   partitionCodesByRoute,
   pickCodeKind,
   remainingPathDistance,
+  rewindCode,
   spawnCode,
   stepSpawnTimer,
   stepSpawnTimerUnlessPaused,
@@ -411,5 +412,40 @@ describe('partitionCodesByRoute（退職でルートが消える #32）', () => 
       { routeId: 1, label: 'b' },
     ];
     expect(partitionCodesByRoute(items, 1)).toEqual({ remaining: [items[0]], removed: [items[1]] });
+  });
+});
+
+describe('rewindCode: 仕様変更の嵐(#58)でルートの始点に戻す', () => {
+  it('途中まで進んだコードの位置と区間を始点に戻し、id・種類・ルート・種別は変えない', () => {
+    const spawned: FlowingCode = { ...spawnCode(7, 'malicious', middleRoute), maliciousType: 'bug' };
+    const moved = advanceCode(spawned, pathLength(spawned.path) / 2);
+    expect(moved.segmentIndex).toBeGreaterThan(0);
+
+    const rewound = rewindCode(moved);
+
+    expect(rewound).toEqual({ ...moved, segmentIndex: 0, position: cellCenter(middleRoute.spawn), released: false });
+    expect(rewound.id).toBe(7);
+    expect(rewound.kind).toBe('malicious');
+    expect(rewound.maliciousType).toBe('bug');
+  });
+
+  it('シーン側の追加の値（hp・Graphics など）もそのまま残す', () => {
+    const graphics = { name: 'g' };
+    const code = { ...advanceCode(spawnCode(1, 'normal', topRoute), 100), hp: 3, graphics };
+    const rewound = rewindCode(code);
+    expect(rewound.hp).toBe(3);
+    expect(rewound.graphics).toBe(graphics);
+  });
+
+  it('入力は変更しない', () => {
+    const moved = advanceCode(spawnCode(1, 'normal', topRoute), 100);
+    const snapshot = JSON.stringify(moved);
+    rewindCode(moved);
+    expect(JSON.stringify(moved)).toBe(snapshot);
+  });
+
+  it('path が空のコードは例外', () => {
+    const code: FlowingCode = { ...spawnCode(1, 'normal', topRoute), path: [] };
+    expect(() => rewindCode(code)).toThrow();
   });
 });

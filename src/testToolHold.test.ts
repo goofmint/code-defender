@@ -2,7 +2,12 @@
 // main.ts は読み込み時に new Phaser.Game(config) を実行するので、このファイルの中だけで phaser をモックする（codeRabbit.test.ts と同じ形）。
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { DEFAULT_MALICIOUS_CODE_HP, ITEM_ATTACK_COOLDOWN_MS, TEST_TOOL_HOLD_MS } from './config';
+import {
+  DEFAULT_MALICIOUS_CODE_HP,
+  ITEM_ATTACK_COOLDOWN_MS,
+  PAIR_PROGRAMMER_FOLLOW_OFFSET,
+  TEST_TOOL_HOLD_MS,
+} from './config';
 import { CODE_DEFEATED_EVENT } from './defeat';
 import { codeSpeedAt } from './difficulty';
 import type { Engineer } from './engineer';
@@ -12,6 +17,7 @@ import type { PlacedItem } from './itemPlacement';
 import type { MaliciousCodeType } from './maliciousCode';
 import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
+import type { ActiveEffect, IncidentRecord } from './itemEffect';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -70,6 +76,12 @@ type SceneUnderTest = {
   codeHp: Map<number, number>;
   codeHold: Map<number, number>;
   placedItems: readonly PlacedItem[];
+  // #58 の時限効果・直前の障害・ドキュメントの購入時刻。
+  activeEffects: readonly ActiveEffect[];
+  lastIncident: IncidentRecord | null;
+  documentationPurchasedAtMs: number | null;
+  // ペアプロ相棒(#58)は主人公についてまわり、主人公の位置 + ずれから攻撃する。
+  player: { readonly x: number; readonly y: number };
   tweens: { readonly killTweensOf: Mock<(target: object) => void> };
   events: { readonly emit: Mock<(event: string, payload: object) => boolean> };
   updateItems(now: number): void;
@@ -154,6 +166,11 @@ const createScene = (options: SceneOptions = {}): SceneUnderTest => {
   );
   scene.codeHold = new Map();
   scene.placedItems = options.placedItems ?? [placedItem(0, 'testTool')];
+  scene.activeEffects = [];
+  scene.lastIncident = null;
+  scene.documentationPurchasedAtMs = null;
+  // ついてまわるアイテムの攻撃の起点が置いたセルの中心と同じになる位置に主人公を置く。
+  scene.player = { x: ITEM_CENTER.x - PAIR_PROGRAMMER_FOLLOW_OFFSET.x, y: ITEM_CENTER.y - PAIR_PROGRAMMER_FOLLOW_OFFSET.y };
   scene.tweens = { killTweensOf: vi.fn<(target: object) => void>() };
   scene.events = { emit: vi.fn<(event: string, payload: object) => boolean>(() => true) };
   return scene;

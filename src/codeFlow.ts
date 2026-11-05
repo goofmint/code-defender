@@ -116,6 +116,14 @@ export const stepSpawnTimerUnlessPaused = (
 // そのコードを進める距離。停止中（担当者の休暇中 #36）は 0 で、advanceCode は元のコードをそのまま返す。
 export const moveDistanceUnlessPaused = (distance: number, paused: boolean): number => (paused ? 0 : distance);
 
+// コードをルートの始点に戻す（仕様変更の嵐 #58）。位置と区間を始点にし、id・種類・ルート・種別などほかの値はそのまま。
+// シーン側の Graphics 付きのコードにも使えるよう総称型にする。入力は変更しない。path が空のコードは戻す先がないので例外にする。
+export const rewindCode = <T extends FlowingCode>(code: T): T => {
+  const start: Point | undefined = code.path[0];
+  if (start === undefined) throw new Error(`戻す先のないコードです: id=${code.id}`);
+  return { ...code, segmentIndex: 0, position: start, released: false };
+};
+
 // routeId が一致するコード(removed)と、それ以外(remaining)に分ける（退職でルートが消えるとき #32）。
 // どちらも元の並び順で、要素は入力と同じ参照。入力は変更しない。シーン側の Graphics 付きのコードにも使えるよう総称型にする。
 export const partitionCodesByRoute = <T extends { readonly routeId: number }>(

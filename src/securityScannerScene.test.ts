@@ -15,6 +15,7 @@ import type { MaliciousCodeType } from './maliciousCode';
 import { drawCode } from './render';
 import { cellCenter, createRoutes } from './route';
 import type { Route } from './route';
+import type { ActiveEffect, IncidentRecord } from './itemEffect';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -75,6 +76,10 @@ type SceneUnderTest = {
   refactoringRatio: number;
   gameOver: GameOverState;
   placedItems: readonly PlacedItem[];
+  // #58 の時限効果・直前の障害・ドキュメントの購入時刻。
+  activeEffects: readonly ActiveEffect[];
+  lastIncident: IncidentRecord | null;
+  documentationPurchasedAtMs: number | null;
   events: { readonly emit: Mock<(event: string, payload: object) => boolean> };
   tweens: { readonly killTweensOf: Mock<(target: object) => void> };
   updateCodes(delta: number): void;
@@ -120,6 +125,9 @@ const createScene = (): SceneUnderTest => {
   scene.refactoringRatio = DEFAULT_REFACTORING_RATIO;
   scene.gameOver = NOT_OVER;
   scene.placedItems = [];
+  scene.activeEffects = [];
+  scene.lastIncident = null;
+  scene.documentationPurchasedAtMs = null;
   scene.events = { emit: vi.fn<(event: string, payload: object) => boolean>(() => true) };
   scene.tweens = { killTweensOf: vi.fn<(target: object) => void>() };
   return scene;

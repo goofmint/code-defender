@@ -5,6 +5,7 @@ import type { Mock } from 'vitest';
 import { CAT_DELETE_INTERVAL_MS, DEFAULT_MALICIOUS_CODE_HP, TECH_DEBT_INITIAL } from './config';
 import { CODE_DELETED_BY_CAT_EVENT } from './cat';
 import type { GameOverState } from './gameOver';
+import type { ActiveEffect } from './itemEffect';
 import type { PlacedItem } from './itemPlacement';
 import { drawDefeatEffect, drawItemAttackEffect } from './render';
 import { cellCenter } from './route';
@@ -62,6 +63,8 @@ type SceneUnderTest = {
   codeHp: Map<number, number>;
   codeHold: Map<number, number>;
   placedItems: readonly PlacedItem[];
+  // 購入時に発動したアイテムの時限効果(#58)。updateItems が「動いてるからヨシ！」を読む。
+  activeEffects: readonly ActiveEffect[];
   tweens: { readonly killTweensOf: Mock<(target: object) => void> };
   events: { readonly emit: Mock<(event: string, payload: object) => boolean> };
   updateItems(now: number): void;
@@ -129,6 +132,7 @@ const createScene = (codes: FakeCode[], placedItems: readonly PlacedItem[]): Sce
   );
   scene.codeHold = new Map();
   scene.placedItems = placedItems;
+  scene.activeEffects = [];
   scene.tweens = { killTweensOf: vi.fn<(target: object) => void>() };
   scene.events = { emit: vi.fn<(event: string, payload: object) => boolean>(() => true) };
   return scene;

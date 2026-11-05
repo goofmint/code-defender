@@ -45,10 +45,27 @@ describe('支払い区分（企画書 8 のとおり）', () => {
     expect(isMonthlyItem(itemType)).toBe(expected === 'monthly');
   });
 
-  it('7アイテムすべて区分を持つ（月額4件・1回払い3件）', () => {
-    expect(ITEM_TYPES.map(getItemPayment).sort()).toEqual(
-      ['monthly', 'monthly', 'monthly', 'monthly', 'oneTime', 'oneTime', 'oneTime'],
-    );
+  it('18アイテムすべて区分を持つ（月額4件・1回払い14件。#58 の11個はすべて1回払い）', () => {
+    const payments = ITEM_TYPES.map(getItemPayment);
+    expect(payments.filter((payment) => payment === 'monthly')).toHaveLength(4);
+    expect(payments.filter((payment) => payment === 'oneTime')).toHaveLength(14);
+  });
+
+  it.each([
+    'rubberDuck',
+    'codeFreeze',
+    'specChangeStorm',
+    'coffeeMachine',
+    'energyDrink',
+    'pizza',
+    'documentation',
+    'fridayDeploy',
+    'rollbackButton',
+    'worksFine',
+    'seniorNote',
+  ] as const)('#58 の %s は1回払いで月額 0', (itemType) => {
+    expect(getItemPayment(itemType)).toBe('oneTime');
+    expect(getItemMonthlyFee(itemType)).toBe(0);
   });
 });
 

@@ -32,6 +32,7 @@ import { drawDefeatEffect, drawItemAttackEffect } from './render';
 import { cellCenter } from './route';
 import type { Point, Route } from './route';
 import { getReleaseRevenue } from './sales';
+import type { ActiveEffect, IncidentRecord } from './itemEffect';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -98,6 +99,10 @@ type SceneUnderTest = {
   codeHp: Map<number, number>;
   codeHold: Map<number, number>;
   placedItems: readonly PlacedItem[];
+  // #58 の時限効果・直前の障害・ドキュメントの購入時刻。
+  activeEffects: readonly ActiveEffect[];
+  lastIncident: IncidentRecord | null;
+  documentationPurchasedAtMs: number | null;
   time: { now: number };
   tweens: { readonly killTweensOf: Mock<(target: object) => void>; readonly pauseAll: Mock<() => void> };
   cameras: { readonly main: { readonly flash: Mock<() => void> } };
@@ -218,6 +223,9 @@ const createScene = (options: SceneOptions = {}): SceneUnderTest => {
   );
   scene.codeHold = new Map();
   scene.placedItems = options.placedItems ?? [];
+  scene.activeEffects = [];
+  scene.lastIncident = null;
+  scene.documentationPurchasedAtMs = null;
   scene.time = { now: T0 };
   scene.tweens = { killTweensOf: vi.fn<(target: object) => void>(), pauseAll: vi.fn<() => void>() };
   scene.cameras = { main: { flash: vi.fn<() => void>() } };

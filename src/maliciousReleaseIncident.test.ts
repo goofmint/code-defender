@@ -26,6 +26,7 @@ import { createRoutes } from './route';
 import type { Route } from './route';
 import { sellReleasedCode } from './sales';
 import { INITIAL_SCORE } from './score';
+import type { ActiveEffect, IncidentRecord } from './itemEffect';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -85,6 +86,10 @@ type SceneUnderTest = {
   techDebt: number;
   refactoringRatio: number;
   placedItems: readonly PlacedItem[];
+  // #58 の時限効果・直前の障害・ドキュメントの購入時刻。
+  activeEffects: readonly ActiveEffect[];
+  lastIncident: IncidentRecord | null;
+  documentationPurchasedAtMs: number | null;
   funds: number;
   score: number;
   gameOver: GameOverState;
@@ -136,6 +141,9 @@ const createScene = (funds: number, emitted: EmitCall[]): SceneUnderTest => {
   scene.techDebt = 0;
   scene.refactoringRatio = DEFAULT_REFACTORING_RATIO;
   scene.placedItems = [];
+  scene.activeEffects = [];
+  scene.lastIncident = null;
+  scene.documentationPurchasedAtMs = null;
   scene.funds = funds;
   scene.score = INITIAL_SCORE;
   scene.gameOver = INITIAL_GAME_OVER_STATE;

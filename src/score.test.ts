@@ -20,6 +20,7 @@ const REASONS: Record<FundsChangeReason, true> = {
   item: true,
   itemFee: true,
   aiAgent: true,
+  rollback: true,
 };
 const NON_SALES_REASONS = (Object.keys(REASONS) as FundsChangeReason[]).filter(
   (reason) => reason !== 'sales',

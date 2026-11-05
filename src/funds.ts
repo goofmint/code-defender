@@ -7,7 +7,8 @@ import { FUNDS_FORMAT } from './config';
 export const FUNDS_CHANGED_EVENT = 'funds-changed';
 
 // 資金が変化した理由。給料、売上、正常なコードを攻撃した減点、障害による損害、エンジニアを雇う費用、アイテムの購入費、月額アイテムの費用、
-// AIエージェント(#53)の購入費。
+// AIエージェント(#53)の購入費、
+// ロールバックボタン(#58)による直前の障害の損害の返金（売上ではないのでスコアには入らない）。
 export type FundsChangeReason =
   | 'salary'
   | 'sales'
@@ -16,7 +17,8 @@ export type FundsChangeReason =
   | 'hire'
   | 'item'
   | 'itemFee'
-  | 'aiAgent';
+  | 'aiAgent'
+  | 'rollback';
 
 export type FundsChangedEvent = {
   readonly previous: number;
