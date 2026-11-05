@@ -87,9 +87,13 @@ type SceneUnderTest = {
   time: { now: number };
   tweens: { readonly pauseAll: Mock<() => void> };
   events: { readonly emit: Mock<(event: string, payload: object) => boolean> };
-  fundsText: { readonly setText: Mock<(text: string) => void> };
-  salesText: { readonly setText: Mock<(text: string) => void> };
-  techDebtText: { readonly setText: Mock<(text: string) => void> };
+  // 右下の指標(#156)。資金・累計売上・月末支払・技術的負債の段階の表示を更新する。
+  statusPanel: {
+    readonly setFunds: Mock<(funds: number) => void>;
+    readonly setScore: Mock<(score: number) => void>;
+    readonly setMonthEndPayment: Mock<(amount: number) => void>;
+    readonly setTechDebtLevel: Mock<(level: string) => void>;
+  };
   buyItem(itemType: ItemType): void;
   onFundsChanged(event: FundsChangedEvent): void;
 };
@@ -170,9 +174,12 @@ const createScene = (funds: number = FUNDS): SceneUnderTest => {
       return true;
     }),
   };
-  scene.fundsText = { setText: vi.fn<(text: string) => void>() };
-  scene.salesText = { setText: vi.fn<(text: string) => void>() };
-  scene.techDebtText = { setText: vi.fn<(text: string) => void>() };
+  scene.statusPanel = {
+    setFunds: vi.fn<(funds: number) => void>(),
+    setScore: vi.fn<(score: number) => void>(),
+    setMonthEndPayment: vi.fn<(amount: number) => void>(),
+    setTechDebtLevel: vi.fn<(level: string) => void>(),
+  };
   return scene;
 };
 

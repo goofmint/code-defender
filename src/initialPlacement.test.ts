@@ -72,7 +72,7 @@ const route: Route = {
   ],
 };
 const context = { routes: [route] };
-// 置けるセル。中心 (488, 136)・フットプリント x=480〜496 / y=128〜144（16px #154）で、HUD（x≦416）・ルート（y≧202）・上帯（y<60）に重ならない。
+// 置けるセル。中心 (488, 136)・フットプリント x=480〜496 / y=128〜144（16px #154）で、初期配置UI（x≦464 #156）・ルート（y≧202）・上帯（y<60）に重ならない。
 const free: GridCell = { col: 30, row: 8 };
 // free の 3 セル右（x=528〜544。フットプリントは 32px 空く）と、さらに 3 セル右。
 const besideFree: GridCell = { col: free.col + 3, row: free.row };
@@ -237,33 +237,31 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
     expect(reasonAt({ col: 1, row: 20 })).toBe('ok'); // 出現列でもルートが無い位置
   });
 
-  it('HUD の矩形（ITEM_HUD_BOUNDS: x=72〜416、y=80〜362。下端は休暇の案内文 #150）に重なると notPlaceable、その外は置ける', () => {
-    expect(reasonAt({ col: 25, row: 10 })).toBe('notPlaceable'); // x=400〜416（HUD に重なる）
-    expect(reasonAt({ col: 26, row: 10 })).toBe('ok'); // x=416〜432（HUD の右端に辺が接する）
-    expect(reasonAt({ col: 27, row: 10 })).toBe('ok'); // x=432〜448
-    expect(reasonAt({ col: 4, row: 10 })).toBe('notPlaceable'); // x=64〜80（HUD の左端 72 に重なる）
-    expect(reasonAt({ col: 3, row: 10 })).toBe('ok'); // x=48〜64
-    expect(reasonAt({ col: 10, row: 4 })).toBe('ok'); // y=64〜80（HUD の上端に辺が接する）
-    expect(reasonAt({ col: 10, row: 5 })).toBe('notPlaceable'); // y=80〜96
-    expect(reasonAt({ col: 10, row: 19 })).toBe('notPlaceable'); // y=304〜320（休暇の案内文に重なる）
-    expect(reasonAt({ col: 10, row: 22 })).toBe('notPlaceable'); // y=352〜368（HUD の下端 362 に重なる）
-    expect(reasonAt({ col: 10, row: 23 })).toBe('ok'); // y=368〜384
+  it('左の HUD を撤去した範囲（旧 x=72〜416、y=80〜362 #156）は、プレイ中の既定の置けない矩形では置ける', () => {
+    expect(reasonAt({ col: 25, row: 10 })).toBe('ok'); // x=400〜416
+    expect(reasonAt({ col: 4, row: 10 })).toBe('ok'); // x=64〜80
+    expect(reasonAt({ col: 10, row: 5 })).toBe('ok'); // y=80〜96
+    expect(reasonAt({ col: 10, row: 19 })).toBe('ok'); // y=304〜320（旧 休暇の案内文）
+    expect(reasonAt({ col: 10, row: 22 })).toBe('ok'); // y=352〜368
   });
 
-  it('blockedRects に初期配置UIの範囲を足すと、その中は notPlaceable、左隣と下隣は置ける。プレイ中の既定では置ける', () => {
+  it('blockedRects に初期配置UIの範囲を足すと、その中は notPlaceable、左隣・右隣・下隣は置ける。プレイ中の既定では置ける', () => {
     const setupContext = { ...context, blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS] };
     const reasonInSetup = (cell: GridCell): string => {
       const result = placeInitialItem(big, 'linter', cell, setupContext);
       return result.ok ? 'ok' : result.reason;
     };
-    // 初期配置UIの範囲は x=668〜952、y=68〜208。
-    const inside: GridCell = { col: 45, row: 8 }; // x=720〜736、y=128〜144
+    // 初期配置UIの範囲は左上へ移した x=72〜464、y=68〜188（#156）。
+    expect(INITIAL_PLACEMENT_UI_BOUNDS).toEqual({ x: 72, y: 68, width: 392, height: 120 });
+    const inside: GridCell = { col: 10, row: 8 }; // x=160〜176、y=128〜144
     expect(reasonInSetup(inside)).toBe('notPlaceable');
     expect(reasonAt(inside)).toBe('ok');
-    expect(reasonInSetup({ col: 41, row: 8 })).toBe('notPlaceable'); // 右端 x=672（左端 668 に 4px 重なる）
-    expect(reasonInSetup({ col: 40, row: 8 })).toBe('ok'); // 右端 x=656（12px 空く）
-    expect(reasonInSetup({ col: 45, row: 12 })).toBe('notPlaceable'); // 下端 y=208（範囲の中）
-    expect(reasonInSetup({ col: 45, row: 13 })).toBe('ok'); // 上端 y=208（下端 y=208 に辺が接する）
+    expect(reasonInSetup({ col: 4, row: 8 })).toBe('notPlaceable'); // x=64〜80（左端 72 に 8px 重なる）
+    expect(reasonInSetup({ col: 3, row: 8 })).toBe('ok'); // x=48〜64（8px 空く）
+    expect(reasonInSetup({ col: 28, row: 8 })).toBe('notPlaceable'); // x=448〜464（範囲の中。右端に内側から接する）
+    expect(reasonInSetup({ col: 29, row: 8 })).toBe('ok'); // x=464〜480（右端 464 に辺が接する）
+    expect(reasonInSetup({ col: 25, row: 11 })).toBe('notPlaceable'); // y=176〜192（下端 188 に 4px 重なる）
+    expect(reasonInSetup({ col: 25, row: 12 })).toBe('ok'); // y=192〜208（4px 空く。ルートの線からも離れている）
   });
 });
 

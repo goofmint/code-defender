@@ -2,10 +2,10 @@
 // main.ts は読み込み時に new Phaser.Game(config) を実行するので、このファイルの中だけで phaser をモックする（vacationNeutrality.test.ts と同じ形）。
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import { createEngineerParameters, ENGINEER_RESIGNED_EVENT, formatEngineerCount, formatSelectedEngineer } from './engineer';
+import { createEngineerParameters, ENGINEER_RESIGNED_EVENT } from './engineer';
 import type { Engineer, EngineerRank, EngineerResignedPayload } from './engineer';
 import type { GameOverState } from './gameOver';
-import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_PARAMETER_MIN, ENGINEER_SPAWN_CELLS, MAX_ENGINEERS } from './config';
+import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_PARAMETER_MIN, ENGINEER_SPAWN_CELLS } from './config';
 import { createRoutes } from './route';
 import type { Route } from './route';
 
@@ -40,7 +40,6 @@ type FakeRouteDrawing = {
   readonly spawnDecoration: FakeDestroyable;
 };
 type FakeVacationMarker = { readonly container: FakeDestroyable };
-type FakeText = FakeDestroyable & { readonly setText: Mock<(text: string) => void> };
 type FakeMessageText = FakeDestroyable & { readonly setDepth: Mock<(depth: number) => FakeMessageText> };
 type FakeCode = { readonly id: number; readonly routeId: number; readonly graphics: FakeDestroyable };
 type SceneUnderTest = {
@@ -56,8 +55,14 @@ type SceneUnderTest = {
   score: number;
   gameOver: GameOverState;
   selectedEngineerId: number | null;
-  engineerCountText: FakeText;
-  selectedEngineerText: FakeText;
+  // 右下の指標(#156)。退職で月末に支払うお金（給料）が減る。
+  statusPanel: { readonly setMonthEndPayment: Mock<(amount: number) => void> };
+  // メニューは閉じた状態、ポップオーバーは開いている出現地点の routeId（閉じていれば null）(#156)。
+  openMenu: null;
+  popoverRouteId: number | null;
+  engineerPopover?: FakeDestroyable;
+  phase: 'playing';
+  placedItems: readonly [];
   hireMessageText?: FakeMessageText;
   events: { readonly emit: Mock<(event: string, payload: EngineerResignedPayload) => boolean> };
   tweens: { readonly killTweensOf: Mock<(target: FakeDestroyable) => void> };
@@ -83,7 +88,6 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null, at
 });
 
 const destroyable = (): FakeDestroyable => ({ destroy: vi.fn<() => void>() });
-const fakeText = (): FakeText => ({ destroy: vi.fn<() => void>(), setText: vi.fn<(text: string) => void>() });
 const fakeMessageText = (): FakeMessageText => {
   const text: FakeMessageText = {
     destroy: vi.fn<() => void>(),
@@ -130,8 +134,12 @@ const createScene = (engineers: Engineer[], gameOver: GameOverState = NOT_OVER):
   scene.score = SCORE;
   scene.gameOver = gameOver;
   scene.selectedEngineerId = engineers[0]?.id ?? null;
-  scene.engineerCountText = fakeText();
-  scene.selectedEngineerText = fakeText();
+  scene.statusPanel = { setMonthEndPayment: vi.fn<(amount: number) => void>() };
+  scene.openMenu = null;
+  scene.popoverRouteId = null;
+  scene.engineerPopover = undefined;
+  scene.phase = 'playing';
+  scene.placedItems = [];
   scene.hireMessageText = undefined;
   // 実際の scene.events と同じく、ENGINEER_RESIGNED_EVENT を購読処理へ届ける。
   scene.events = {
@@ -195,7 +203,35 @@ describe('MainScene: 愛着心が最低になったら自主退職し、その�
       expect(kept.spawnDecoration.destroy).not.toHaveBeenCalled();
       expect(getOrThrow(scene.vacationMarkers, routeId).container.destroy).not.toHaveBeenCalled();
     });
-    expect(scene.engineerCountText.setText).toHaveBeenLastCalledWith(formatEngineerCount(2, MAX_ENGINEERS));
+    // 月末に支払うお金は残る2人の給料(#156)。
+    expect(scene.statusPanel.setMonthEndPayment).toHaveBeenLastCalledWith(
+      ENGINEER_MONTHLY_SALARY_BY_RANK.junior + ENGINEER_MONTHLY_SALARY_BY_RANK.senior,
+    );
+  });
+
+  it('退職者の出現地点のポップオーバーを開いていれば閉じて destroy() する(#156)', () => {
+    const scene = createScene([makeEngineer(0, 'junior', 0), makeEngineer(1, 'middle', 1, ENGINEER_PARAMETER_MIN)]);
+    const popover = destroyable();
+    scene.popoverRouteId = 1;
+    scene.engineerPopover = popover;
+
+    scene.resignEngineers();
+
+    expect(popover.destroy).toHaveBeenCalledOnce();
+    expect(scene.popoverRouteId).toBeNull();
+    expect(scene.engineerPopover).toBeUndefined();
+  });
+
+  it('ほかの出現地点のポップオーバーは、退職があっても開いたまま(#156)', () => {
+    const scene = createScene([makeEngineer(0, 'junior', 0), makeEngineer(1, 'middle', 1, ENGINEER_PARAMETER_MIN)]);
+    const popover = destroyable();
+    scene.popoverRouteId = 0;
+    scene.engineerPopover = popover;
+
+    scene.resignEngineers();
+
+    expect(popover.destroy).not.toHaveBeenCalled();
+    expect(scene.popoverRouteId).toBe(0);
   });
 
   it('退職者1人につき1回だけイベントを発行し、資金・スコアは変えず、他のイベントも出さない', () => {
@@ -223,7 +259,7 @@ describe('MainScene: 愛着心が最低になったら自主退職し、その�
     expect(scene.routes).toHaveLength(3);
     expect(scene.codes).toHaveLength(6);
     expect(scene.events.emit).not.toHaveBeenCalled();
-    expect(scene.engineerCountText.setText).not.toHaveBeenCalled();
+    expect(scene.statusPanel.setMonthEndPayment).not.toHaveBeenCalled();
   });
 
   it('全員が退職するとルートもコードも空になり、選択は null になる', () => {
@@ -240,8 +276,7 @@ describe('MainScene: 愛着心が最低になったら自主退職し、その�
     expect(scene.codeHp.size).toBe(0);
     expect(scene.events.emit).toHaveBeenCalledTimes(3);
     expect(scene.selectedEngineerId).toBeNull();
-    expect(scene.selectedEngineerText.setText).toHaveBeenLastCalledWith(formatSelectedEngineer(null));
-    expect(scene.engineerCountText.setText).toHaveBeenLastCalledWith(formatEngineerCount(0, MAX_ENGINEERS));
+    expect(scene.statusPanel.setMonthEndPayment).toHaveBeenLastCalledWith(0);
   });
 
   it('選択中のエンジニアが退職すると、残る先頭のエンジニアを選ぶ', () => {
@@ -251,8 +286,7 @@ describe('MainScene: 愛着心が最低になったら自主退職し、その�
 
     scene.resignEngineers();
 
-    expect(scene.selectedEngineerId).toBe(1);
-    expect(scene.selectedEngineerText.setText).toHaveBeenLastCalledWith(formatSelectedEngineer(remaining));
+    expect(scene.selectedEngineerId).toBe(remaining.id);
   });
 
   it('選択中でないエンジニアが退職しても、選択は変わらない', () => {
@@ -280,7 +314,10 @@ describe('MainScene: 愛着心が最低になったら自主退職し、その�
     expect(scene.vacationMarkers.size).toBe(3);
     expect(scene.spawnElapsed.size).toBe(3);
     expect(scene.codes).toHaveLength(6);
-    expect(scene.engineerCountText.setText).toHaveBeenLastCalledWith(formatEngineerCount(3, MAX_ENGINEERS));
+    // 未配属でも給料は払っていたので、退職で月末に支払うお金は減る(#37, #156)。
+    expect(scene.statusPanel.setMonthEndPayment).toHaveBeenLastCalledWith(
+      ENGINEER_MONTHLY_SALARY_BY_RANK.junior + ENGINEER_MONTHLY_SALARY_BY_RANK.middle + ENGINEER_MONTHLY_SALARY_BY_RANK.senior,
+    );
   });
 
   it('退職メッセージを雇用メッセージと同じ仕組みで出す', () => {

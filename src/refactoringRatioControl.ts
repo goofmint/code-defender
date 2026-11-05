@@ -45,3 +45,15 @@ export const formatRefactoringAllocation = (ratio: number): string => {
   const { feature, separator, refactoring } = REFACTORING_ALLOCATION_FORMAT;
   return `${feature}${featurePercent}${separator}${refactoring}${refactoringPercent}`;
 };
+
+// 開発バランスのメニュー(#156)に縦に並べる選択肢。0 から 1 まで刻み（stepPercent）ごとの割合（10% 刻みなら 0, 0.1, …, 1 の 11 個）。
+// 値はパーセントを 100 で割って作る（0.1 を足していく誤差は出ない）。刻みの検査は stepRefactoringRatio と同じ。
+export const getRefactoringRatioOptions = (stepPercent: number = REFACTORING_RATIO_STEP_PERCENT): readonly number[] => {
+  if (!Number.isInteger(stepPercent) || stepPercent <= 0 || PERCENT % stepPercent !== 0) {
+    throw new RangeError(`stepPercent は 100 を割り切る正の整数にする: ${stepPercent}`);
+  }
+  return Array.from({ length: PERCENT / stepPercent + 1 }, (_, index) => (index * stepPercent) / PERCENT);
+};
+
+// 2つの割合が同じ選択肢か(#156、現在値の強調)。表示と同じく整数パーセントで比べる（0.30000000000000004 と 0.3 は同じ）。
+export const isSameRefactoringOption = (a: number, b: number): boolean => toPercent(a) === toPercent(b);

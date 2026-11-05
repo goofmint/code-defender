@@ -3,7 +3,6 @@ import {
   ITEM_ATTACK_COOLDOWN_MS,
   ITEM_BLOCKED_RECTS,
   ITEM_BOX_SIZE,
-  ITEM_HUD_BOUNDS,
   ITEM_RANGE_RATIOS,
   ITEM_ROUTE_CLEARANCE,
   LINTER_ATTACK_COOLDOWN_MS,
@@ -31,7 +30,7 @@ import {
   findCodesToReveal,
   findItemTarget,
   findTargetFor,
-  formatItemButton,
+  formatItemOption,
   formatItemMessage,
   getItemAttackCooldownMs,
   getItemOrigin,
@@ -70,7 +69,7 @@ const route: Route = {
 };
 const routes = [route];
 const options = { routes };
-// 置けるセル。中心 (488, 136)・フットプリント x=480〜496 / y=128〜144（16px #154）で、HUD（x≦416）・ルート（y≧202）・上帯（y<60）に重ならない。
+// 置けるセル。中心 (488, 136)・フットプリント x=480〜496 / y=128〜144（16px #154）で、ルート（y≧202）・上帯（y<60）に重ならない。
 const free: GridCell = { col: 30, row: 8 };
 // ルートの線上（行3の線 y=210 の上。中心 y=216）・出現場所・リリース地点を含む配置グリッドのセル。
 const onRoute: GridCell = { col: 20, row: 13 };
@@ -281,17 +280,12 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
     [{ col: 27, row: 29 }, true], // 下帯（y≧480）の直上（y=464〜480。辺が接する）
     [{ col: 27, row: 30 }, false], // 下帯に重なる（y=480〜496。接した次のセルは不可）
     [{ col: 27, row: lastRow }, false], // 下へはみ出す（y=528〜544）
-    [{ col: 27, row: 10 }, true], // HUD（x≦416）の右（x=432〜448）
-    [{ col: 26, row: 10 }, true], // HUD の右端に辺が接する（x=416〜432）
-    [{ col: 25, row: 10 }, false], // HUD に重なる（x=400〜416）
-    [{ col: 10, row: 4 }, true], // HUD の上端（y=80）に辺が接する（y=64〜80）
-    [{ col: 10, row: 5 }, false], // HUD に重なる（y=80〜96）
-    [{ col: 10, row: 23 }, true], // HUD（y≦362。下端は休暇の案内文 #150）の下（y=368〜384。6px 空く）
-    [{ col: 10, row: 22 }, false], // HUD に重なる（y=352〜368）
-    [{ col: 10, row: 19 }, false], // 休暇の案内文(#150)に重なる（y=304〜320）
-    [{ col: 2, row: 10 }, true], // HUD（x≧72）の左（x=32〜48）
-    [{ col: 3, row: 10 }, true], // HUD の左（x=48〜64。8px 空く）
-    [{ col: 4, row: 10 }, false], // HUD に重なる（x=64〜80）
+    // #156 で左の HUD（旧 x=72〜416、y=80〜362）を撤去したため、その範囲（ルートから離れた位置）にも置ける。
+    [{ col: 25, row: 10 }, true], // 旧 HUD の右端の内側（x=400〜416）
+    [{ col: 10, row: 5 }, true], // 旧 HUD の上端の内側（y=80〜96）
+    [{ col: 10, row: 22 }, true], // 旧 HUD の下端の内側（y=352〜368）
+    [{ col: 10, row: 19 }, true], // 旧 休暇の案内文(#150)の位置（y=304〜320）
+    [{ col: 4, row: 10 }, true], // 旧 HUD の左端の内側（x=64〜80）
     [{ col: -1, row: 10 }, false],
     [{ col: PLACEMENT_COLS, row: 10 }, false],
     [{ col: 30, row: -1 }, false],
@@ -333,9 +327,9 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
     expect(isPlaceableCell({ col: 30, row: 20 }, right)).toBe(true); // 右端 x=496（帯の左端 502 まで 6px 空く）
   });
 
-  it('ルートの線上・その脇（既定のルート。行3の線の上側は HUD と重なるので行5の線で見る）', () => {
+  it('ルートの線上・その脇（既定のルート）', () => {
     expect(isPlaceableCell(onRoute, ctx)).toBe(false);
-    expect(isPlaceableCell({ col: 20, row: 11 }, ctx)).toBe(false); // 行3の線のクリアランスからは 10px 空くが HUD（x≦416・y≦362）に重なる
+    expect(isPlaceableCell({ col: 20, row: 11 }, ctx)).toBe(true); // 行3の線のクリアランスから 10px 空く（#156 で HUD を撤去したので置ける）
     expect(isPlaceableCell({ col: 28, row: 20 }, ctx)).toBe(false); // 行5の線（y=330）の上
     expect(isPlaceableCell({ col: 28, row: 18 }, ctx)).toBe(true); // 行5の線の上側（下端 y=304 < 322）
     expect(isPlaceableCell({ col: 28, row: 22 }, ctx)).toBe(true); // 行5の線の下側（上端 y=352 > 338）
@@ -415,12 +409,10 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
     expect(isPlaceableCell({ col: 20, row: PLACEMENT_ROWS }, bare)).toBe(false);
   });
 
-  it('既定の置けない矩形は上帯・下帯・HUD の外接矩形（x=72〜416、y=80〜362。下端は休暇の案内文 #150）', () => {
-    expect(ITEM_HUD_BOUNDS).toEqual({ x: 72, y: 80, width: 344, height: 282 });
+  it('既定の置けない矩形は上帯・下帯の2つ（#156 で左の HUD の矩形を外した）', () => {
     expect(ITEM_BLOCKED_RECTS).toEqual([
       { x: 0, y: 0, width: FIELD_WIDTH, height: CELL_SIZE },
       { x: 0, y: FIELD_HEIGHT - CELL_SIZE, width: FIELD_WIDTH, height: CELL_SIZE },
-      ITEM_HUD_BOUNDS,
     ]);
   });
 });
@@ -450,7 +442,6 @@ describe('purchaseItem: 置く場所と重複', () => {
     ['出現場所', spawnCell],
     ['リリース地点', releaseCell],
     ['上帯', { col: 20, row: 1 }],
-    ['HUD と重なる位置', { col: 10, row: 10 }],
     ['下帯', { col: 20, row: 32 }],
     ['範囲外', { col: -1, row: 10 }],
   ])('%s は notPlaceable で資金・配列は変わらない', (_name, cell) => {
@@ -527,7 +518,7 @@ describe('createItemState: リスタート時の初期状態', () => {
   });
 });
 
-describe('formatItemMessage / formatItemButton', () => {
+describe('formatItemMessage / formatItemOption', () => {
   it('成功・資金不足・置けない・既にある', () => {
     const ok = purchaseItem(state(), 'linter', free, options);
     expect(formatItemMessage(ok, 'linter')).toBe('Linterを置きました');
@@ -536,38 +527,27 @@ describe('formatItemMessage / formatItemButton', () => {
     expect(formatItemMessage({ ok: false, reason: 'occupied' }, 'linter')).toBe('そこには置けません');
   });
 
-  it('ボタンはページ内の枠番号 + 4 を表示する（#58）', () => {
-    expect(formatItemButton(1, 'linter')).toBe('[5] Linter 2.5万円');
-    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 10万/月');
-    expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 10万/月');
-    expect(formatItemButton(0, 'cat')).toBe('[4] Cat 2.5万円');
-    expect(formatItemButton(5, 'seniorNote')).toBe('[9] Senior 10万円');
+  it('メニューの枠の文言は名前と価格で、キー名は出さない（#156）', () => {
+    expect(formatItemOption('linter')).toBe('Linter 2.5万円');
+    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit 10万/月');
+    expect(formatItemOption('securityScanner')).toBe('Scanner 10万/月');
+    expect(formatItemOption('cat')).toBe('Cat 2.5万円');
+    expect(formatItemOption('seniorNote')).toBe('Senior 10万円');
   });
 
-  it('ページごとのボタンのキー表示は 4〜9（#58。6個ずつ3ページ）', () => {
+  it('6個ずつ3ページの文言（#58, #156）', () => {
     const pages = [ITEM_TYPES.slice(0, 6), ITEM_TYPES.slice(6, 12), ITEM_TYPES.slice(12, 18)];
-    expect(pages.map((page) => page.map((itemType, slot) => formatItemButton(slot, itemType)))).toEqual([
-      [
-        '[4] CodeRabbit 10万/月',
-        '[5] Linter 2.5万円',
-        '[6] Test 5万円',
-        '[7] CI 5万/月',
-        '[8] Scanner 10万/月',
-        '[9] Pair 5万/月',
-      ],
-      ['[4] Cat 2.5万円', '[5] Duck 2.5万円', '[6] Freeze 5万円', '[7] SpecStorm 5万円', '[8] Coffee 2.5万円', '[9] Energy 2.5万円'],
-      ['[4] Pizza 2.5万円', '[5] Docs 5万円', '[6] FriDeploy 2.5万円', '[7] Rollback 10万円', '[8] Yoshi! 2.5万円', '[9] Senior 10万円'],
+    expect(pages.map((page) => page.map((itemType) => formatItemOption(itemType)))).toEqual([
+      ['CodeRabbit 10万/月', 'Linter 2.5万円', 'Test 5万円', 'CI 5万/月', 'Scanner 10万/月', 'Pair 5万/月'],
+      ['Cat 2.5万円', 'Duck 2.5万円', 'Freeze 5万円', 'SpecStorm 5万円', 'Coffee 2.5万円', 'Energy 2.5万円'],
+      ['Pizza 2.5万円', 'Docs 5万円', 'FriDeploy 2.5万円', 'Rollback 10万円', 'Yoshi! 2.5万円', 'Senior 10万円'],
     ]);
   });
 
-  it('キー表示のない枠番号（6）は例外にする', () => {
-    expect(() => formatItemButton(6, 'cat')).toThrow();
-  });
-
   it('月額の表示は精算と同じ倍率を使う（1回払いは倍率に関係なく購入価格）', () => {
-    expect(formatItemButton(0, 'codeRabbit', 0.5)).toBe('[4] CodeRabbit 5万/月');
-    expect(formatItemButton(0, 'codeRabbit', 0)).toBe('[4] CodeRabbit 0万/月');
-    expect(formatItemButton(1, 'linter', 0.5)).toBe('[5] Linter 2.5万円');
+    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit 5万/月');
+    expect(formatItemOption('codeRabbit', 0)).toBe('CodeRabbit 0万/月');
+    expect(formatItemOption('linter', 0.5)).toBe('Linter 2.5万円');
   });
 });
 
@@ -753,7 +733,7 @@ describe('CodeRabbit(#52): 長距離の射程と標的の選び方', () => {
 describe('CodeRabbit(#52): ルート脇に置いてルートを守る', () => {
   const price = getItemPrice('codeRabbit');
   // ルートは行 5（y=330）を通る（col 5〜最終列）。配置グリッドの col 28・行 18（中心 456,296、フットプリント y=278〜314）は
-  // HUD（x≦416）とルートの線のクリアランス（y≧322）に重ならないルート脇の位置。routeCell はそのすぐ下のルートのセル（60px）。
+  // ルートの線のクリアランス（y≧322）に重ならないルート脇の位置。routeCell はそのすぐ下のルートのセル（60px）。
   const beside: GridCell = { col: 28, row: 18 };
   const routeCell: GridCell = { col: 7, row: 5 };
   const onRouteCell = pointToPlacementCell(cellCenter(routeCell));
@@ -766,7 +746,7 @@ describe('CodeRabbit(#52): ルート脇に置いてルートを守る', () => {
     expect(input.placedItems).toEqual([]);
   });
 
-  it('HUD と重ならないルート脇のセルには置け、隣のルートのセル中心が射程内に入る', () => {
+  it('ルート脇のセルには置け、隣のルートのセル中心が射程内に入る', () => {
     const result = purchaseItem(state({ funds: price }), 'codeRabbit', beside, options);
     if (!result.ok) throw new Error(`購入に失敗しました: ${result.reason}`);
     expect(result.item).toEqual({ id: 0, itemType: 'codeRabbit', cell: beside, lastAttackTime: null });

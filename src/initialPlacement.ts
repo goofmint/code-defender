@@ -148,7 +148,7 @@ export const formatInitialPlacementMessage = (
   }
 };
 
-// 初期配置で次に置くもの(#157)。最初は未選択。購入バーでアイテムの種類を、エンジニアの選択ボタンでエンジニアを選ぶ。
+// 初期配置で次に置くもの(#157)。最初は未選択。アイテムのメニュー(#156)でアイテムの種類を、エンジニアの選択ボタンでエンジニアを選ぶ。
 export type InitialPlacementSelection =
   | { readonly kind: 'none' }
   | { readonly kind: 'item'; readonly itemType: ItemType }
@@ -171,7 +171,7 @@ export const formatInitialPlacementPanel = (points: number, selection: InitialPl
   return [`${text.title} ${text.points}${points}${text.pointUnit}`, `${text.selected}${selected}`, text.instruction];
 };
 
-// 初期配置の間の購入バーのボタンの文言(#157)。「Linter 1pt」。金額の代わりにステージポイントのコストを出し、キーの表示は省く。
+// 初期配置の間のアイテムのメニュー(#156)の枠の文言(#157)。「Linter 1pt」。金額の代わりにステージポイントのコストを出し、キーの表示は省く。
 export const formatInitialPlacementItemButton = (itemType: ItemType): string =>
   `${ITEM_SHORT_NAMES[itemType]} ${getStagePointCost(itemType)}${INITIAL_PLACEMENT_TEXT.pointUnit}`;
 

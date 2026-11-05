@@ -1,15 +1,8 @@
-// アイテム購入バーのページ切替(#58)とボタンの配置。Phaser には依存しない（テスト可能にするため）。
-// render.ts の drawItemButtons と hudLayout.test.ts が同じ配置の計算を使う。
-import { ITEM_BUTTON_SIZE, ITEM_PAGE_SIZE, ITEM_PAGE_UI_SIZE, ITEM_UI_POSITION } from './config';
+// アイテムの購入枠のページ切替(#58)。Phaser には依存しない（テスト可能にするため）。
+// #156 で下端の購入バーを右上のアイテムのメニューに移した。枠とページ行の配置は floatingMenu.ts（メニュー共通の縦の並び）で求める。
+import { ITEM_PAGE_SIZE } from './config';
 
 export type ItemPageDirection = 'previous' | 'next';
-
-export type ItemBarRect = {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-};
 
 // ページ数。アイテムが 0 個でも 1 ページ（空のページ）とする。pageSize が 1 未満・整数でないときは例外にする。
 export const getItemPageCount = (itemCount: number, pageSize: number = ITEM_PAGE_SIZE): number => {
@@ -37,27 +30,3 @@ export const stepItemPage = (page: number, direction: ItemPageDirection, pageCou
 
 // ページ表示の文言。「1/3」。page は 0 始まり。
 export const formatItemPage = (page: number, pageCount: number): string => `${page + 1}/${pageCount}`;
-
-// ページ内の枠 slot の購入ボタンの矩形。
-export const itemButtonRect = (slot: number): ItemBarRect => ({
-  x: ITEM_UI_POSITION.x + slot * (ITEM_BUTTON_SIZE.width + ITEM_BUTTON_SIZE.gap),
-  y: ITEM_UI_POSITION.y,
-  width: ITEM_BUTTON_SIZE.width,
-  height: ITEM_BUTTON_SIZE.height,
-});
-
-// ページ切替UIの矩形。最後の枠の右に [前のページ][ページ表示][次のページ] を並べる。
-export const itemPageControlRects = (
-  pageSize: number = ITEM_PAGE_SIZE,
-): { readonly previous: ItemBarRect; readonly label: ItemBarRect; readonly next: ItemBarRect } => {
-  const { width, gap } = ITEM_PAGE_UI_SIZE;
-  const lastSlot = itemButtonRect(pageSize - 1);
-  const startX = lastSlot.x + lastSlot.width + ITEM_BUTTON_SIZE.gap;
-  const rectAt = (index: number): ItemBarRect => ({
-    x: startX + index * (width + gap),
-    y: ITEM_UI_POSITION.y,
-    width,
-    height: ITEM_BUTTON_SIZE.height,
-  });
-  return { previous: rectAt(0), label: rectAt(1), next: rectAt(2) };
-};

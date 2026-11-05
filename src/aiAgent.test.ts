@@ -6,8 +6,8 @@ import {
   aiAgentMaliciousRateModifiers,
   aiAgentSpawnIntervalMs,
   equipAiAgent,
-  formatAiAgentButton,
   formatAiAgentMessage,
+  formatAiAgentOption,
   getAiAgentMonthlyFee,
   getAiAgentPrice,
   isAiAgentType,
@@ -139,10 +139,10 @@ describe('getAiAgentPrice / getAiAgentMonthlyFee', () => {
     expect(getAiAgentMonthlyFee('cheap', 0.495 / PRICES.cheap)).toBe(0);
   });
 
-  it('ボタンの文言は月額（精算と同じ計算）', () => {
-    expect(formatAiAgentButton('V', 'strong')).toBe(`[V] 強い ${PRICES.strong / 10000}万/月`);
-    expect(formatAiAgentButton('N', 'cheap')).toBe(`[N] 安い ${PRICES.cheap / 10000}万/月`);
-    expect(formatAiAgentButton('B', 'normal', 0.5)).toBe(`[B] 普通 ${PRICES.normal / 2 / 10000}万/月`);
+  it('ポップオーバーのボタンの文言は月額（精算と同じ計算）で、キー名は出さない(#156)', () => {
+    expect(formatAiAgentOption('strong')).toBe(`AI 強い ${PRICES.strong / 10000}万/月`);
+    expect(formatAiAgentOption('cheap')).toBe(`AI 安い ${PRICES.cheap / 10000}万/月`);
+    expect(formatAiAgentOption('normal', 0.5)).toBe(`AI 普通 ${PRICES.normal / 2 / 10000}万/月`);
   });
 });
 
