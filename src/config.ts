@@ -480,6 +480,36 @@ export const SALARY_UI_POSITION = {
 } as const;
 export const SALARY_BUTTON_SIZE = { width: 80, height: 28, gap: 8 } as const;
 export const SALARY_BUTTON_FONT_SIZE = '14px';
+// 仮・要確認(#53): AIコーディングエージェント（強い・普通・安い）。企画書(8)は「エンジニアに付けて出力ペースを上げる」「普通は強いより、安いは最も不正なコードを混ぜやすい」
+// 「価格は高い・普通・安い」「月額」とだけで、具体的な数値・操作は未記載。以下はすべて仮の値。
+// 価格の段階（ITEM_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
+export const AI_AGENT_PRICE_TIER_BY_TYPE = { strong: 'expensive', normal: 'normal', cheap: 'cheap' } as const;
+// 仮・要確認(#53): 装着中のエンジニアが担当するルートのコード生成間隔に掛ける倍率。0.5 なら間隔が半分（出力ペース2倍）。
+// 企画書は3種とも「出力ペースを上げる」とだけで差の記載がないため、全種同じ値にする。0 以下・有限でない値は 1（効果なし）として扱う。
+export const AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE = { strong: 0.5, normal: 0.5, cheap: 0.5 } as const;
+// 仮・要確認(#53): 装着中のエンジニアの不正コード率に加える差分（0〜1 のパーセントポイント。0.05 で +5 ポイント）。
+// 強い=0（増えない）、普通=+5、安い=+10 ポイント（「強いより混ぜやすい」「最も混ぜやすい」の順）。[CODE_MALICIOUS_RATE_MIN, 1] への制限は effectiveMaliciousRate に任せる。
+export const AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE = { strong: 0, normal: 0.05, cheap: 0.1 } as const;
+// 仮・要確認(#53): 倍率を掛けた後のコード生成間隔の下限（ミリ秒）。倍率の調整で生成が速くなりすぎないようにする。
+export const CODE_SPAWN_INTERVAL_MIN_MS = 500;
+// 仮・要確認(#53): ボタン・メッセージ・選択中のエンジニアの情報行に使う短い名前。
+export const AI_AGENT_SHORT_NAMES = { strong: '強い', normal: '普通', cheap: '安い' } as const;
+// 仮・要確認(#53): 選択中のエンジニアの情報行で、AIエージェントを付けていないときの表示。
+export const AI_AGENT_NONE_LABEL = 'なし';
+// 仮・要確認(#53): AIエージェントを選択中のエンジニアに付けるキー（strong / normal / cheap）。Phaser の KeyCodes のキー名。
+// 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給(Q/E/R/F)・割合UI(Z/X)と重ならない。
+export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as const;
+// 仮・要確認(#53): AIエージェントのボタンの並び順（左から）。
+export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
+// 仮・要確認(#53): AIエージェントのボタンの配置。昇給・減給ボタン（y=238〜266）の下に間隔 4px をあけて並べる（y=270〜298、x=72〜416）。
+// 右端は昇給・減給ボタンと同じ 416 で、アイテムを置けないセル（行1〜4 × col 1〜6）に収まる。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+const AI_AGENT_UI_GAP_Y = 4;
+export const AI_AGENT_UI_POSITION = {
+  x: SALARY_UI_POSITION.x,
+  y: SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height + AI_AGENT_UI_GAP_Y,
+} as const;
+export const AI_AGENT_BUTTON_SIZE = { width: 112, height: 28, gap: 4 } as const;
+export const AI_AGENT_BUTTON_FONT_SIZE = '12px';
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
@@ -549,12 +579,22 @@ const salaryUiRight =
   SALARY_UI_POSITION.x +
   SALARY_BUTTON_ORDER.length * SALARY_BUTTON_SIZE.width +
   (SALARY_BUTTON_ORDER.length - 1) * SALARY_BUTTON_SIZE.gap;
+// 仮・要確認(#53): AIエージェントのボタン（y=270〜298、x=72〜416）も範囲の計算に含める（今の値では行1〜4 × col 1〜6 のまま）。
+const aiAgentUiRight =
+  AI_AGENT_UI_POSITION.x +
+  AI_AGENT_BUTTON_ORDER.length * AI_AGENT_BUTTON_SIZE.width +
+  (AI_AGENT_BUTTON_ORDER.length - 1) * AI_AGENT_BUTTON_SIZE.gap;
 const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
-const itemHudMaxCol = Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight) / CELL_SIZE) - 1;
+const itemHudMaxCol =
+  Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight, aiAgentUiRight) / CELL_SIZE) - 1;
 const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
 const itemHudMaxRow =
   Math.ceil(
-    Math.max(TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT, SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height) / CELL_SIZE,
+    Math.max(
+      TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT,
+      SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height,
+      AI_AGENT_UI_POSITION.y + AI_AGENT_BUTTON_SIZE.height,
+    ) / CELL_SIZE,
   ) - 1;
 export const ITEM_BLOCKED_CELLS = Array.from(
   { length: itemHudMaxRow - itemHudMinRow + 1 },

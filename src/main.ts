@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
+  AI_AGENT_BUY_KEYS,
   ATTACK_DAMAGE,
   ATTACK_KEYS,
   CAT_DELETE_INTERVAL_MS,
@@ -43,6 +44,7 @@ import {
   movePlayerToward,
 } from './player';
 import {
+  drawAiAgentButtons,
   drawAttackEffect,
   drawCode,
   drawDefeatEffect,
@@ -109,6 +111,14 @@ import type { NormalCodePenalizedPayload } from './penalty';
 import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
 import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
+import {
+  AI_AGENT_EQUIPPED_EVENT,
+  aiAgentMaliciousRateModifiers,
+  aiAgentSpawnIntervalMs,
+  equipAiAgent,
+  formatAiAgentMessage,
+} from './aiAgent';
+import type { AiAgentEquippedPayload, AiAgentType } from './aiAgent';
 import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { advanceTechDebtNeglect, MAJOR_OUTAGE_EVENT, settleMajorOutage } from './outage';
@@ -288,6 +298,7 @@ class MainScene extends Phaser.Scene {
       (direction) => this.selectEngineer(direction),
       (direction) => this.adjustSalary(direction),
     );
+    drawAiAgentButtons(this, (agentType) => this.buyAiAgent(agentType));
     const itemState = createItemState();
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;
@@ -314,6 +325,9 @@ class MainScene extends Phaser.Scene {
       keyboard.addKey(SALARY_SELECT_KEYS.next).on('down', () => this.selectEngineer('next'));
       keyboard.addKey(SALARY_ADJUST_KEYS.raise).on('down', () => this.adjustSalary('raise'));
       keyboard.addKey(SALARY_ADJUST_KEYS.cut).on('down', () => this.adjustSalary('cut'));
+      keyboard.addKey(AI_AGENT_BUY_KEYS.strong).on('down', () => this.buyAiAgent('strong'));
+      keyboard.addKey(AI_AGENT_BUY_KEYS.normal).on('down', () => this.buyAiAgent('normal'));
+      keyboard.addKey(AI_AGENT_BUY_KEYS.cheap).on('down', () => this.buyAiAgent('cheap'));
       ITEM_BUY_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
       );
@@ -567,6 +581,35 @@ class MainScene extends Phaser.Scene {
     this.refreshSelectedEngineer();
   }
 
+  // 仮・要確認(#53): 選択中のエンジニアに AIエージェントを付ける（付けていれば付け替える。前の種類の返金はしない）。ゲームオーバー中は何もしない。
+  // 費用は changeFunds を通して引く（倒産判定もここで動く）。月額は次の月次精算（onMonthElapsed → settleMonthBoundary）から引く。
+  // メッセージは昇給・減給と同じく雇用メッセージの場所に出し、直前の雇用・給与メッセージは消す。
+  private buyAiAgent(agentType: AiAgentType): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const engineerId = this.findSelectedEngineer()?.id ?? null;
+    const result = equipAiAgent(this.engineers, engineerId, agentType, {
+      funds: this.funds,
+      gameOver: this.gameOver.over,
+    });
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatAiAgentMessage(result, agentType));
+    if (!result.ok || engineerId === null) {
+      return;
+    }
+    this.engineers = [...result.engineers];
+    this.changeFunds(result.fundsAfter, 'aiAgent');
+    this.refreshSelectedEngineer();
+    const payload: AiAgentEquippedPayload = {
+      engineerId,
+      agentType,
+      price: result.price,
+      replaced: result.replaced,
+    };
+    this.events.emit(AI_AGENT_EQUIPPED_EVENT, payload);
+  }
+
   // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
   private buyItem(itemType: ItemType): void {
     const player = this.player;
@@ -704,7 +747,7 @@ class MainScene extends Phaser.Scene {
     code.graphics.destroy();
   }
 
-  // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
+  // 月の境界ごとに給料、続けて月額アイテムの費用（エンジニアに付けた AIエージェント(#53)の月額を含む）を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
   // 給料の対象は this.engineers の全員（ルート未割当・休暇中も含む）(#37)。休暇などの状態で this.engineers を絞ってから渡さない。
   private onMonthElapsed(event: MonthElapsedEvent): void {
     const { salary, itemFee } = settleMonthBoundary(
@@ -713,6 +756,7 @@ class MainScene extends Phaser.Scene {
       getEngineerSalaries(this.engineers),
       this.placedItems,
       this.gameOver.over,
+      this.engineers,
     );
     this.changeFunds(salary.fundsAfter, 'salary');
     this.events.emit(SALARY_PAID_EVENT, salary);
@@ -852,17 +896,19 @@ class MainScene extends Phaser.Scene {
   // #45 技術的負債（プロダクト全体の増加。techDebtMaliciousRateModifier。負債 0 では差分 0 を加える）。
   // 負債はコード生成のたびに this.techDebt から計算する。同じフレームのリリースで負債が変わった場合は、次回の updateCodes の生成から反映される。
   // #41 リファクタリング（プロダクト全体の減少。refactoringMaliciousRateModifier）。
+  // #53 AIエージェント（担当エンジニア単位の増加。aiAgentMaliciousRateModifiers）。末尾に加える。
   // 今後の補正はこの配列に差分を追加して合成する。
   private maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[] {
     return [
       ...vacationMaliciousRateModifiers(engineer),
       techDebtMaliciousRateModifier(this.techDebt),
       refactoringMaliciousRateModifier(this.refactoringRatio),
+      ...aiAgentMaliciousRateModifiers(engineer),
     ];
   }
 
   private updateCodes(delta: number): void {
-    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートに同じ間隔を使う。
+    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートの基準の間隔にする（AIエージェントの倍率はルートごとに掛ける）。
     // フレーム内（リリース精算など）で負債が変わっても、反映は次のフレームから。
     // 新規ルートの初期値にも同じ間隔を渡し、負債があっても最初の更新ですぐ1個生成されるようにする（既存の挙動を維持）。
     const spawnIntervalMs = techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS);
@@ -870,11 +916,12 @@ class MainScene extends Phaser.Scene {
       // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
       const engineer = findEngineerByRoute(this.engineers, route.id);
       // 担当者の休暇中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
-      // 生成間隔は技術的負債で延びた実効間隔(#44)を使う。
+      // 生成間隔は技術的負債で延びた実効間隔(#44)に、担当者の AIエージェント(#53)の倍率を掛けた値を使う（ルートごと）。
+      const routeSpawnIntervalMs = aiAgentSpawnIntervalMs(engineer, spawnIntervalMs);
       const step = stepSpawnTimerUnlessPaused(
-        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(spawnIntervalMs),
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(routeSpawnIntervalMs),
         delta,
-        spawnIntervalMs,
+        routeSpawnIntervalMs,
         isAssigneeOnVacation(engineer),
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);

@@ -72,6 +72,7 @@ const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null, at
   vacationRateReduction: 0,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
   initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
+  aiAgent: null,
   ...createEngineerParameters(rank, 'meticulous'),
   ...(attachment === undefined ? {} : { attachment }),
 });
