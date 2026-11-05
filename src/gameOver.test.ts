@@ -1,10 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import {
-  GAME_OVER_RESTART_DELAY_MS,
-  GAME_OVER_RESTART_TEXT,
-  GAME_OVER_TEXT,
-  INITIAL_FUNDS,
-} from './config';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
+import { GAME_OVER_RESTART_DELAY_MS, INITIAL_FUNDS } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
   buildGameOverLines,
@@ -154,10 +150,10 @@ describe('buildGameOverLines（行の文言）', () => {
   it('タイトル→スコア→経過日数→案内の順で並ぶ', () => {
     const lines = buildGameOverLines(20000, 12);
     expect(lines.map((line) => line.text)).toEqual([
-      GAME_OVER_TEXT,
+      '倒産しました',
       'スコア: 20,000円',
       '経過日数: 12日',
-      GAME_OVER_RESTART_TEXT,
+      'タップ / クリック / Enter でもう一度',
     ]);
   });
 });
@@ -189,5 +185,53 @@ describe('buildGameOverLines（レイアウト）', () => {
 
   it.each([0, 1, 2])('行%i と次の行は縦に重ならない', (index) => {
     expect(rectOf(worstCase[index]).bottom).toBeLessThanOrEqual(rectOf(worstCase[index + 1]).top);
+  });
+});
+
+describe('buildGameOverLines（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('タイトル→スコア→経過日数→案内の4行を英語で並べる', () => {
+    expect(buildGameOverLines(20000, 12).map((line) => line.text)).toEqual([
+      'You went bankrupt',
+      'Score: ¥20,000',
+      'Days elapsed: 12',
+      'Tap / Click / Enter to play again',
+    ]);
+  });
+
+  it.each([
+    [0, 'Score: ¥0'],
+    [999, 'Score: ¥999'],
+    [1000, 'Score: ¥1,000'],
+    [Number.MAX_SAFE_INTEGER, 'Score: ¥9,007,199,254,740,991'],
+  ])('スコア %i → %s', (score, expected) => {
+    expect(buildGameOverLines(score, 0)[1].text).toBe(expected);
+  });
+
+  it.each([
+    [0, 'Days elapsed: 0'],
+    [1, 'Days elapsed: 1'],
+    [123456, 'Days elapsed: 123456'],
+  ])('経過日数 %i → %s', (days, expected) => {
+    expect(buildGameOverLines(0, days)[2].text).toBe(expected);
+  });
+
+  it('最長の行も画面内に収まり、隣の行と縦に重ならない（全角相当の過大見積もり）', () => {
+    const lines = buildGameOverLines(Number.MAX_SAFE_INTEGER, 999999);
+    expect(lines).toHaveLength(4);
+    for (const line of lines) {
+      expect(line.text.length * line.fontSize).toBeLessThanOrEqual(FIELD_WIDTH);
+    }
+    for (let index = 0; index < lines.length - 1; index++) {
+      const bottom = lines[index].y + (lines[index].fontSize * 1.25) / 2;
+      const nextTop = lines[index + 1].y - (lines[index + 1].fontSize * 1.25) / 2;
+      expect(bottom).toBeLessThanOrEqual(nextTop);
+    }
   });
 });

@@ -260,9 +260,7 @@ export const TECH_DEBT_POSITION = { x: HUD_LEFT_X, y: HUD_TOP_Y + HUD_ROW_HEIGHT
 
 // 仮・要確認: 企画書に記載なし。「資金がなくなったら」を残高ちょうど 0 も倒産とするか。false なら 0 未満のみ倒産。
 export const BANKRUPT_INCLUDES_ZERO = true;
-// 仮・要確認: 企画書に記載なし。ゲームオーバー画面の文言。案内はタッチ端末でも読める文言にしている。
-export const GAME_OVER_TEXT = '倒産しました';
-export const GAME_OVER_RESTART_TEXT = 'タップ / クリック / Enter でもう一度';
+// 仮・要確認: 企画書に記載なし。ゲームオーバー画面の文言は言語カタログ（src/i18n/locales/ の gameOver）に置く(#158)。
 // 仮・要確認: 企画書に記載なし。ゲームオーバー中のリスタートキー（Phaser の KeyCodes のキー名）。
 // Space は攻撃キーと同じだが、ゲームオーバー中は攻撃しないのでリスタートに使う。
 export const GAME_OVER_RESTART_KEYS = ['ENTER', 'SPACE'] as const;
@@ -313,8 +311,7 @@ export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
 export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
 
 // 仮・要確認(#22): 企画書は「スコアは倒産までの累計売上」とだけで、表示の書式・位置は未記載。
-// ゲームオーバー画面のスコア表示書式。「スコア: 20,000円」。数値部分は3桁区切り。
-export const SCORE_FORMAT = { prefix: 'スコア: ', suffix: '円' } as const;
+// ゲームオーバー画面のスコア表示書式「スコア: 20,000円」は言語カタログ（gameOver.score）に置く(#158)。
 
 // 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコアは累計売上で減らさない方針のため、減点は資金から引く。
 export const NORMAL_CODE_PENALTY_TARGET = 'funds' as const;
