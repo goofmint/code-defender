@@ -22,6 +22,7 @@ import {
   createRoute,
   createRoutes,
   nextSpawnCell,
+  removeRoute,
   routePixelPoints,
   SPAWN_MARKER_STYLE,
 } from './route';
@@ -371,5 +372,66 @@ describe('addRoute', () => {
   ])('ルートが%i本のとき追加できるか: %s（8人目・9人目・10人目）', (count, canAdd) => {
     const routes = routesAtRows(allRows.slice(0, count), alwaysMin);
     expect(addRoute(routes, alwaysMin) !== undefined).toBe(canAdd);
+  });
+});
+
+describe('removeRoute（退職でルートが消える #32）', () => {
+  const initial = (): Route[] => createRoutes(ENGINEER_SPAWN_CELLS, seededRandom(1));
+
+  it.each([
+    ['先頭', 0, [1, 2]],
+    ['中間', 1, [0, 2]],
+    ['最大 id', 2, [0, 1]],
+  ])('%sのルートを消すと残りの id は %j', (_label, routeId, expected) => {
+    expect(removeRoute(initial(), routeId).map((route) => route.id)).toEqual(expected);
+  });
+
+  it('存在しない id なら例外を投げず、同じ内容の新しい配列を返す', () => {
+    const routes = initial();
+    const result = removeRoute(routes, 99);
+    expect(result).toEqual(routes);
+    expect(result).not.toBe(routes);
+  });
+
+  it('空配列なら空配列', () => {
+    expect(removeRoute([], 0)).toEqual([]);
+  });
+
+  it('最後の1本を消すと空になる', () => {
+    expect(removeRoute([createRoute(4, spawnAt(0), RELEASE_POINT_CELL, alwaysMin)], 4)).toEqual([]);
+  });
+
+  it('入力の配列と残るルートを変更せず、残るルートは同じ参照のまま（作り直さない）', () => {
+    const routes = initial();
+    const before = [...routes];
+    const snapshot = structuredClone(routes);
+    const result = removeRoute(routes, 1);
+    expect(routes).toEqual(snapshot);
+    routes.forEach((route, i) => expect(route).toBe(before[i]));
+    expect(result[0]).toBe(routes[0]);
+    expect(result[1]).toBe(routes[2]);
+  });
+
+  it('最大 id のルートを消したあとに追加すると、同じ id と出現場所が再び使われる', () => {
+    const routes = initial();
+    const added = addRoute(routes, alwaysMin);
+    expect(added).toBeDefined();
+    if (added === undefined) return;
+    const removed = removeRoute([...routes, added], added.id);
+    const again = addRoute(removed, alwaysMin);
+    expect(again?.id).toBe(added.id);
+    expect(again?.spawn).toEqual(added.spawn);
+  });
+
+  it('中間のルートを消したあとに追加すると、id は残りの最大 id + 1', () => {
+    const removed = removeRoute(initial(), 1);
+    expect(addRoute(removed, alwaysMin)?.id).toBe(3);
+  });
+
+  it('中間のルートを消すと、その出現場所が次の追加で空きとして使われる', () => {
+    // 初期の出現行は 1・4・7。行0 は空いているので先に使われ、消した行4 はその後の空きとして残る。
+    const removed = removeRoute(initial(), 1);
+    expect(nextSpawnCell(removed.map((route) => route.spawn))).toEqual(spawnAt(0));
+    expect(removed.map((route) => route.spawn)).not.toContainEqual(ENGINEER_SPAWN_CELLS[1]);
   });
 });
