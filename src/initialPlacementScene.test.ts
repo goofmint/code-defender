@@ -340,21 +340,21 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'そこには置けません');
   });
 
-  it('置いたアイテムのフットプリント内なら、セルの中心でなくても・別のセルでも撤去する。フットプリントの右端ちょうどは置く判定になる(#151)', () => {
+  it('置いたアイテムのフットプリント（セルと同じ 16px #154）内なら、セルの中心でなくても撤去する。フットプリントの右端ちょうど（隣のセル）は撤去せず新しく置く', () => {
     const { scene, pointerDown } = createHarness();
     const [cell] = placeableCells(scene.routes, 1);
     pointerDown(centerOf(cell));
     expect(scene.initialPlacement.itemState.placedItems).toHaveLength(1);
     const { x, y, width, height } = itemFootprint(cell);
-    // 右下の角の 0.01px 内側（セルは cell の 2 つ右・2 つ下）を押すと撤去する。
+    // 右下の角の 0.01px 内側（同じセルの中心ではない点）を押すと撤去する。
     pointerDown({ x: x + width - 0.01, y: y + height - 0.01 });
     expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
     expect(scene.initialPlacement.points).toBe(STAGE_POINTS_INITIAL);
-    // 置き直してから右端ちょうど（フットプリントの外）を押すと、撤去ではなく置く判定（重なるので occupied）になる。
+    // 置き直してから右端ちょうど（フットプリントの外 = 右隣のセル）を押すと、撤去ではなく右隣に新しく置く（辺が接するだけなので重ならない）。
     pointerDown(centerOf(cell));
     pointerDown({ x: x + width, y });
-    expect(scene.initialPlacement.itemState.placedItems).toHaveLength(1);
-    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'そこには置けません');
+    const neighbour: GridCell = { col: cell.col + 1, row: cell.row };
+    expect(scene.initialPlacement.itemState.placedItems.map((item) => item.cell)).toEqual([cell, neighbour]);
   });
 
   it('購入キーは setup の間は現在のページの種類を選ぶだけで、買わない。ページ切り替え(#58)は setup の間も動く', () => {

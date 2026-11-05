@@ -689,7 +689,7 @@ export const ITEM_HUD_BOUNDS = {
       VACATION_HINT_POSITION.y + VACATION_HINT_HEIGHT,
     ) - ELAPSED_DAYS_POSITION.y,
 } as const;
-// 仮・要確認(#48, #151): アイテムを置けない範囲（ピクセル矩形）。アイテムのフットプリント（ITEM_BOX_SIZE の正方形）が 1px でも重なると置けない
+// 仮・要確認(#48, #151): アイテムを置けない範囲（ピクセル矩形）。アイテムのフットプリント（ITEM_BOX_SIZE = 16px の正方形）が 1px でも重なると置けない
 // （辺や角が接するだけなら置ける）。上帯（行0: 雇うボタン・割合UI・エンジニア数）と下帯（最終行: アイテム購入ボタン）はルートグリッドの行の高さ（CELL_SIZE）のまま。
 export const ITEM_BLOCKED_RECTS = [
   { x: 0, y: 0, width: CELL_SIZE * FIELD_COLS, height: CELL_SIZE },
@@ -760,9 +760,11 @@ export const TEST_TOOL_HOLD_MS = 500;
 // 正常なコードも消して売上を減らすため、攻撃間隔(ITEM_ATTACK_COOLDOWN_MS)より長くする。置いた直後は待たずに消せる。
 export const CAT_DELETE_INTERVAL_MS = 5000;
 // 仮・要確認(#48): アイテムの見た目。色付き四角（ルートグリッドのセル CELL_SIZE に対する比率）と文字。色は種類ごと。
-export const ITEM_BOX_RATIO = 0.6;
-// 仮・要確認(#151): アイテムの四角の一辺（36px）。描画と、配置判定のフットプリント（置けるか・重なるかを判定する正方形）で共有する。
-export const ITEM_BOX_SIZE = CELL_SIZE * ITEM_BOX_RATIO;
+// 仮・要確認(#154): アイテムの四角が占める配置グリッドのマス数（一辺）。配置グリッドを 16px にした(#151)のに四角が 36px のままでは細かい配置の意味がないため、1マスにする。
+export const ITEM_BOX_CELLS = 1;
+// 仮・要確認(#151, #154): アイテムの四角の一辺（16px = 配置グリッド 1マス）。描画と、配置判定のフットプリント（置けるか・重なるかを判定する正方形）で共有する。
+// フットプリントは辺や角が接するだけなら重ならない扱いなので、隣のマス（辺・角）にもアイテムを置ける。
+export const ITEM_BOX_SIZE = PLACEMENT_CELL_SIZE * ITEM_BOX_CELLS;
 export const ITEM_COLORS = {
   codeRabbit: 0xff8a3d,
   linter: 0x4db6ac,
@@ -784,7 +786,10 @@ export const ITEM_COLORS = {
   worksFine: 0x9ccc65,
   seniorNote: 0xbcaaa4,
 } as const;
-export const ITEM_MARK_STYLE = { fontSize: '14px', color: '#ffffff', strokeColor: '#000000', strokeThickness: 3 } as const;
+// 仮・要確認(#154): 四角が 16px になったため、文字は 8px・黒縁は 1px に縮める（実際の読みやすさは目視で確認する）。
+export const ITEM_MARK_STYLE = { fontSize: '8px', color: '#ffffff', strokeColor: '#000000', strokeThickness: 1 } as const;
+// 仮・要確認(#154): アイテムの四角の縁取り。16px の四角に対して 2px は太いため 1px にする。
+export const ITEM_BOX_STROKE = { width: 1, color: 0xffffff } as const;
 // 仮・要確認(#48): アイテムの攻撃演出（アイテムから対象への線）の色・太さ・表示時間（ミリ秒）。
 export const ITEM_ATTACK_LINE = { color: 0xffffff, width: 3, durationMs: 150 } as const;
 // 仮・要確認(#48): 購入ボタンの配置。画面下端の行（アイテムを置けない行）に横に並べる。
