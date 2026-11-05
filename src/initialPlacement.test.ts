@@ -42,9 +42,9 @@ const route: Route = {
   ],
 };
 const context = { routes: [route] };
-// 置けるセル。中心 (488, 136)・フットプリント x=470〜506 / y=118〜154 で、HUD（x≦416）・ルート（y≧202）・上帯（y<60）に重ならない。
+// 置けるセル。中心 (488, 136)・フットプリント x=480〜496 / y=128〜144（16px #154）で、HUD（x≦416）・ルート（y≧202）・上帯（y<60）に重ならない。
 const free: GridCell = { col: 30, row: 8 };
-// free の 3 セル右（x=518〜554。フットプリントは 12px 空く）と、さらに 3 セル右。
+// free の 3 セル右（x=528〜544。フットプリントは 32px 空く）と、さらに 3 セル右。
 const besideFree: GridCell = { col: free.col + 3, row: free.row };
 const farFromFree: GridCell = { col: free.col + 6, row: free.row };
 // ルートの線上（行3の線 y=210 の上、中心 y=216）・出現場所・リリース地点を含むセル。
@@ -144,7 +144,7 @@ describe('placeInitialItem: ポイントの境界値', () => {
   it('初期ポイントを使い切るまで置け、使い切ると置けない', () => {
     let state = createInitialPlacementState();
     const count = Math.floor(STAGE_POINTS_INITIAL / linterCost);
-    // フットプリント（36px）が重ならないよう 3 セル（48px）ずつ右へずらす。
+    // フットプリント（16px）が重ならないよう 3 セル（48px）ずつ右へずらす。
     for (let i = 0; i < count; i++) {
       state = placeOrThrow(state, 'linter', { col: free.col + 3 * i, row: free.row });
     }
@@ -164,13 +164,13 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
   };
 
   it('フットプリントがフィールドに収まる端のセルは置け、はみ出すセルは notPlaceable', () => {
-    expect(reasonAt({ col: 1, row: 20 })).toBe('ok'); // x=6〜42
-    expect(reasonAt({ col: 0, row: 20 })).toBe('notPlaceable'); // x=-2〜34
-    expect(reasonAt({ col: 58, row: 8 })).toBe('ok'); // x=910〜946
-    expect(reasonAt({ col: PLACEMENT_COLS - 1, row: 8 })).toBe('notPlaceable'); // x=926〜962
-    expect(reasonAt({ col: 27, row: 5 })).toBe('ok'); // y=70〜106（上帯の直下）
-    expect(reasonAt({ col: 27, row: 28 })).toBe('ok'); // y=438〜474（下帯の直上）
-    expect(reasonAt({ col: 27, row: PLACEMENT_ROWS - 1 })).toBe('notPlaceable'); // y=518〜554
+    expect(reasonAt({ col: 0, row: 20 })).toBe('ok'); // x=0〜16（左端に接する）
+    expect(reasonAt({ col: -1, row: 20 })).toBe('notPlaceable'); // x=-16〜0
+    expect(reasonAt({ col: PLACEMENT_COLS - 1, row: 8 })).toBe('ok'); // x=944〜960（右端に接する）
+    expect(reasonAt({ col: PLACEMENT_COLS, row: 8 })).toBe('notPlaceable'); // x=960〜976
+    expect(reasonAt({ col: 27, row: 4 })).toBe('ok'); // y=64〜80（上帯の直下）
+    expect(reasonAt({ col: 27, row: 29 })).toBe('ok'); // y=464〜480（下帯の直上）
+    expect(reasonAt({ col: 27, row: PLACEMENT_ROWS - 1 })).toBe('notPlaceable'); // y=528〜544（12px の最終行。下へはみ出す）
   });
 
   it('範囲外（負・列数・行数ちょうど）は notPlaceable', () => {
@@ -188,10 +188,10 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
   });
 
   it('上帯（y<60）・下帯（y≧480）に 1px でも重なると notPlaceable、接するだけなら置ける', () => {
-    expect(reasonAt({ col: 27, row: 4 })).toBe('notPlaceable'); // y=54〜90
-    expect(reasonAt({ col: 27, row: 5 })).toBe('ok'); // y=70〜106
-    expect(reasonAt({ col: 27, row: 29 })).toBe('notPlaceable'); // y=454〜490
-    expect(reasonAt({ col: 27, row: 28 })).toBe('ok'); // y=438〜474
+    expect(reasonAt({ col: 27, row: 3 })).toBe('notPlaceable'); // y=48〜64（上帯に 4px 重なる）
+    expect(reasonAt({ col: 27, row: 4 })).toBe('ok'); // y=64〜80
+    expect(reasonAt({ col: 27, row: 30 })).toBe('notPlaceable'); // y=480〜496（下帯の次のセル）
+    expect(reasonAt({ col: 27, row: 29 })).toBe('ok'); // y=464〜480（下帯に辺が接する）
   });
 
   it('ルートの線・出現場所・リリース地点に重なると notPlaceable、クリアランスの外は置ける', () => {
@@ -199,19 +199,25 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
     expect(reasonAt({ col: 28, row: 20 })).toBe('notPlaceable'); // 行5の線（y=330）の上
     expect(reasonAt(spawnCell)).toBe('notPlaceable');
     expect(reasonAt(releaseCell)).toBe('notPlaceable');
-    expect(reasonAt({ col: 28, row: 18 })).toBe('ok'); // 下端 y=314、行5の線のクリアランス（y≧322）の上
-    expect(reasonAt({ col: 28, row: 21 })).toBe('notPlaceable'); // 上端 y=326、クリアランス（y≦338）に重なる
-    expect(reasonAt({ col: 28, row: 22 })).toBe('ok'); // 上端 y=342、クリアランスの下
-    expect(reasonAt({ col: 54, row: 16 })).toBe('ok'); // 右端 x=890、リリース地点の円（半径 28）の左
+    expect(reasonAt({ col: 28, row: 18 })).toBe('ok'); // 下端 y=304、行5の線のクリアランス（y≧322）の上
+    expect(reasonAt({ col: 28, row: 21 })).toBe('notPlaceable'); // 上端 y=336、クリアランス（y≦338）に 2px 重なる
+    expect(reasonAt({ col: 28, row: 22 })).toBe('ok'); // 上端 y=352、クリアランスの下
+    expect(reasonAt({ col: 55, row: 16 })).toBe('ok'); // 右端 x=896、リリース地点の円（半径 28。左端 x=902）の左
+    expect(reasonAt({ col: 56, row: 16 })).toBe('notPlaceable'); // 右端 x=912、円に重なる
     expect(reasonAt({ col: 1, row: 20 })).toBe('ok'); // 出現列でもルートが無い位置
   });
 
   it('HUD の矩形（ITEM_HUD_BOUNDS: x=72〜416、y=80〜362。下端は休暇の案内文 #150）に重なると notPlaceable、その外は置ける', () => {
-    expect(reasonAt({ col: 26, row: 10 })).toBe('notPlaceable'); // x=406〜442
-    expect(reasonAt({ col: 27, row: 10 })).toBe('ok'); // x=422〜458
-    expect(reasonAt({ col: 10, row: 19 })).toBe('notPlaceable'); // y=294〜330（休暇の案内文に重なる）
-    expect(reasonAt({ col: 10, row: 23 })).toBe('notPlaceable'); // y=358〜394
-    expect(reasonAt({ col: 10, row: 24 })).toBe('ok'); // y=374〜410
+    expect(reasonAt({ col: 25, row: 10 })).toBe('notPlaceable'); // x=400〜416（HUD に重なる）
+    expect(reasonAt({ col: 26, row: 10 })).toBe('ok'); // x=416〜432（HUD の右端に辺が接する）
+    expect(reasonAt({ col: 27, row: 10 })).toBe('ok'); // x=432〜448
+    expect(reasonAt({ col: 4, row: 10 })).toBe('notPlaceable'); // x=64〜80（HUD の左端 72 に重なる）
+    expect(reasonAt({ col: 3, row: 10 })).toBe('ok'); // x=48〜64
+    expect(reasonAt({ col: 10, row: 4 })).toBe('ok'); // y=64〜80（HUD の上端に辺が接する）
+    expect(reasonAt({ col: 10, row: 5 })).toBe('notPlaceable'); // y=80〜96
+    expect(reasonAt({ col: 10, row: 19 })).toBe('notPlaceable'); // y=304〜320（休暇の案内文に重なる）
+    expect(reasonAt({ col: 10, row: 22 })).toBe('notPlaceable'); // y=352〜368（HUD の下端 362 に重なる）
+    expect(reasonAt({ col: 10, row: 23 })).toBe('ok'); // y=368〜384
   });
 
   it('blockedRects に初期配置UIの範囲を足すと、その中は notPlaceable、左隣と下隣は置ける。プレイ中の既定では置ける', () => {
@@ -221,13 +227,13 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
       return result.ok ? 'ok' : result.reason;
     };
     // 初期配置UIの範囲は x=668〜952、y=68〜208。
-    const inside: GridCell = { col: 45, row: 8 }; // x=710〜746、y=118〜154
+    const inside: GridCell = { col: 45, row: 8 }; // x=720〜736、y=128〜144
     expect(reasonInSetup(inside)).toBe('notPlaceable');
     expect(reasonAt(inside)).toBe('ok');
-    expect(reasonInSetup({ col: 41, row: 8 })).toBe('notPlaceable'); // 右端 x=682
-    expect(reasonInSetup({ col: 40, row: 8 })).toBe('ok'); // 右端 x=666
-    expect(reasonInSetup({ col: 45, row: 13 })).toBe('notPlaceable'); // 上端 y=198
-    expect(reasonInSetup({ col: 45, row: 14 })).toBe('ok'); // 上端 y=214
+    expect(reasonInSetup({ col: 41, row: 8 })).toBe('notPlaceable'); // 右端 x=672（左端 668 に 4px 重なる）
+    expect(reasonInSetup({ col: 40, row: 8 })).toBe('ok'); // 右端 x=656（12px 空く）
+    expect(reasonInSetup({ col: 45, row: 12 })).toBe('notPlaceable'); // 下端 y=208（範囲の中）
+    expect(reasonInSetup({ col: 45, row: 13 })).toBe('ok'); // 上端 y=208（下端 y=208 に辺が接する）
   });
 });
 
@@ -245,19 +251,15 @@ describe('placeInitialItem: 置かないアイテム（placement: none #58）', 
 });
 
 describe('placeInitialItem: 占有と判定順', () => {
-  it('置いたセルに2個目は occupied。フットプリントが重なる 2 セル隣も occupied、重ならない 3 セル隣は置ける', () => {
+  it('置いたセルに2個目は occupied。辺が接する隣・角が接する斜め隣・2 セル隣は置ける（16px #154）', () => {
     const state = placeOrThrow(createInitialPlacementState(), 'linter', free);
     expect(placeInitialItem(state, 'testTool', free, context)).toEqual({ ok: false, reason: 'occupied' });
-    expect(placeInitialItem(state, 'linter', { col: free.col + 2, row: free.row }, context)).toEqual({
-      ok: false,
-      reason: 'occupied',
-    });
-    expect(placeInitialItem(state, 'linter', { col: free.col, row: free.row + 2 }, context)).toEqual({
-      ok: false,
-      reason: 'occupied',
-    });
+    expect(placeInitialItem(state, 'linter', { col: free.col + 1, row: free.row }, context).ok).toBe(true); // 右隣（辺が接する）
+    expect(placeInitialItem(state, 'linter', { col: free.col, row: free.row + 1 }, context).ok).toBe(true); // 下隣
+    expect(placeInitialItem(state, 'linter', { col: free.col + 1, row: free.row + 1 }, context).ok).toBe(true); // 右下（角が接する）
+    expect(placeInitialItem(state, 'linter', { col: free.col - 1, row: free.row - 1 }, context).ok).toBe(true); // 左上
+    expect(placeInitialItem(state, 'linter', { col: free.col + 2, row: free.row }, context).ok).toBe(true); // 2 セル隣（16px 空く）
     expect(placeInitialItem(state, 'linter', besideFree, context).ok).toBe(true);
-    expect(placeInitialItem(state, 'linter', { col: free.col, row: free.row + 3 }, context).ok).toBe(true);
   });
 
   it('初期配置では主人公についてまわるアイテム（ペアプロ相棒 #58）も占有する', () => {
@@ -338,11 +340,21 @@ describe('removeInitialItem: 撤去と全額返却（押した点がフットプ
     expect(removeInitialItem(state, { x: x + width - 0.01, y: y + height }).ok).toBe(false);
   });
 
-  it('セルの中心でなくてもフットプリント内なら撤去し、別のセルを押しても同じアイテムが対象になる', () => {
+  it('同じセル内の中心ではない点を押しても撤去する（フットプリントがセルと一致 #154）', () => {
     const state = placeOrThrow(createInitialPlacementState(), 'linter', free);
-    // free の 1 セル右の中心（x=504）はフットプリント（x=470〜506）の中。
-    const removal = removeInitialItem(state, placementCellCenter({ col: free.col + 1, row: free.row }));
+    const { x, y } = itemFootprint(free);
+    // 中心 (488, 136) ではなく、セルの左上寄り (x+1, y+1) と右下寄り (x+15, y+15)。
+    expect(removeInitialItem(state, { x: x + 1, y: y + 1 }).ok).toBe(true);
+    const removal = removeInitialItem(state, { x: x + 15, y: y + 15 });
     expect(removal.ok && removal.item.cell).toEqual(free);
+  });
+
+  it('隣のセルを押すと撤去せず、そのセルに新しく置ける（隣のセルはフットプリントの外 #154）', () => {
+    const state = placeOrThrow(createInitialPlacementState(), 'linter', free);
+    const neighbour: GridCell = { col: free.col + 1, row: free.row };
+    expect(removeInitialItem(state, placementCellCenter(neighbour))).toEqual({ ok: false, reason: 'notFound' });
+    const placedNext = placeInitialItem(state, 'testTool', neighbour, context);
+    expect(placedNext.ok && placedNext.state.itemState.placedItems).toHaveLength(2);
   });
 
   it('撤去したセルに置き直せる。id は再利用せず続きの番号になる', () => {

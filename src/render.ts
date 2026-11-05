@@ -107,6 +107,7 @@ import type { PlayerFacing } from './player';
 import {
   ITEM_ATTACK_LINE,
   ITEM_BOX_SIZE,
+  ITEM_BOX_STROKE,
   ITEM_BUTTON_COLORS,
   ITEM_BUTTON_FILL_ALPHA,
   ITEM_BUTTON_FONT_SIZE,
@@ -1036,7 +1037,7 @@ const ITEM_DEPTH = 0.4;
 export const drawPlacedItem = (scene: Phaser.Scene, item: PlacedItem): Phaser.GameObjects.Container => {
   const { x, y } = placementCellCenter(item.cell);
   const size = ITEM_BOX_SIZE;
-  const box = scene.add.rectangle(0, 0, size, size, ITEM_COLORS[item.itemType]).setStrokeStyle(2, 0xffffff);
+  const box = scene.add.rectangle(0, 0, size, size, ITEM_COLORS[item.itemType]).setStrokeStyle(ITEM_BOX_STROKE.width, ITEM_BOX_STROKE.color);
   const mark = scene.add
     .text(0, 0, ITEM_MARKS[item.itemType], {
       fontSize: ITEM_MARK_STYLE.fontSize,
