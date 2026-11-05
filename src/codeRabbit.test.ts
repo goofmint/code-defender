@@ -147,6 +147,7 @@ const makeJunior = (id: number): Engineer => ({
   vacationRateReduction: 0,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK.junior,
   initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK.junior,
+  aiAgent: null,
   ...createEngineerParameters('junior', 'meticulous'),
 });
 

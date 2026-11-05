@@ -191,6 +191,16 @@ export const TECH_DEBT_REPAY_PER_REFACTORING_WORK = 20;
 // 0.2 なら作業1単位で 0.8×10 溜まり 0.2×20 返すので、正味 +4。リファクタリング 1/3 で増減 0 になる。
 // 売上の基準配分でもある（#42）。この割合のとき正常コード1件の売上は REVENUE_PER_NORMAL_CODE ちょうど（倍率 1）。
 export const DEFAULT_REFACTORING_RATIO = 0.2;
+// 仮・要確認(#45): 技術的負債が TECH_DEBT_MAX のときに不正コード率へ加える量（0〜1 のパーセントポイントの差分。0.2 で +20 ポイント）。
+// 倍率ではなく割合への加算差分。負債 0 で 0、TECH_DEBT_MAX でこの値になるよう負債に比例させる（techDebt.ts の techDebtMaliciousRateModifier）。
+// 企画書(7)「技術的負債が増えると、不具合率（不正コード率）が徐々に増えていく」(docs/game_plan.md) に対応する。関数形（線形）と数値は企画書に記載がなく叩き台。
+// 補正後の割合は [CODE_MALICIOUS_RATE_MIN, 1] に収める（difficulty.ts の effectiveMaliciousRate）。
+export const TECH_DEBT_MALICIOUS_RATE_MAX_BONUS = 0.2;
+// 仮・要確認(#41): リファクタリングの割合 1（すべてリファクタリング）のときに不正コード率を下げる最大量
+// （0〜1 のパーセントポイントの差分。0.2 で -20 ポイント）。割合 r のときの差分は −r × この値（techDebt.ts の refactoringMaliciousRateModifier）。
+// 企画書(7)「リファクタリングを強化するとプロダクトの品質は良くなる」(docs/game_plan.md) に対応する。数値は企画書に記載がなく叩き台。0 以上 1 以下にする。
+// 補正後の割合の下限 CODE_MALICIOUS_RATE_MIN は difficulty.ts の effectiveMaliciousRate で適用する。
+export const REFACTORING_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 // 仮・要確認(#44): 企画書(7)は「技術的負債が増えると、開発スピードが低下する」とだけで、下がり方は未定。
 // 開発スピードはコードの生成頻度と解釈し、生成間隔（CODE_SPAWN_INTERVAL_MS）に倍率を掛けて延ばす。コードの移動速度には掛けない。
 // 倍率は負債に比例し、負債0で1（既存の挙動と同じ）、負債が上限（TECH_DEBT_MAX）でこの値。2 なら上限で生成間隔が2倍（2000ms→4000ms）。
@@ -470,6 +480,36 @@ export const SALARY_UI_POSITION = {
 } as const;
 export const SALARY_BUTTON_SIZE = { width: 80, height: 28, gap: 8 } as const;
 export const SALARY_BUTTON_FONT_SIZE = '14px';
+// 仮・要確認(#53): AIコーディングエージェント（強い・普通・安い）。企画書(8)は「エンジニアに付けて出力ペースを上げる」「普通は強いより、安いは最も不正なコードを混ぜやすい」
+// 「価格は高い・普通・安い」「月額」とだけで、具体的な数値・操作は未記載。以下はすべて仮の値。
+// 価格の段階（ITEM_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
+export const AI_AGENT_PRICE_TIER_BY_TYPE = { strong: 'expensive', normal: 'normal', cheap: 'cheap' } as const;
+// 仮・要確認(#53): 装着中のエンジニアが担当するルートのコード生成間隔に掛ける倍率。0.5 なら間隔が半分（出力ペース2倍）。
+// 企画書は3種とも「出力ペースを上げる」とだけで差の記載がないため、全種同じ値にする。0 以下・有限でない値は 1（効果なし）として扱う。
+export const AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE = { strong: 0.5, normal: 0.5, cheap: 0.5 } as const;
+// 仮・要確認(#53): 装着中のエンジニアの不正コード率に加える差分（0〜1 のパーセントポイント。0.05 で +5 ポイント）。
+// 強い=0（増えない）、普通=+5、安い=+10 ポイント（「強いより混ぜやすい」「最も混ぜやすい」の順）。[CODE_MALICIOUS_RATE_MIN, 1] への制限は effectiveMaliciousRate に任せる。
+export const AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE = { strong: 0, normal: 0.05, cheap: 0.1 } as const;
+// 仮・要確認(#53): 倍率を掛けた後のコード生成間隔の下限（ミリ秒）。倍率の調整で生成が速くなりすぎないようにする。
+export const CODE_SPAWN_INTERVAL_MIN_MS = 500;
+// 仮・要確認(#53): ボタン・メッセージ・選択中のエンジニアの情報行に使う短い名前。
+export const AI_AGENT_SHORT_NAMES = { strong: '強い', normal: '普通', cheap: '安い' } as const;
+// 仮・要確認(#53): 選択中のエンジニアの情報行で、AIエージェントを付けていないときの表示。
+export const AI_AGENT_NONE_LABEL = 'なし';
+// 仮・要確認(#53): AIエージェントを選択中のエンジニアに付けるキー（strong / normal / cheap）。Phaser の KeyCodes のキー名。
+// 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給(Q/E/R/F)・割合UI(Z/X)と重ならない。
+export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as const;
+// 仮・要確認(#53): AIエージェントのボタンの並び順（左から）。
+export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
+// 仮・要確認(#53): AIエージェントのボタンの配置。昇給・減給ボタン（y=238〜266）の下に間隔 4px をあけて並べる（y=270〜298、x=72〜416）。
+// 右端は昇給・減給ボタンと同じ 416 で、アイテムを置けないセル（行1〜4 × col 1〜6）に収まる。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+const AI_AGENT_UI_GAP_Y = 4;
+export const AI_AGENT_UI_POSITION = {
+  x: SALARY_UI_POSITION.x,
+  y: SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height + AI_AGENT_UI_GAP_Y,
+} as const;
+export const AI_AGENT_BUTTON_SIZE = { width: 112, height: 28, gap: 4 } as const;
+export const AI_AGENT_BUTTON_FONT_SIZE = '12px';
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
@@ -503,7 +543,8 @@ export const TECH_DEBT_OUTAGE_TEXT_DURATION_MS = 1500;
 // 範囲(段階→距離): CELL_SIZE に対する比率。近距離=1.5(90px)、中距離=2.5(150px)、長距離=4(240px)。主人公の攻撃範囲(60px)より大きい。
 export const ITEM_RANGE_RATIOS = { short: 1.5, middle: 2.5, long: 4 } as const;
 // 仮・要確認(#50): 攻撃力(段階→1ヒットのダメージ)。主人公の ATTACK_DAMAGE=1 と整数の hp(#10) に合わせて整数にする。
-export const ITEM_POWER_DAMAGE = { weak: 1, medium: 2, strong: 3 } as const;
+// none は攻撃しないアイテム（猫 #57）の攻撃力で、ダメージ 0。
+export const ITEM_POWER_DAMAGE = { none: 0, weak: 1, medium: 2, strong: 3 } as const;
 // 仮・要確認(#50): 得意な種類の不正コードに対するダメージ倍率。
 // 得意でない種類にも等倍で効く（企画書「マイナー・インフォは CodeRabbit や Linter でも倒せる」より）。
 // 万能型(all)は得意ボーナスなしで全種類に等倍（「クリティカル・メジャーはスキャナーがないと苦戦」と矛盾させないため）。
@@ -522,6 +563,7 @@ export const ITEM_PRICE_TIER_BY_TYPE = {
   ci: 'normal',
   securityScanner: 'expensive',
   pairProgrammer: 'normal',
+  cat: 'cheap',
 } as const;
 // 仮・要確認(#48): アイテムを置けない行（UI と重なる行）。上端=雇うボタン・HUD、下端=アイテム購入ボタン。
 export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
@@ -537,12 +579,22 @@ const salaryUiRight =
   SALARY_UI_POSITION.x +
   SALARY_BUTTON_ORDER.length * SALARY_BUTTON_SIZE.width +
   (SALARY_BUTTON_ORDER.length - 1) * SALARY_BUTTON_SIZE.gap;
+// 仮・要確認(#53): AIエージェントのボタン（y=270〜298、x=72〜416）も範囲の計算に含める（今の値では行1〜4 × col 1〜6 のまま）。
+const aiAgentUiRight =
+  AI_AGENT_UI_POSITION.x +
+  AI_AGENT_BUTTON_ORDER.length * AI_AGENT_BUTTON_SIZE.width +
+  (AI_AGENT_BUTTON_ORDER.length - 1) * AI_AGENT_BUTTON_SIZE.gap;
 const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
-const itemHudMaxCol = Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight) / CELL_SIZE) - 1;
+const itemHudMaxCol =
+  Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight, aiAgentUiRight) / CELL_SIZE) - 1;
 const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
 const itemHudMaxRow =
   Math.ceil(
-    Math.max(TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT, SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height) / CELL_SIZE,
+    Math.max(
+      TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT,
+      SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height,
+      AI_AGENT_UI_POSITION.y + AI_AGENT_BUTTON_SIZE.height,
+    ) / CELL_SIZE,
   ) - 1;
 export const ITEM_BLOCKED_CELLS = Array.from(
   { length: itemHudMaxRow - itemHudMinRow + 1 },
@@ -551,7 +603,10 @@ export const ITEM_BLOCKED_CELLS = Array.from(
   Array.from({ length: itemHudMaxCol - itemHudMinCol + 1 }, (_, c) => ({ col: itemHudMinCol + c, row })),
 );
 // 仮・要確認(#48): アイテム購入キー（ITEM_TYPES の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・昇給・減給(Q/E/R/F)・リスタートと重ならない。Phaser の KeyCodes のキー名。
-export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
+// 仮・要確認(#57): 猫は 9 の次の数字キー 0。
+export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'ZERO'] as const;
+// 購入ボタンに表示するキーの文字（ITEM_BUY_KEYS と同じ順序）。
+export const ITEM_BUY_KEY_LABELS = ['4', '5', '6', '7', '8', '9', '0'] as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
 export const ITEM_SHORT_NAMES = {
   codeRabbit: 'CodeRabbit',
@@ -560,6 +615,7 @@ export const ITEM_SHORT_NAMES = {
   ci: 'CI',
   securityScanner: 'Scanner',
   pairProgrammer: 'Pair',
+  cat: 'Cat',
 } as const;
 export const ITEM_MARKS = {
   codeRabbit: 'CR',
@@ -568,12 +624,16 @@ export const ITEM_MARKS = {
   ci: 'CI',
   securityScanner: 'Sec',
   pairProgrammer: 'Pair',
+  cat: 'Cat',
 } as const;
 // 仮・要確認(#48): アイテムの攻撃間隔（ミリ秒）。全アイテム共通。置いた直後はクールダウンなしで攻撃できる。
 export const ITEM_ATTACK_COOLDOWN_MS = 1000;
 // 仮・要確認(#54): テストツールが攻撃した不正コードを足止めする時間（ミリ秒）。企画書(8)は「足止め」とだけで、時間は未定。
 // ITEM_ATTACK_COOLDOWN_MS より短くし、テストツール1つで同じコードを止め続けられないようにする（次の攻撃までに必ず少し動く）。
 export const TEST_TOOL_HOLD_MS = 500;
+// 仮・要確認(#57): 猫がコードを1つ消す間隔（ミリ秒）。企画書は「ランダムで消す」だけで間隔は未記載。
+// 正常なコードも消して売上を減らすため、攻撃間隔(ITEM_ATTACK_COOLDOWN_MS)より長くする。置いた直後は待たずに消せる。
+export const CAT_DELETE_INTERVAL_MS = 5000;
 // 仮・要確認(#48): アイテムの見た目。セル内の色付き四角（セルに対する比率）と文字。色は種類ごと。
 export const ITEM_BOX_RATIO = 0.6;
 export const ITEM_COLORS = {
@@ -583,19 +643,22 @@ export const ITEM_COLORS = {
   ci: 0x42a5f5,
   securityScanner: 0xe53935,
   pairProgrammer: 0xfdd835,
+  cat: 0x8d6e63,
 } as const;
 export const ITEM_MARK_STYLE = { fontSize: '14px', color: '#ffffff', strokeColor: '#000000', strokeThickness: 3 } as const;
 // 仮・要確認(#48): アイテムの攻撃演出（アイテムから対象への線）の色・太さ・表示時間（ミリ秒）。
 export const ITEM_ATTACK_LINE = { color: 0xffffff, width: 3, durationMs: 150 } as const;
-// 仮・要確認(#48): 購入ボタンの配置。画面下端の行（アイテムを置けない行）に6個を横に並べる。
+// 仮・要確認(#48): 購入ボタンの配置。画面下端の行（アイテムを置けない行）に横に並べる。
 // 仮・要確認(#35): 左端 x は出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右端。出現場所は列0の行0〜8のどこにでも出るため、
-// 行8の出現場所・休暇マーカー（当たり判定 x=14〜46）と重ならないようにする。幅は 154→146 に縮め、6個で x=60〜956 とフィールド幅960に収める。
+// 行8の出現場所・休暇マーカー（当たり判定 x=14〜46）と重ならないようにする。
+// 仮・要確認(#57): 猫で7個になったため幅を 146→124 に縮め、7個で x=60〜952 とフィールド幅960に収める。
 export const ITEM_UI_POSITION = { x: CELL_SIZE * (ENGINEER_SPAWN_COL + 1), y: FIELD_ROWS * CELL_SIZE - 34 } as const;
-export const ITEM_BUTTON_SIZE = { width: 146, height: 28, gap: 4 } as const;
+export const ITEM_BUTTON_SIZE = { width: 124, height: 28, gap: 4 } as const;
 export const ITEM_BUTTON_COLORS = { fill: 0x1e3a2a, stroke: 0x6cff9c, text: '#ffffff' } as const;
 // 仮・要確認(#48): 購入ボタンの背景の不透明度。下端の行を流れるコードがボタン越しに見えるよう半透明にする。
 export const ITEM_BUTTON_FILL_ALPHA = 0.7;
-export const ITEM_BUTTON_FONT_SIZE = '13px';
+// 仮・要確認(#57): 幅 124px に最長の「[4] CodeRabbit 20万/月」（sans-serif 11px で約114px）が収まるよう 13px→11px にする。
+export const ITEM_BUTTON_FONT_SIZE = '11px';
 // 仮・要確認(#48): 結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。雇うメッセージ(y=42)と重ならない下側、購入ボタンの上。
 export const ITEM_MESSAGE_POSITION = { x: 8, y: FIELD_ROWS * CELL_SIZE - 70 } as const;
 export const ITEM_MESSAGE_COLOR = '#b9f6ca';

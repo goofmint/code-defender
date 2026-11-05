@@ -182,7 +182,7 @@ describe('MainScene: テストツールの足止め（境界値）', () => {
     ['持続時間 − 1', HOLD - 1, 0, 1],
     ['持続時間ちょうど', HOLD, 0, undefined],
     ['持続時間 + 1', HOLD + 1, 1, undefined],
-  ])('1フレームで %s 進めると、移動時間 %d ms・残り %s', (_name, delta, movableMs, remaining) => {
+  ])('%s: delta %d ms → 移動時間 %d ms・残り %s', (_name, delta, movableMs, remaining) => {
     const scene = createScene({ codes: [makeCode(1)] });
     scene.updateItems(T0);
 

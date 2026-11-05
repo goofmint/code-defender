@@ -2,8 +2,10 @@ import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
+  AI_AGENT_BUY_KEYS,
   ATTACK_DAMAGE,
   ATTACK_KEYS,
+  CAT_DELETE_INTERVAL_MS,
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_REFACTORING_RATIO,
   ENGINEER_HIRE_COST,
@@ -42,6 +44,7 @@ import {
   movePlayerToward,
 } from './player';
 import {
+  drawAiAgentButtons,
   drawAttackEffect,
   drawCode,
   drawDefeatEffect,
@@ -108,6 +111,14 @@ import type { NormalCodePenalizedPayload } from './penalty';
 import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
 import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
+import {
+  AI_AGENT_EQUIPPED_EVENT,
+  aiAgentMaliciousRateModifiers,
+  aiAgentSpawnIntervalMs,
+  equipAiAgent,
+  formatAiAgentMessage,
+} from './aiAgent';
+import type { AiAgentEquippedPayload, AiAgentType } from './aiAgent';
 import { settleMonthBoundary } from './monthBoundary';
 import { INCIDENT_EVENT, settleIncident } from './incident';
 import { advanceTechDebtNeglect, MAJOR_OUTAGE_EVENT, settleMajorOutage } from './outage';
@@ -115,8 +126,10 @@ import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
   createTechDebtChangedEvent,
   formatTechDebt,
+  refactoringMaliciousRateModifier,
   resolveWorkTechDebt,
   TECH_DEBT_CHANGED_EVENT,
+  techDebtMaliciousRateModifier,
   techDebtSpawnIntervalMs,
 } from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
@@ -153,7 +166,9 @@ import type {
   SalaryDirection,
 } from './engineer';
 import { addRoute, cellCenter, removeRoute } from './route';
-import { getItemDamage, ITEM_TYPES } from './item';
+import { CODE_DELETED_BY_CAT_EVENT, pickRandomCode } from './cat';
+import type { CodeDeletedByCatPayload } from './cat';
+import { getItemDamage, isRandomDeleteItem, ITEM_TYPES } from './item';
 import { advanceHold, applyHold, getItemHoldMs } from './itemHold';
 import type { ItemType } from './item';
 import {
@@ -287,6 +302,7 @@ class MainScene extends Phaser.Scene {
       (direction) => this.selectEngineer(direction),
       (direction) => this.adjustSalary(direction),
     );
+    drawAiAgentButtons(this, (agentType) => this.buyAiAgent(agentType));
     const itemState = createItemState();
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;
@@ -313,6 +329,9 @@ class MainScene extends Phaser.Scene {
       keyboard.addKey(SALARY_SELECT_KEYS.next).on('down', () => this.selectEngineer('next'));
       keyboard.addKey(SALARY_ADJUST_KEYS.raise).on('down', () => this.adjustSalary('raise'));
       keyboard.addKey(SALARY_ADJUST_KEYS.cut).on('down', () => this.adjustSalary('cut'));
+      keyboard.addKey(AI_AGENT_BUY_KEYS.strong).on('down', () => this.buyAiAgent('strong'));
+      keyboard.addKey(AI_AGENT_BUY_KEYS.normal).on('down', () => this.buyAiAgent('normal'));
+      keyboard.addKey(AI_AGENT_BUY_KEYS.cheap).on('down', () => this.buyAiAgent('cheap'));
       ITEM_BUY_KEYS.forEach((name, index) =>
         keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
       );
@@ -566,6 +585,35 @@ class MainScene extends Phaser.Scene {
     this.refreshSelectedEngineer();
   }
 
+  // 仮・要確認(#53): 選択中のエンジニアに AIエージェントを付ける（付けていれば付け替える。前の種類の返金はしない）。ゲームオーバー中は何もしない。
+  // 費用は changeFunds を通して引く（倒産判定もここで動く）。月額は次の月次精算（onMonthElapsed → settleMonthBoundary）から引く。
+  // メッセージは昇給・減給と同じく雇用メッセージの場所に出し、直前の雇用・給与メッセージは消す。
+  private buyAiAgent(agentType: AiAgentType): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const engineerId = this.findSelectedEngineer()?.id ?? null;
+    const result = equipAiAgent(this.engineers, engineerId, agentType, {
+      funds: this.funds,
+      gameOver: this.gameOver.over,
+    });
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatAiAgentMessage(result, agentType));
+    if (!result.ok || engineerId === null) {
+      return;
+    }
+    this.engineers = [...result.engineers];
+    this.changeFunds(result.fundsAfter, 'aiAgent');
+    this.refreshSelectedEngineer();
+    const payload: AiAgentEquippedPayload = {
+      engineerId,
+      agentType,
+      price: result.price,
+      replaced: result.replaced,
+    };
+    this.events.emit(AI_AGENT_EQUIPPED_EVENT, payload);
+  }
+
   // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
   private buyItem(itemType: ItemType): void {
     const player = this.player;
@@ -592,11 +640,15 @@ class MainScene extends Phaser.Scene {
   }
 
   // 置いたアイテムが、範囲内で最も近い不正なコードを自動で攻撃する。ゲームオーバー中はしない。
+  // 猫(#57)は攻撃せず、場のコードをランダムに1つ消す（deleteCodeByCat）。
   private updateItems(now: number): void {
     if (this.gameOver.over) {
       return;
     }
     this.placedItems = this.placedItems.map((item) => {
+      if (isRandomDeleteItem(item.itemType)) {
+        return this.deleteCodeByCat(item, now);
+      }
       if (!canItemAttack(now, item.lastAttackTime)) {
         return item;
       }
@@ -614,6 +666,29 @@ class MainScene extends Phaser.Scene {
       }
       return { ...item, lastAttackTime: now };
     });
+  }
+
+  // 猫(#57): 発動間隔ごとに、その時点の this.codes から正常・不正を問わず1つ選んで消す。HP・売上・罰金・インシデントは通さない。
+  // 消すコードがなければ何もせず、最後に消した時刻も変えない（コードが出たらすぐ消せる）。
+  // 同じフレームに猫が複数いても、猫ごとに最新の this.codes を読み直すので同じコードを二度消さない。
+  private deleteCodeByCat(item: PlacedItem, now: number): PlacedItem {
+    if (!canItemAttack(now, item.lastAttackTime, CAT_DELETE_INTERVAL_MS)) {
+      return item;
+    }
+    const target = pickRandomCode(Math.random, this.codes);
+    if (!target) {
+      return item;
+    }
+    this.removeActiveCode(target);
+    drawItemAttackEffect(this, cellCenter(item.cell), target.position);
+    const payload: CodeDeletedByCatPayload = {
+      id: target.id,
+      kind: target.kind,
+      routeId: target.routeId,
+      maliciousType: target.maliciousType,
+    };
+    this.events.emit(CODE_DELETED_BY_CAT_EVENT, payload);
+    return { ...item, lastAttackTime: now };
   }
 
   // 雇ったらルートと出現場所を追加し、雇ったエンジニアに割り当てる。ゲームオーバー中・追加できないときは routeId を null のままにする。
@@ -682,7 +757,7 @@ class MainScene extends Phaser.Scene {
     code.graphics.destroy();
   }
 
-  // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
+  // 月の境界ごとに給料、続けて月額アイテムの費用（エンジニアに付けた AIエージェント(#53)の月額を含む）を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
   // 給料の対象は this.engineers の全員（ルート未割当・休暇中も含む）(#37)。休暇などの状態で this.engineers を絞ってから渡さない。
   private onMonthElapsed(event: MonthElapsedEvent): void {
     const { salary, itemFee } = settleMonthBoundary(
@@ -691,6 +766,7 @@ class MainScene extends Phaser.Scene {
       getEngineerSalaries(this.engineers),
       this.placedItems,
       this.gameOver.over,
+      this.engineers,
     );
     this.changeFunds(salary.fundsAfter, 'salary');
     this.events.emit(SALARY_PAID_EVENT, salary);
@@ -812,25 +888,37 @@ class MainScene extends Phaser.Scene {
     if (!result.defeated) {
       return;
     }
-    this.codes = this.codes.filter((code) => code.id !== target.id);
-    this.codeHp.delete(target.id);
-    this.codeHold.delete(target.id);
-    this.tweens.killTweensOf(target.graphics);
+    this.removeActiveCode(target);
     drawDefeatEffect(this, target.position);
-    target.graphics.destroy();
     const payload: CodeDefeatedPayload = { id: target.id, routeId: target.routeId };
     this.events.emit(CODE_DEFEATED_EVENT, payload);
   }
 
+  // 流れているコードを精算せずに場から取り除く（撃破・猫 #57 共通）。this.codes から外し、hp・tween・描画は discardCode(#32) で片付ける。
+  // イベントは呼び出し側が、この後（配列を更新した後）に発行する。
+  private removeActiveCode(target: ActiveCode): void {
+    this.codes = this.codes.filter((code) => code.id !== target.id);
+    this.discardCode(target);
+  }
+
   // 不正コード率の補正（パーセントポイントの差分）の一覧(#13)。effectiveMaliciousRate に渡す。
-  // 実装済み: #39 休暇（担当エンジニア単位の減少。vacationMaliciousRateModifiers）。
-  // 今後の補正はこの配列に差分を追加して合成する: #41 リファクタリング（プロダクト全体の減少）、#45 技術的負債（プロダクト全体の増加）。
+  // 実装済み: #39 休暇（担当エンジニア単位の減少。vacationMaliciousRateModifiers）、
+  // #45 技術的負債（プロダクト全体の増加。techDebtMaliciousRateModifier。負債 0 では差分 0 を加える）。
+  // 負債はコード生成のたびに this.techDebt から計算する。同じフレームのリリースで負債が変わった場合は、次回の updateCodes の生成から反映される。
+  // #41 リファクタリング（プロダクト全体の減少。refactoringMaliciousRateModifier）。
+  // #53 AIエージェント（担当エンジニア単位の増加。aiAgentMaliciousRateModifiers）。末尾に加える。
+  // 今後の補正はこの配列に差分を追加して合成する。
   private maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[] {
-    return vacationMaliciousRateModifiers(engineer);
+    return [
+      ...vacationMaliciousRateModifiers(engineer),
+      techDebtMaliciousRateModifier(this.techDebt),
+      refactoringMaliciousRateModifier(this.refactoringRatio),
+      ...aiAgentMaliciousRateModifiers(engineer),
+    ];
   }
 
   private updateCodes(delta: number): void {
-    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートに同じ間隔を使う。
+    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートの基準の間隔にする（AIエージェントの倍率はルートごとに掛ける）。
     // フレーム内（リリース精算など）で負債が変わっても、反映は次のフレームから。
     // 新規ルートの初期値にも同じ間隔を渡し、負債があっても最初の更新ですぐ1個生成されるようにする（既存の挙動を維持）。
     const spawnIntervalMs = techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS);
@@ -838,11 +926,12 @@ class MainScene extends Phaser.Scene {
       // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
       const engineer = findEngineerByRoute(this.engineers, route.id);
       // 担当者の休暇中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
-      // 生成間隔は技術的負債で延びた実効間隔(#44)を使う。
+      // 生成間隔は技術的負債で延びた実効間隔(#44)に、担当者の AIエージェント(#53)の倍率を掛けた値を使う（ルートごと）。
+      const routeSpawnIntervalMs = aiAgentSpawnIntervalMs(engineer, spawnIntervalMs);
       const step = stepSpawnTimerUnlessPaused(
-        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(spawnIntervalMs),
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(routeSpawnIntervalMs),
         delta,
-        spawnIntervalMs,
+        routeSpawnIntervalMs,
         isAssigneeOnVacation(engineer),
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
