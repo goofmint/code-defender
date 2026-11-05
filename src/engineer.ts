@@ -19,6 +19,7 @@ import {
   ENGINEER_TENDENCY_OFFSETS,
   FUNDS_FORMAT,
   INITIAL_ENGINEER_RANKS,
+  CODE_MALICIOUS_RATE_MIN,
   VACATION_HINT_FORMAT,
   VACATION_MALICIOUS_RATE_REDUCTION,
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
@@ -601,7 +602,21 @@ export const formatSelectedEngineer = (engineer: Engineer | null): string =>
 // 昇給・減給の操作ボタンのラベル。「[Q] 前へ」。
 export const formatSalaryButton = (key: string, label: string): string => `[${key}] ${label}`;
 
-// 休暇の操作方法と効果の案内文(#150)。HUD に常時表示する。低下量は VACATION_MALICIOUS_RATE_REDUCTION をパーセントポイント（四捨五入した整数）にする。
-// 「出現地点の「休」で休暇（プレイ開始後）：不正コード率 -10ポイント。休暇中はそのルートの生産停止・給与は継続。再度押すと復帰」の形。
-export const formatVacationHint = (reduction: number = VACATION_MALICIOUS_RATE_REDUCTION): string =>
-  `${VACATION_HINT_FORMAT.prefix}${Math.round(reduction * 100)}${VACATION_HINT_FORMAT.suffix}`;
+// 0〜1 の割合をパーセントポイント（四捨五入した整数）にする。
+const toPercentPoints = (ratio: number): number => Math.round(ratio * 100);
+
+// 休暇の操作方法と効果の案内文(#150)。HUD に 3 行で常時表示する（VACATION_HINT_LINES 行）。
+// 1回あたりの低下量（VACATION_MALICIOUS_RATE_REDUCTION）、累積の上限（VACATION_MALICIOUS_RATE_REDUCTION_MAX。setEngineerVacation で止める）、
+// 補正後の下限（CODE_MALICIOUS_RATE_MIN。effectiveMaliciousRate で守る）をパーセントポイントにして並べる。低下量は復帰後も維持する(#39)。
+//   出現地点の「休」で休暇/復帰（プレイ開始後）
+//   不正率-10pt/回・最大-20pt・下限5%
+//   効果は復帰後も維持。休暇中は生産停止・給与継続
+export const formatVacationHint = (
+  reduction: number = VACATION_MALICIOUS_RATE_REDUCTION,
+  reductionMax: number = VACATION_MALICIOUS_RATE_REDUCTION_MAX,
+  rateMin: number = CODE_MALICIOUS_RATE_MIN,
+): readonly string[] => [
+  VACATION_HINT_FORMAT.operation,
+  `${VACATION_HINT_FORMAT.ratePrefix}${toPercentPoints(reduction)}${VACATION_HINT_FORMAT.perVacationSuffix}${toPercentPoints(reductionMax)}${VACATION_HINT_FORMAT.capSuffix}${toPercentPoints(rateMin)}${VACATION_HINT_FORMAT.floorSuffix}`,
+  VACATION_HINT_FORMAT.persistence,
+];

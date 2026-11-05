@@ -283,8 +283,9 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
     [{ col: 27, row: lastRow }, false], // 下へはみ出す（y=518〜554）
     [{ col: 27, row: 10 }, true], // HUD（x≦416）の右（x=422〜458）
     [{ col: 26, row: 10 }, false], // HUD に重なる（x=406〜442）
-    [{ col: 10, row: 20 }, true], // HUD（y≦298）の下（y=310〜346）
-    [{ col: 10, row: 19 }, false], // HUD に重なる（y=294〜330）
+    [{ col: 10, row: 24 }, true], // HUD（y≦362。下端は休暇の案内文 #150）の下（y=374〜410）
+    [{ col: 10, row: 23 }, false], // HUD に重なる（y=358〜394）
+    [{ col: 10, row: 19 }, false], // 休暇の案内文(#150)に重なる（y=294〜330）
     [{ col: 2, row: 10 }, true], // HUD（x≧72）の左（x=22〜58）
     [{ col: 3, row: 10 }, false], // HUD に重なる（x=38〜74）
     [{ col: -1, row: 10 }, false],
@@ -323,7 +324,7 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
 
   it('ルートの線上・その脇（既定のルート。行3の線の上側は HUD と重なるので行5の線で見る）', () => {
     expect(isPlaceableCell(onRoute, ctx)).toBe(false);
-    expect(isPlaceableCell({ col: 20, row: 11 }, ctx)).toBe(false); // 行3の線のクリアランスには接するだけだが HUD（y≦298）に重なる
+    expect(isPlaceableCell({ col: 20, row: 11 }, ctx)).toBe(false); // 行3の線のクリアランスには接するだけだが HUD（y≦362）に重なる
     expect(isPlaceableCell({ col: 28, row: 20 }, ctx)).toBe(false); // 行5の線（y=330）の上
     expect(isPlaceableCell({ col: 28, row: 18 }, ctx)).toBe(true); // 行5の線の上側（下端 y=314 < 322）
     expect(isPlaceableCell({ col: 28, row: 22 }, ctx)).toBe(true); // 行5の線の下側（上端 y=342 > 338）
@@ -383,8 +384,8 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
     expect(isPlaceableCell({ col: 27, row: 4 }, ctx)).toBe(false);
   });
 
-  it('既定の置けない矩形は上帯・下帯・HUD の外接矩形（x=72〜416、y=80〜298）', () => {
-    expect(ITEM_HUD_BOUNDS).toEqual({ x: 72, y: 80, width: 344, height: 218 });
+  it('既定の置けない矩形は上帯・下帯・HUD の外接矩形（x=72〜416、y=80〜362。下端は休暇の案内文 #150）', () => {
+    expect(ITEM_HUD_BOUNDS).toEqual({ x: 72, y: 80, width: 344, height: 282 });
     expect(ITEM_BLOCKED_RECTS).toEqual([
       { x: 0, y: 0, width: FIELD_WIDTH, height: CELL_SIZE },
       { x: 0, y: FIELD_HEIGHT - CELL_SIZE, width: FIELD_WIDTH, height: CELL_SIZE },

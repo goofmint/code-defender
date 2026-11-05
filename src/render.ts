@@ -85,6 +85,7 @@ import {
   TECH_DEBT_OUTAGE_TEXT_FONT_SIZE,
   TECH_DEBT_POSITION,
   VACATION_HINT_FONT_SIZE,
+  VACATION_HINT_LINE_SPACING,
   VACATION_HINT_POSITION,
 } from './config';
 import { formatPenalty } from './penalty';
@@ -746,16 +747,18 @@ export const drawTechDebt = (scene: Phaser.Scene, debt: number): Phaser.GameObje
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
 
-// 休暇の操作方法と効果の案内文(#150)。AIエージェントのボタンの下に常時表示する。文言は変わらないので setText は不要。
+// 休暇の操作方法と効果の案内文(#150)。AIエージェントのボタンの下に 3 行で常時表示する。文言は変わらないので setText は不要。
+// 行の間隔は VACATION_HINT_LINE_SPACING（1 行の高さの見積もり VACATION_HINT_LINE_HEIGHT と同じ値。drawInitialPlacementPanel と同じ形）。
 // 入力は受け付けない（setInteractive しない）ので、currentlyOver に入らず主人公の移動・攻撃を妨げない。
 export const drawVacationHint = (scene: Phaser.Scene): Phaser.GameObjects.Text =>
   scene.add
-    .text(VACATION_HINT_POSITION.x, VACATION_HINT_POSITION.y, formatVacationHint(), {
+    .text(VACATION_HINT_POSITION.x, VACATION_HINT_POSITION.y, [...formatVacationHint()], {
       fontSize: VACATION_HINT_FONT_SIZE,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: ELAPSED_DAYS_STYLE.color,
       stroke: ELAPSED_DAYS_STYLE.strokeColor,
       strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
+      lineSpacing: VACATION_HINT_LINE_SPACING,
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
 

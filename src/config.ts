@@ -551,7 +551,7 @@ export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as con
 // 仮・要確認(#53): AIエージェントのボタンの並び順（左から）。
 export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
 // 仮・要確認(#53): AIエージェントのボタンの配置。昇給・減給ボタン（y=238〜266）の下に間隔 4px をあけて並べる（y=270〜298、x=72〜416）。
-// 右端は昇給・減給ボタンと同じ 416 で、アイテムを置けない HUD の矩形（ITEM_HUD_BOUNDS #151）の右端・下端になる。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+// 右端は昇給・減給ボタンと同じ 416 で、アイテムを置けない HUD の矩形（ITEM_HUD_BOUNDS #151）の右端になる（下端は休暇の案内文 #150）。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
 const AI_AGENT_UI_GAP_Y = 4;
 export const AI_AGENT_UI_POSITION = {
   x: SALARY_UI_POSITION.x,
@@ -561,22 +561,38 @@ export const AI_AGENT_BUTTON_SIZE = { width: 112, height: 28, gap: 4 } as const;
 export const AI_AGENT_BUTTON_FONT_SIZE = '12px';
 // 仮・要確認(#150): 休暇の操作方法と効果の案内文（HUD に常時表示。setup 中・プレイ中とも表示し、入力は受け付けない）。
 // 「休憩する機能が見当たらない」(#150) への対応で、既存の休暇(#35/#39)の操作を案内する。休暇のロジックは変えない。
-// 数値は VACATION_MALICIOUS_RATE_REDUCTION から作る（engineer.ts の formatVacationHint）。
-// 「出現地点の「休」で休暇（プレイ開始後）：不正コード率 -10ポイント。休暇中はそのルートの生産停止・給与は継続。再度押すと復帰」の形。
-// 休暇の切り替えは setup 中は受け付けない（toggleVacation）ので「プレイ開始後」を添える。休暇中は生成・移動が止まり(#36)、給料は引かれる(#37)。
-// 1 行に収める。全角 1 文字 = 14px で見積もって x=72 からフィールド右端（960）までの 63 文字以内（hudLayout.test.ts で検証）。
+// 3 行で、数値は config から作る（engineer.ts の formatVacationHint）: 1回あたりの低下量 VACATION_MALICIOUS_RATE_REDUCTION、
+// 累積の上限 VACATION_MALICIOUS_RATE_REDUCTION_MAX、補正後の下限 CODE_MALICIOUS_RATE_MIN（いずれもパーセントポイント・四捨五入した整数）。
+//   出現地点の「休」で休暇/復帰（プレイ開始後）
+//   不正率-10pt/回・最大-20pt・下限5%
+//   効果は復帰後も維持。休暇中は生産停止・給与継続
+// 休暇の切り替えは setup 中は受け付けない（toggleVacation）ので「プレイ開始後」を添える。低下量は復帰後も維持し(#39)、休暇中は生成・移動が止まり(#36)、給料は引かれる(#37)。
+// 各行は HUD の矩形の幅（ITEM_HUD_BOUNDS、x=72〜416）に収める。全角 1 文字 = 14px で見積もって 24 文字以内（hudLayout.test.ts で検証）。
 export const VACATION_HINT_FORMAT = {
-  prefix: '出現地点の「休」で休暇（プレイ開始後）：不正コード率 -',
-  suffix: 'ポイント。休暇中はそのルートの生産停止・給与は継続。再度押すと復帰',
+  operation: '出現地点の「休」で休暇/復帰（プレイ開始後）',
+  ratePrefix: '不正率-',
+  perVacationSuffix: 'pt/回・最大-',
+  capSuffix: 'pt・下限',
+  floorSuffix: '%',
+  persistence: '効果は復帰後も維持。休暇中は生産停止・給与継続',
 } as const;
-// 仮・要確認(#150): 案内文の配置。AIエージェントのボタン（y=270〜298）の下に間隔 4px をあける（y=302〜、x=72〜）。文字サイズ 14px なら高さ約18px。
-// 重ならない根拠: 出現列 x<60 の右、昇給減給・AIエージェントのボタン y≦298 の下、購入バー y≧506 の上、初期配置UI（x≧668・y≦228）の左下、リリース地点（行4、y<300）の下。
+export const VACATION_HINT_LINES = 3;
+// 仮・要確認(#150): 案内文の配置。AIエージェントのボタン（y=270〜298）の下に間隔 4px をあける（y=302〜362、x=72〜）。
+// 置けない HUD の矩形（ITEM_HUD_BOUNDS）の中に入れ、案内文の下端が矩形の下端になる（文字の下にアイテムを置けないようにする）。
+// 重ならない根拠: 出現列 x<60 の右、昇給減給・AIエージェントのボタン y≦298 の下、購入バー y≧506 の上、初期配置UI（x≧668・y≦228）の左下、リリース地点（x≧900）の左。
 const VACATION_HINT_GAP_Y = 4;
 export const VACATION_HINT_POSITION = {
   x: AI_AGENT_UI_POSITION.x,
   y: AI_AGENT_UI_POSITION.y + AI_AGENT_BUTTON_SIZE.height + VACATION_HINT_GAP_Y,
 } as const;
 export const VACATION_HINT_FONT_SIZE = '14px';
+// 仮・要確認(#150): 行の間隔（ピクセル。Phaser Text の lineSpacing）と 1 行の高さ。初期配置UI（INITIAL_PLACEMENT_LINE_HEIGHT）と同じ見積もり方で、
+// 文字サイズ × 1.25（縁取りを含めた余裕）を切り上げ + 行の間隔 = 20px。高さ = 行の高さ × 行数 = 60px。
+export const VACATION_HINT_LINE_SPACING = 2;
+const VACATION_HINT_LINE_HEIGHT_RATIO = 1.25;
+export const VACATION_HINT_LINE_HEIGHT =
+  Math.ceil(parseInt(VACATION_HINT_FONT_SIZE, 10) * VACATION_HINT_LINE_HEIGHT_RATIO) + VACATION_HINT_LINE_SPACING;
+export const VACATION_HINT_HEIGHT = VACATION_HINT_LINE_HEIGHT * VACATION_HINT_LINES;
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
@@ -658,8 +674,9 @@ const aiAgentUiRight =
   AI_AGENT_UI_POSITION.x +
   AI_AGENT_BUTTON_ORDER.length * AI_AGENT_BUTTON_SIZE.width +
   (AI_AGENT_BUTTON_ORDER.length - 1) * AI_AGENT_BUTTON_SIZE.gap;
-// 仮・要確認(#151): HUD・昇給減給UI・AIエージェントのボタンの外接矩形（ピクセル。x=72〜416、y=80〜298）。
+// 仮・要確認(#151): HUD・昇給減給UI・AIエージェントのボタン・休暇の案内文(#150)の外接矩形（ピクセル。x=72〜416、y=80〜362）。
 // #151 までは 60px セルに切り上げて「行1〜4 × col 1〜6」を置けないセルにしていたが、画素の矩形をそのまま置けない範囲にする。
+// 下端は休暇の案内文の下端（VACATION_HINT_POSITION.y + VACATION_HINT_HEIGHT = 362）。案内文の下にアイテムを置けないようにする(#150)。
 export const ITEM_HUD_BOUNDS = {
   x: ELAPSED_DAYS_POSITION.x,
   y: ELAPSED_DAYS_POSITION.y,
@@ -669,6 +686,7 @@ export const ITEM_HUD_BOUNDS = {
       TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT,
       SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height,
       AI_AGENT_UI_POSITION.y + AI_AGENT_BUTTON_SIZE.height,
+      VACATION_HINT_POSITION.y + VACATION_HINT_HEIGHT,
     ) - ELAPSED_DAYS_POSITION.y,
 } as const;
 // 仮・要確認(#48, #151): アイテムを置けない範囲（ピクセル矩形）。アイテムのフットプリント（ITEM_BOX_SIZE の正方形）が 1px でも重なると置けない
