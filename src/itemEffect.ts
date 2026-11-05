@@ -2,14 +2,22 @@
 // 時刻はゲーム内の経過ミリ秒（MainScene.elapsedMs）。ゲームオーバーで止まり、リスタートで 0 に戻る。
 // 状態の変更とイベントの発行は MainScene が行う。ここの関数は入力を変更せず、新しい配列を返す。
 import {
+  COFFEE_CRASH_THRESHOLD,
+  COFFEE_SPAWN_INTERVAL_BOOST_MULTIPLIER,
+  COFFEE_SPAWN_INTERVAL_CRASH_MULTIPLIER,
+  DOCUMENTATION_RATE_REDUCTION_MAX,
+  DOCUMENTATION_RATE_REDUCTION_PER_MONTH,
+  DOCUMENTATION_TARGET_RANK,
   ENERGY_DRINK_BOOST_DURATION_MS,
   FRIDAY_DEPLOY_INCIDENT_PROBABILITY,
   ENERGY_DRINK_BOOST_SPEED_MULTIPLIER,
   ENERGY_DRINK_SLUMP_DURATION_MS,
   ENERGY_DRINK_SLUMP_SPEED_MULTIPLIER,
   PIZZA_SPAWN_INTERVAL_MULTIPLIER,
+  MS_PER_GAME_MONTH,
   WORKS_FINE_CODE_SPEED_MULTIPLIER,
 } from './config';
+import type { EngineerRank } from './engineer';
 import { addFunds } from './funds';
 
 // 時限効果の種類。エナジードリンクは加速(energyBoost)の後に鈍化(energySlump)が続く。
@@ -66,6 +74,43 @@ export const playerSpeedMultiplier = (effects: readonly ActiveEffect[], nowMs: n
   if (isEffectActive(effects, 'energyBoost', nowMs)) return ENERGY_DRINK_BOOST_SPEED_MULTIPLIER;
   if (isEffectActive(effects, 'energySlump', nowMs)) return ENERGY_DRINK_SLUMP_SPEED_MULTIPLIER;
   return 1;
+};
+
+// コーヒーマシン(#58): 担当ルートの出現場所を範囲に含むコーヒーマシンの台数から、そのルートの生成間隔に掛ける倍率を求める。
+// 0 台は 1。閾値以下は BOOST（1未満でペースが上がる）、閾値を超えるとカフェイン切れで CRASH（1より大きくペースが落ちる）。
+export const coffeeSpawnIntervalMultiplier = (
+  machineCount: number,
+  threshold: number = COFFEE_CRASH_THRESHOLD,
+  boost: number = COFFEE_SPAWN_INTERVAL_BOOST_MULTIPLIER,
+  crash: number = COFFEE_SPAWN_INTERVAL_CRASH_MULTIPLIER,
+): number => {
+  if (machineCount <= 0) return 1;
+  return machineCount <= threshold ? boost : crash;
+};
+
+// ドキュメント(#58): 購入時刻からの経過時間に比例して下がる不正コード率（0〜上限）。買っていなければ(null) 0。
+export const documentationRateReduction = (
+  purchasedAtMs: number | null,
+  nowMs: number,
+  perMonth: number = DOCUMENTATION_RATE_REDUCTION_PER_MONTH,
+  max: number = DOCUMENTATION_RATE_REDUCTION_MAX,
+  monthMs: number = MS_PER_GAME_MONTH,
+): number => {
+  if (purchasedAtMs === null) return 0;
+  const elapsed = Math.max(nowMs - purchasedAtMs, 0);
+  return Math.min((elapsed / monthMs) * perMonth, max);
+};
+
+// ドキュメント(#58)の不正コード率の補正。effectiveMaliciousRate の modifiers に追加する差分の一覧。
+// 担当者がジュニアのルートだけ負の差分を返す。担当者なし・ジュニア以外・低下量が 0 のときは空配列（-0 を混ぜない）。エンジニアの値は変えない。
+export const documentationMaliciousRateModifiers = (
+  rank: EngineerRank | undefined,
+  purchasedAtMs: number | null,
+  nowMs: number,
+): readonly number[] => {
+  if (rank !== DOCUMENTATION_TARGET_RANK) return [];
+  const reduction = documentationRateReduction(purchasedAtMs, nowMs);
+  return reduction > 0 ? [-reduction] : [];
 };
 
 // 遅れて起きる障害（金曜日の夕方デプロイ #58）。atMs に達したら damage の損害を出す。

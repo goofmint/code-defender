@@ -97,6 +97,7 @@ import {
   ITEM_MESSAGE_POSITION,
   ITEM_PAGE_BUTTON_LABELS,
   ITEM_PAGE_SIZE,
+  REVEALED_CODE_STYLE,
 } from './config';
 import { itemButtonRect, itemPageControlRects } from './itemBar';
 import type { ItemBarRect, ItemPageDirection } from './itemBar';
@@ -267,13 +268,15 @@ export const drawCode = (
   kind: CodeKind,
   position: Point,
   maliciousType?: MaliciousCodeType,
+  // ラバーダック(#58)で正体がバレた不正なコードは、塗りと枠を REVEALED_CODE_STYLE の濃い色にする。
+  revealed: boolean = false,
 ): Phaser.GameObjects.Graphics => {
   const g = scene.add.graphics();
   const style = CODE_STYLES[kind];
   const s = CODE_SIZE;
   const { shape, pattern } = style;
-  g.fillStyle(style.fillColor, 1);
-  g.lineStyle(CODE_STROKE_WIDTH, style.strokeColor, 1);
+  g.fillStyle(revealed ? REVEALED_CODE_STYLE.fillColor : style.fillColor, 1);
+  g.lineStyle(CODE_STROKE_WIDTH, revealed ? REVEALED_CODE_STYLE.strokeColor : style.strokeColor, 1);
   switch (shape) {
     case 'roundedRect': {
       const r = s * CODE_CORNER_RADIUS_RATIO;
@@ -684,20 +687,21 @@ export const drawSalaryButtons = (
 // 置いたアイテム（セル内の色付き四角と短い文字）。主人公(1)より下、コード(0.5)と同じ深さ。
 const ITEM_DEPTH = 0.4;
 
-export const drawPlacedItem = (scene: Phaser.Scene, item: PlacedItem): void => {
+// 表示（四角と文字の Container）を返す(#58)。主人公についてまわるアイテム（ペアプロ相棒）は MainScene が毎フレーム setPosition で動かす。
+export const drawPlacedItem = (scene: Phaser.Scene, item: PlacedItem): Phaser.GameObjects.Container => {
   const { x, y } = cellCenter(item.cell);
   const size = CELL_SIZE * ITEM_BOX_RATIO;
-  scene.add.rectangle(x, y, size, size, ITEM_COLORS[item.itemType]).setStrokeStyle(2, 0xffffff).setDepth(ITEM_DEPTH);
-  scene.add
-    .text(x, y, ITEM_MARKS[item.itemType], {
+  const box = scene.add.rectangle(0, 0, size, size, ITEM_COLORS[item.itemType]).setStrokeStyle(2, 0xffffff);
+  const mark = scene.add
+    .text(0, 0, ITEM_MARKS[item.itemType], {
       fontSize: ITEM_MARK_STYLE.fontSize,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: ITEM_MARK_STYLE.color,
       stroke: ITEM_MARK_STYLE.strokeColor,
       strokeThickness: ITEM_MARK_STYLE.strokeThickness,
     })
-    .setOrigin(0.5)
-    .setDepth(ITEM_DEPTH);
+    .setOrigin(0.5);
+  return scene.add.container(x, y, [box, mark]).setDepth(ITEM_DEPTH);
 };
 
 // アイテムの攻撃演出（アイテムから対象への線）。一定時間表示して消す。

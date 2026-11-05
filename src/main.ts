@@ -25,6 +25,7 @@ import {
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
   REFACTORING_RATIO_KEYS,
+  SENIOR_NOTE_PREVENTED_MESSAGE,
   REVENUE_PER_NORMAL_CODE,
   SALARY_ADJUST_KEYS,
   SALARY_SELECT_KEYS,
@@ -119,7 +120,8 @@ import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
 import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
-import { calculateDamage, INCIDENT_EVENT, settleIncident } from './incident';
+import { calculateDamage, INCIDENT_EVENT, INCIDENT_PREVENTED_EVENT, settleIncident } from './incident';
+import type { IncidentPreventedPayload } from './incident';
 import { advanceTechDebtNeglect, MAJOR_OUTAGE_EVENT, settleMajorOutage } from './outage';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
@@ -167,25 +169,40 @@ import type {
 import { addRoute, cellCenter, removeRoute } from './route';
 import { CODE_DELETED_BY_CAT_EVENT, pickRandomCode } from './cat';
 import type { CodeDeletedByCatPayload } from './cat';
-import { getItemDamage, getItemPlacement, isRandomDeleteItem, ITEM_DEFINITIONS, ITEM_TYPES } from './item';
+import {
+  getItemDamage,
+  getItemPlacement,
+  isAttackItem,
+  isFollowItem,
+  isRandomDeleteItem,
+  ITEM_DEFINITIONS,
+  ITEM_TYPES,
+} from './item';
 import type { ItemType } from './item';
 import {
   canItemAttack,
+  countItemsCovering,
   createItemState,
+  findCodesToReveal,
   findItemTarget,
   formatItemButton,
   formatItemMessage,
+  getItemAttackCooldownMs,
+  getItemOrigin,
+  isIncidentPreventedByNote,
   ITEM_PLACED_EVENT,
   ITEM_USED_EVENT,
   pointToCell,
   purchaseInstantItem,
   purchaseItem,
+  shouldItemHesitate,
 } from './itemPlacement';
 import type { ItemPlacedPayload, ItemUsedPayload, PlacedItem } from './itemPlacement';
 import { formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, stepItemPage } from './itemBar';
 import type { ItemPageDirection } from './itemBar';
 import {
   canRollback,
+  coffeeSpawnIntervalMultiplier,
   recordIncident,
   rollbackIncident,
   rollFridayDeployIncident,
@@ -194,9 +211,10 @@ import {
   startEnergyDrink,
 } from './itemEffect';
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
-import type { Route } from './route';
+import type { Point, Route } from './route';
 
-type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics };
+// revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま。
+type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics; readonly revealed?: boolean };
 
 type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[]>;
 
@@ -239,6 +257,8 @@ class MainScene extends Phaser.Scene {
   private selectedEngineerText?: Phaser.GameObjects.Text;
   private placedItems: readonly PlacedItem[] = [];
   private nextItemId = 0;
+  // 主人公についてまわるアイテム（ペアプロ相棒 #58）の表示（アイテム id がキー）。毎フレーム主人公の位置 + ずれへ動かす。
+  private followItemViews = new Map<number, Phaser.GameObjects.Container>();
   private itemMessageText?: Phaser.GameObjects.Text;
   // 購入バーの現在のページ（0 始まり）(#58)。キー 4〜9 はこのページの枠を買う。
   private itemPage = 0;
@@ -326,6 +346,7 @@ class MainScene extends Phaser.Scene {
     const itemState = createItemState();
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;
+    this.followItemViews = new Map();
     this.itemMessageText = undefined;
     this.activeEffects = [];
     this.scheduledIncidents = [];
@@ -442,7 +463,9 @@ class MainScene extends Phaser.Scene {
     // ゲーム内時計と同じ経過時間で愛着心を進める(#30、休暇中は上がり、配属中に高疲労なら下がる)。
     this.engineers = advanceEngineersAttachment(this.engineers, this.elapsedMs - prevElapsedMs);
     this.updatePlayer(delta);
+    this.moveFollowItems();
     this.updateCodes(delta);
+    this.revealCodes();
     this.updateItems(this.time.now);
   }
 
@@ -656,7 +679,12 @@ class MainScene extends Phaser.Scene {
     }
     this.placedItems = result.placedItems;
     this.nextItemId = result.item.id + 1;
-    drawPlacedItem(this, result.item);
+    const view = drawPlacedItem(this, result.item);
+    if (isFollowItem(result.item.itemType)) {
+      const origin = getItemOrigin(result.item, { x: player.x, y: player.y });
+      view.setPosition(origin.x, origin.y);
+      this.followItemViews.set(result.item.id, view);
+    }
     this.changeFunds(result.fundsAfter, 'item');
     const payload: ItemPlacedPayload = { item: result.item, price: result.price };
     this.events.emit(ITEM_PLACED_EVENT, payload);
@@ -754,7 +782,8 @@ class MainScene extends Phaser.Scene {
   }
 
   // 置いたアイテムが、範囲内で最も近い不正なコードを自動で攻撃する。ゲームオーバー中はしない。
-  // 猫(#57)は攻撃せず、場のコードをランダムに1つ消す（deleteCodeByCat）。
+  // 猫(#57)は攻撃せず、場のコードをランダムに1つ消す（deleteCodeByCat）。攻撃しないアイテム（ラバーダックなど #58）はここでは何もしない。
+  // 攻撃間隔はアイテム別（Linter #58）。Linter は射程内に正常なコードがあると確率で発射を見送る（見送ってもクールダウンは消費する）。
   private updateItems(now: number): void {
     if (this.gameOver.over) {
       return;
@@ -763,17 +792,69 @@ class MainScene extends Phaser.Scene {
       if (isRandomDeleteItem(item.itemType)) {
         return this.deleteCodeByCat(item, now);
       }
-      if (!canItemAttack(now, item.lastAttackTime)) {
+      if (!isAttackItem(item.itemType)) {
         return item;
       }
-      const target = findItemTarget(item, this.codes);
+      if (!canItemAttack(now, item.lastAttackTime, getItemAttackCooldownMs(item.itemType))) {
+        return item;
+      }
+      const origin = this.getItemOrigin(item);
+      const target = findItemTarget(item, this.codes, origin);
       if (!target) {
         return item;
       }
-      drawItemAttackEffect(this, cellCenter(item.cell), target.position);
+      if (shouldItemHesitate(item.itemType, origin, this.codes, Math.random)) {
+        return { ...item, lastAttackTime: now };
+      }
+      drawItemAttackEffect(this, origin, target.position);
       flashCode(this, target.graphics);
       this.damageMaliciousCode(target, getItemDamage(item.itemType, target.maliciousType));
       return { ...item, lastAttackTime: now };
+    });
+  }
+
+  // アイテムの攻撃の起点(#58)。主人公についてまわるアイテムは主人公の位置 + ずれ、それ以外は置いたセルの中心。
+  private getItemOrigin(item: PlacedItem): Point {
+    if (!isFollowItem(item.itemType)) {
+      return cellCenter(item.cell);
+    }
+    const player = this.player;
+    if (!player) {
+      throw new Error(`主人公がいないため、ついてまわるアイテムの位置を決められません: id=${item.id}`);
+    }
+    return getItemOrigin(item, { x: player.x, y: player.y });
+  }
+
+  // 主人公についてまわるアイテム（ペアプロ相棒 #58）の表示を、攻撃の起点と同じ位置へ動かす。
+  private moveFollowItems(): void {
+    for (const item of this.placedItems) {
+      const view = this.followItemViews.get(item.id);
+      if (view === undefined) {
+        continue;
+      }
+      const origin = this.getItemOrigin(item);
+      view.setPosition(origin.x, origin.y);
+    }
+  }
+
+  // ラバーダック(#58): 範囲内の不正なコードの正体を暴く。一度だけ濃い色で描き直し、その後は場から消えるまで濃いまま。
+  // hp・攻撃・損害は変えない。種別のバッジは種別があるときだけ（drawCode と同じ）。
+  private revealCodes(): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const revealIds = new Set(findCodesToReveal(this.placedItems, this.codes).map((code) => code.id));
+    if (revealIds.size === 0) {
+      return;
+    }
+    this.codes = this.codes.map((code) => {
+      if (!revealIds.has(code.id)) {
+        return code;
+      }
+      this.tweens.killTweensOf(code.graphics);
+      code.graphics.destroy();
+      const graphics = drawCode(this, code.kind, code.position, code.maliciousType, true);
+      return { ...code, revealed: true, graphics };
     });
   }
 
@@ -919,6 +1000,18 @@ class MainScene extends Phaser.Scene {
     if (incident === null) {
       return;
     }
+    // 伝説のシニアの書き置き(#58): リリース地点が範囲内なら、資金を変える前に障害を防ぐ（損害・演出・INCIDENT_EVENT・直前の障害の記録なし）。
+    if (isIncidentPreventedByNote(this.placedItems)) {
+      this.itemMessageText?.destroy();
+      this.itemMessageText = drawItemMessage(this, SENIOR_NOTE_PREVENTED_MESSAGE);
+      const prevented: IncidentPreventedPayload = {
+        codeId: incident.codeId,
+        maliciousType: incident.maliciousType,
+        damage: incident.damage,
+      };
+      this.events.emit(INCIDENT_PREVENTED_EVENT, prevented);
+      return;
+    }
     // ロールバックボタン(#58)で取り消せるよう、確定した障害の損害額を記録する（前の記録は置き換える）。
     this.lastIncident = recordIncident(incident.damage);
     this.changeFunds(incident.fundsAfter, 'damage');
@@ -1027,12 +1120,16 @@ class MainScene extends Phaser.Scene {
     for (const route of this.routes) {
       // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
       const engineer = findEngineerByRoute(this.engineers, route.id);
+      // コーヒーマシン(#58): 出現場所（担当エンジニアの席）を範囲に含む台数で、このルートの間隔に倍率を掛ける。
+      const routeIntervalMs =
+        spawnIntervalMs *
+        coffeeSpawnIntervalMultiplier(countItemsCovering(this.placedItems, 'coffee', cellCenter(route.spawn)));
       // 担当者の休暇中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
-      // 生成間隔は技術的負債で延びた実効間隔(#44)を使う。
+      // 生成間隔は技術的負債で延びた実効間隔(#44)に、アイテムの倍率(#58)を掛けたものを使う。
       const step = stepSpawnTimerUnlessPaused(
-        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(spawnIntervalMs),
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(routeIntervalMs),
         delta,
-        spawnIntervalMs,
+        routeIntervalMs,
         isAssigneeOnVacation(engineer),
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);

@@ -11,6 +11,8 @@ import {
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_PRICE_TIERS,
   ITEM_SHORT_NAMES,
+  LINTER_HESITATION_PROBABILITY,
+  PAIR_PROGRAMMER_FOLLOW_OFFSET,
   RELEASE_POINT_CELL,
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
@@ -20,9 +22,12 @@ import {
   ITEM_DEFINITIONS,
   ITEM_TYPES,
   isFollowItem,
+  isTargetInItemRange,
+  isWithinRange,
   itemTargetsNormalCode,
 } from './item';
-import type { ItemPayment, ItemType } from './item';
+import type { ItemEffect, ItemPayment, ItemType } from './item';
+import { RELEASE_POINT_CENTER } from './releasePoint';
 import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
 
@@ -316,3 +321,58 @@ export const canItemAttack = (
   lastAttackTime: number | null,
   cooldownMs: number = ITEM_ATTACK_COOLDOWN_MS,
 ): boolean => canAttack(now, lastAttackTime, cooldownMs);
+
+// アイテムの攻撃・効果の起点(#58)。主人公についてまわるアイテム（ペアプロ相棒）は主人公の位置 + ずれ、それ以外は置いたセルの中心。
+export const getItemOrigin = (
+  item: PlacedItem,
+  playerPosition: Point,
+  followOffset: Point = PAIR_PROGRAMMER_FOLLOW_OFFSET,
+): Point =>
+  isFollowItem(item.itemType)
+    ? { x: playerPosition.x + followOffset.x, y: playerPosition.y + followOffset.y }
+    : cellCenter(item.cell);
+
+// 効果 effect のアイテムのうち、point を範囲に含む（置いたセルの中心から範囲以内の）台数(#58)。境界ちょうども範囲内。
+// コーヒーマシン（担当ルートの出現場所）・ラバーダック（コードの位置）・書き置き（リリース地点）で使う。入力は変更しない。
+export const countItemsCovering = (
+  placedItems: readonly PlacedItem[],
+  effect: ItemEffect,
+  point: Point,
+): number =>
+  placedItems.filter(
+    (item) =>
+      ITEM_DEFINITIONS[item.itemType].effect === effect &&
+      isTargetInItemRange(item.itemType, cellCenter(item.cell), point),
+  ).length;
+
+// Linter(#58) が発射を見送るか（企画書「怪しい見た目の正常コードに反応しかけて、ときどき止まる」）。
+// 起点から射程内に正常なコードがあり、random(0以上1未満) が確率未満なら見送る。Linter 以外は見送らない。
+// 見送るかの判定だけで、正常なコードを攻撃することはない（対象の選択は findItemTarget）。
+export const shouldItemHesitate = (
+  itemType: ItemType,
+  origin: Point,
+  codes: readonly AttackTarget[],
+  random: () => number,
+  probability: number = LINTER_HESITATION_PROBABILITY,
+): boolean => {
+  if (itemType !== 'linter') return false;
+  const range = getItemRange(itemType);
+  if (!codes.some((code) => code.kind === 'normal' && isWithinRange(origin, code.position, range))) return false;
+  return random() < probability;
+};
+
+// ラバーダック(#58)で正体を暴く不正なコード。ラバーダックの範囲内にいて、まだ暴いていない（revealed が true でない）ものだけ。入力は変更しない。
+export const findCodesToReveal = <T extends AttackTarget & { readonly revealed?: boolean }>(
+  placedItems: readonly PlacedItem[],
+  codes: readonly T[],
+): T[] =>
+  codes.filter(
+    (code) =>
+      code.kind === 'malicious' && code.revealed !== true && countItemsCovering(placedItems, 'reveal', code.position) > 0,
+  );
+
+// 伝説のシニアの書き置き(#58)で障害を防ぐか。リリース地点が書き置きの範囲内なら防ぐ。
+export const isIncidentPreventedByNote = (
+  placedItems: readonly PlacedItem[],
+  releasePoint: Point = RELEASE_POINT_CENTER,
+): boolean => countItemsCovering(placedItems, 'seniorNote', releasePoint) > 0;

@@ -710,6 +710,8 @@ export const PIZZA_TECH_DEBT = 5;
 // 買い直しても購入時刻は最初のまま（効果量は足さない）。
 export const DOCUMENTATION_RATE_REDUCTION_PER_MONTH = 0.05;
 export const DOCUMENTATION_RATE_REDUCTION_MAX = 0.15;
+// 仮・要確認(#58): ドキュメントが効く担当エンジニアのランク（企画書「ジュニアの不正コード率が少しずつ下がる」）。ENGINEER_RANKS の id。
+export const DOCUMENTATION_TARGET_RANK = 'junior';
 // 仮・要確認(#58): 金曜日の夕方デプロイ。購入時に売上を入れ、PROBABILITY の確率で DELAY 後（週末）に大障害を起こす。
 export const FRIDAY_DEPLOY_SALES = 400000;
 export const FRIDAY_DEPLOY_INCIDENT_PROBABILITY = 0.7;

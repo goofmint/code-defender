@@ -4,6 +4,8 @@ import {
   ITEM_ATTACK_COOLDOWN_MS,
   ITEM_RANGE_RATIOS,
   LINTER_ATTACK_COOLDOWN_MS,
+  LINTER_HESITATION_PROBABILITY,
+  PAIR_PROGRAMMER_FOLLOW_OFFSET,
   RELEASE_POINT_CELL,
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
@@ -18,21 +20,27 @@ import {
 import type { ItemType } from './item';
 import {
   canItemAttack,
+  countItemsCovering,
   createItemState,
   filterItemTargets,
+  findCodesToReveal,
   findItemTarget,
   findTargetFor,
   formatItemButton,
   formatItemMessage,
   getItemAttackCooldownMs,
+  getItemOrigin,
   getItemPrice,
   getRouteCells,
+  isIncidentPreventedByNote,
   isPlaceableCell,
   pointToCell,
   purchaseInstantItem,
   purchaseItem,
+  shouldItemHesitate,
 } from './itemPlacement';
 import type { InstantPurchaseState, PlacedItem, PurchaseState } from './itemPlacement';
+import { RELEASE_POINT_CENTER } from './releasePoint';
 import { cellCenter } from './route';
 import type { GridCell, Route } from './route';
 
@@ -739,5 +747,123 @@ describe('findItemTarget: 攻撃の起点(#58)', () => {
     const nearCell = { id: 2, kind: 'malicious' as const, position: cellCenter(item.cell) };
     expect(findItemTarget(item, [nearCell, near], origin)?.id).toBe(1);
     expect(findItemTarget(item, [nearCell, near])?.id).toBe(2);
+  });
+});
+
+describe('getItemOrigin: 攻撃・効果の起点(#58)', () => {
+  const player = { x: 400, y: 300 };
+
+  it('ペアプロ相棒は置いたセルではなく、主人公の位置 + ずれ', () => {
+    const item: PlacedItem = { id: 0, itemType: 'pairProgrammer', cell: { col: 1, row: 1 }, lastAttackTime: null };
+    expect(getItemOrigin(item, player)).toEqual({
+      x: player.x + PAIR_PROGRAMMER_FOLLOW_OFFSET.x,
+      y: player.y + PAIR_PROGRAMMER_FOLLOW_OFFSET.y,
+    });
+  });
+
+  it('ついてまわらないアイテムは主人公の位置に関係なく置いたセルの中心', () => {
+    const item: PlacedItem = { id: 0, itemType: 'linter', cell: { col: 1, row: 1 }, lastAttackTime: null };
+    expect(getItemOrigin(item, player)).toEqual(cellCenter({ col: 1, row: 1 }));
+  });
+});
+
+describe('countItemsCovering: 点を範囲に含む台数(#58)', () => {
+  const cell: GridCell = { col: 5, row: 5 };
+  const center = cellCenter(cell);
+  const coffeeRange = getItemRange('coffeeMachine');
+  const coffee = (id: number, at: GridCell = cell): PlacedItem => ({
+    id,
+    itemType: 'coffeeMachine',
+    cell: at,
+    lastAttackTime: null,
+  });
+
+  it('範囲の境界ちょうどは数え、1px 外は数えない', () => {
+    expect(countItemsCovering([coffee(0)], 'coffee', { x: center.x + coffeeRange, y: center.y })).toBe(1);
+    expect(countItemsCovering([coffee(0)], 'coffee', { x: center.x + coffeeRange + 1, y: center.y })).toBe(0);
+  });
+
+  it('効果が違うアイテムは数えない', () => {
+    const duck: PlacedItem = { id: 1, itemType: 'rubberDuck', cell, lastAttackTime: null };
+    expect(countItemsCovering([coffee(0), duck], 'coffee', center)).toBe(1);
+    expect(countItemsCovering([coffee(0), duck], 'reveal', center)).toBe(1);
+  });
+
+  it('複数台を数える', () => {
+    expect(countItemsCovering([coffee(0), coffee(1, { col: 6, row: 5 })], 'coffee', center)).toBe(2);
+  });
+});
+
+describe('shouldItemHesitate: Linter の見送り(#58)', () => {
+  const origin = { x: 300, y: 300 };
+  const range = getItemRange('linter');
+  const normalInRange = { kind: 'normal' as const, position: { x: origin.x + range, y: origin.y } };
+  const normalOutOfRange = { kind: 'normal' as const, position: { x: origin.x + range + 1, y: origin.y } };
+  const maliciousInRange = { kind: 'malicious' as const, position: origin };
+  const below = (): number => LINTER_HESITATION_PROBABILITY - 0.01;
+  const at = (): number => LINTER_HESITATION_PROBABILITY;
+
+  it('射程内に正常なコードがあり、乱数が確率未満なら見送る', () => {
+    expect(shouldItemHesitate('linter', origin, [maliciousInRange, normalInRange], below)).toBe(true);
+  });
+
+  it('乱数が確率ちょうどなら見送らない', () => {
+    expect(shouldItemHesitate('linter', origin, [maliciousInRange, normalInRange], at)).toBe(false);
+  });
+
+  it('射程内に正常なコードがなければ乱数を引かずに見送らない', () => {
+    const random = (): number => {
+      throw new Error('乱数を引いてはいけません');
+    };
+    expect(shouldItemHesitate('linter', origin, [maliciousInRange, normalOutOfRange], random)).toBe(false);
+  });
+
+  it('Linter 以外は見送らない', () => {
+    expect(shouldItemHesitate('testTool', origin, [normalInRange], below)).toBe(false);
+  });
+});
+
+describe('findCodesToReveal: ラバーダックで正体を暴く(#58)', () => {
+  const cell: GridCell = { col: 5, row: 5 };
+  const center = cellCenter(cell);
+  const duck: PlacedItem = { id: 0, itemType: 'rubberDuck', cell, lastAttackTime: null };
+  const range = getItemRange('rubberDuck');
+
+  it('範囲内でまだ暴いていない不正なコードだけを返す（正常・暴いた済み・範囲外は除く）。入力は変更しない', () => {
+    const codes = [
+      { id: 1, kind: 'malicious' as const, position: center },
+      { id: 2, kind: 'normal' as const, position: center },
+      { id: 3, kind: 'malicious' as const, position: center, revealed: true },
+      { id: 4, kind: 'malicious' as const, position: { x: center.x + range + 1, y: center.y } },
+      { id: 5, kind: 'malicious' as const, position: { x: center.x + range, y: center.y } },
+    ];
+    const snapshot = structuredClone(codes);
+    expect(findCodesToReveal([duck], codes).map((code) => code.id)).toEqual([1, 5]);
+    expect(codes).toEqual(snapshot);
+  });
+
+  it('ラバーダックがなければ何も暴かない', () => {
+    expect(findCodesToReveal([], [{ id: 1, kind: 'malicious' as const, position: center }])).toEqual([]);
+  });
+});
+
+describe('isIncidentPreventedByNote: 書き置きで障害を防ぐ(#58)', () => {
+  const range = getItemRange('seniorNote');
+
+  it('リリース地点が書き置きの範囲内なら防ぐ', () => {
+    const note: PlacedItem = { id: 0, itemType: 'seniorNote', cell: RELEASE_POINT_CELL, lastAttackTime: null };
+    expect(isIncidentPreventedByNote([note])).toBe(true);
+  });
+
+  it('リリース地点が範囲外・書き置き以外のアイテムなら防がない', () => {
+    const farCell: GridCell = { col: 0, row: 0 };
+    const far = cellCenter(farCell);
+    expect(Math.hypot(far.x - RELEASE_POINT_CENTER.x, far.y - RELEASE_POINT_CENTER.y)).toBeGreaterThan(range);
+    expect(isIncidentPreventedByNote([{ id: 0, itemType: 'seniorNote', cell: farCell, lastAttackTime: null }])).toBe(
+      false,
+    );
+    expect(isIncidentPreventedByNote([{ id: 0, itemType: 'rubberDuck', cell: RELEASE_POINT_CELL, lastAttackTime: null }])).toBe(
+      false,
+    );
   });
 });

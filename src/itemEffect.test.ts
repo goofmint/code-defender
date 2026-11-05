@@ -1,16 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
+  COFFEE_CRASH_THRESHOLD,
+  COFFEE_SPAWN_INTERVAL_BOOST_MULTIPLIER,
+  COFFEE_SPAWN_INTERVAL_CRASH_MULTIPLIER,
+  DOCUMENTATION_RATE_REDUCTION_MAX,
+  DOCUMENTATION_RATE_REDUCTION_PER_MONTH,
   ENERGY_DRINK_BOOST_DURATION_MS,
   ENERGY_DRINK_BOOST_SPEED_MULTIPLIER,
   ENERGY_DRINK_SLUMP_DURATION_MS,
   ENERGY_DRINK_SLUMP_SPEED_MULTIPLIER,
   FRIDAY_DEPLOY_INCIDENT_PROBABILITY,
+  MS_PER_GAME_MONTH,
   PIZZA_SPAWN_INTERVAL_MULTIPLIER,
   WORKS_FINE_CODE_SPEED_MULTIPLIER,
 } from './config';
 import {
   canRollback,
   codeMoveMultiplier,
+  coffeeSpawnIntervalMultiplier,
+  documentationMaliciousRateModifiers,
+  documentationRateReduction,
   expireEffects,
   isEffectActive,
   playerSpeedMultiplier,
@@ -150,5 +159,58 @@ describe('直前の障害の記録とロールバック', () => {
     expect(canRollback(result.record)).toBe(false);
     expect(() => rollbackIncident(result.fundsAfter, result.record)).toThrow();
     expect(() => rollbackIncident(1_000, null)).toThrow();
+  });
+});
+
+describe('coffeeSpawnIntervalMultiplier: コーヒーマシンの台数と閾値', () => {
+  it('0 台は 1', () => {
+    expect(coffeeSpawnIntervalMultiplier(0)).toBe(1);
+  });
+
+  it('1 台から閾値ちょうどまではペースが上がる（BOOST）', () => {
+    expect(coffeeSpawnIntervalMultiplier(1)).toBe(COFFEE_SPAWN_INTERVAL_BOOST_MULTIPLIER);
+    expect(coffeeSpawnIntervalMultiplier(COFFEE_CRASH_THRESHOLD)).toBe(COFFEE_SPAWN_INTERVAL_BOOST_MULTIPLIER);
+  });
+
+  it('閾値を 1 台超えるとカフェイン切れでペースが落ちる（CRASH）', () => {
+    expect(coffeeSpawnIntervalMultiplier(COFFEE_CRASH_THRESHOLD + 1)).toBe(COFFEE_SPAWN_INTERVAL_CRASH_MULTIPLIER);
+  });
+
+  it('仮の値の向き: BOOST は 1 未満、CRASH は 1 より大きい', () => {
+    expect(COFFEE_SPAWN_INTERVAL_BOOST_MULTIPLIER).toBeLessThan(1);
+    expect(COFFEE_SPAWN_INTERVAL_CRASH_MULTIPLIER).toBeGreaterThan(1);
+  });
+});
+
+describe('ドキュメント: 経過時間に比例した不正コード率の低下と上限', () => {
+  it('買っていなければ 0', () => {
+    expect(documentationRateReduction(null, T0)).toBe(0);
+  });
+
+  it('購入直後は 0、1か月で PER_MONTH', () => {
+    expect(documentationRateReduction(T0, T0)).toBe(0);
+    expect(documentationRateReduction(T0, T0 + MS_PER_GAME_MONTH)).toBeCloseTo(DOCUMENTATION_RATE_REDUCTION_PER_MONTH);
+  });
+
+  it('上限で止まる', () => {
+    const monthsToMax = DOCUMENTATION_RATE_REDUCTION_MAX / DOCUMENTATION_RATE_REDUCTION_PER_MONTH;
+    expect(documentationRateReduction(T0, T0 + MS_PER_GAME_MONTH * monthsToMax * 10)).toBe(
+      DOCUMENTATION_RATE_REDUCTION_MAX,
+    );
+  });
+
+  it('担当がジュニアのルートだけ負の差分を返す', () => {
+    const now = T0 + MS_PER_GAME_MONTH;
+    expect(documentationMaliciousRateModifiers('junior', T0, now)).toEqual([
+      -documentationRateReduction(T0, now),
+    ]);
+    expect(documentationMaliciousRateModifiers('middle', T0, now)).toEqual([]);
+    expect(documentationMaliciousRateModifiers('senior', T0, now)).toEqual([]);
+    expect(documentationMaliciousRateModifiers(undefined, T0, now)).toEqual([]);
+  });
+
+  it('低下量が 0（未購入・購入直後）なら空配列', () => {
+    expect(documentationMaliciousRateModifiers('junior', null, T0)).toEqual([]);
+    expect(documentationMaliciousRateModifiers('junior', T0, T0)).toEqual([]);
   });
 });

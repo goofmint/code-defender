@@ -10,6 +10,16 @@ import { subtractFunds } from './funds';
 // 障害が起きたときに scene.events で発行するイベント名。
 export const INCIDENT_EVENT = 'incident-occurred';
 
+// 伝説のシニアの書き置き(#58)で障害を防いだときに scene.events で発行するイベント名。防いだ障害は損害・資金変動・INCIDENT_EVENT を出さない。
+export const INCIDENT_PREVENTED_EVENT = 'incident-prevented';
+
+// 防いだ障害。damage は防がなければ出ていた損害額（円）。
+export type IncidentPreventedPayload = {
+  readonly codeId: number;
+  readonly maliciousType: MaliciousCodeType | undefined;
+  readonly damage: number;
+};
+
 export type IncidentEvent = {
   readonly codeId: number;
   // 種別を持たない不正コードでは undefined。
