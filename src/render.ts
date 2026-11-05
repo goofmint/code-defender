@@ -100,6 +100,15 @@ import {
   ITEM_MESSAGE_COLOR,
   ITEM_MESSAGE_DURATION_MS,
   ITEM_MESSAGE_POSITION,
+  INITIAL_PLACEMENT_FONT_SIZE,
+  INITIAL_PLACEMENT_LINE_SPACING,
+  INITIAL_PLACEMENT_MESSAGE_COLOR,
+  INITIAL_PLACEMENT_MESSAGE_DURATION_MS,
+  INITIAL_PLACEMENT_MESSAGE_POSITION,
+  INITIAL_PLACEMENT_PANEL_POSITION,
+  INITIAL_PLACEMENT_START_BUTTON_POSITION,
+  INITIAL_PLACEMENT_START_BUTTON_SIZE,
+  INITIAL_PLACEMENT_TEXT,
   ITEM_PAGE_BUTTON_LABELS,
   ITEM_PAGE_SIZE,
   REVEALED_CODE_STYLE,
@@ -727,7 +736,7 @@ export const drawAiAgentButtons = (
 // 置いたアイテム（セル内の色付き四角と短い文字）。主人公(1)より下、コード(0.5)と同じ深さ。
 const ITEM_DEPTH = 0.4;
 
-// 表示（四角と文字の Container）を返す(#58)。主人公についてまわるアイテム（ペアプロ相棒）は MainScene が毎フレーム setPosition で動かす。
+// 表示（四角と文字の Container）を返す(#58)。初期配置(#47)で撤去するときはこの Container を destroy() する。主人公についてまわるアイテム（ペアプロ相棒）は MainScene が毎フレーム setPosition で動かす。
 export const drawPlacedItem = (scene: Phaser.Scene, item: PlacedItem): Phaser.GameObjects.Container => {
   const { x, y } = cellCenter(item.cell);
   const size = CELL_SIZE * ITEM_BOX_RATIO;
@@ -850,5 +859,57 @@ export const drawItemMessage = (scene: Phaser.Scene, message: string): Phaser.Ga
     })
     .setDepth(ELAPSED_DAYS_DEPTH);
   scene.time.delayedCall(ITEM_MESSAGE_DURATION_MS, () => text.destroy());
+  return text;
+};
+
+// 初期配置(#47)のパネル（残ポイント・選択中のアイテムとコスト・操作説明）。返した Text の setText(formatInitialPlacementPanel(...)) で更新する。
+// プレイ開始時に MainScene が destroy() する。
+export const drawInitialPlacementPanel = (scene: Phaser.Scene, lines: readonly string[]): Phaser.GameObjects.Text =>
+  scene.add
+    .text(INITIAL_PLACEMENT_PANEL_POSITION.x, INITIAL_PLACEMENT_PANEL_POSITION.y, [...lines], {
+      ...hireTextStyle(INITIAL_PLACEMENT_FONT_SIZE),
+      lineSpacing: INITIAL_PLACEMENT_LINE_SPACING,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+
+// 初期配置(#47)の開始ボタン。クリックで onStart() を呼ぶ。見た目・当たり判定・深さは drawHireButtons と同じ。
+// stopPropagation はしない（main.ts が currentlyOver で配置を止める）。プレイ開始時に MainScene が destroy() する。
+export const drawInitialPlacementStartButton = (
+  scene: Phaser.Scene,
+  onStart: () => void,
+): Phaser.GameObjects.Container => {
+  const { width, height } = INITIAL_PLACEMENT_START_BUTTON_SIZE;
+  const background = scene.add
+    .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+    .setOrigin(0)
+    .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
+  const label = scene.add
+    .text(width / 2, height / 2, INITIAL_PLACEMENT_TEXT.startButton, {
+      fontSize: INITIAL_PLACEMENT_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: HIRE_BUTTON_COLORS.text,
+    })
+    .setOrigin(0.5);
+  const button = scene.add
+    .container(INITIAL_PLACEMENT_START_BUTTON_POSITION.x, INITIAL_PLACEMENT_START_BUTTON_POSITION.y, [background, label])
+    .setSize(width, height)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  button.setInteractive(
+    new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+    Phaser.Geom.Rectangle.Contains,
+  );
+  button.on('pointerdown', () => onStart());
+  return button;
+};
+
+// 初期配置(#47)の結果メッセージ。一定時間後に消す。置き換えるときは前のものを破棄してから呼ぶ（drawItemMessage と同じ形）。
+export const drawInitialPlacementMessage = (scene: Phaser.Scene, message: string): Phaser.GameObjects.Text => {
+  const text = scene.add
+    .text(INITIAL_PLACEMENT_MESSAGE_POSITION.x, INITIAL_PLACEMENT_MESSAGE_POSITION.y, message, {
+      ...hireTextStyle(INITIAL_PLACEMENT_FONT_SIZE),
+      color: INITIAL_PLACEMENT_MESSAGE_COLOR,
+    })
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  scene.time.delayedCall(INITIAL_PLACEMENT_MESSAGE_DURATION_MS, () => text.destroy());
   return text;
 };

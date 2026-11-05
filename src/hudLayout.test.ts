@@ -15,6 +15,19 @@ import {
   HIRE_MESSAGE_POSITION,
   HIRE_UI_POSITION,
   ENGINEER_SALARY_MAX,
+  INITIAL_PLACEMENT_BLOCKED_CELLS,
+  INITIAL_PLACEMENT_FONT_SIZE,
+  INITIAL_PLACEMENT_LINE_HEIGHT,
+  INITIAL_PLACEMENT_MESSAGE_POSITION,
+  INITIAL_PLACEMENT_PANEL_LINES,
+  INITIAL_PLACEMENT_PANEL_POSITION,
+  INITIAL_PLACEMENT_START_BUTTON_POSITION,
+  INITIAL_PLACEMENT_START_BUTTON_SIZE,
+  INITIAL_PLACEMENT_TEXT,
+  INITIAL_PLACEMENT_UI_BOUNDS,
+  ITEM_BLOCKED_ROWS,
+  ITEM_SHORT_NAMES,
+  STAGE_POINTS_INITIAL,
   ITEM_BLOCKED_CELLS,
   ATTACK_KEYS,
   GAME_OVER_RESTART_KEYS,
@@ -46,6 +59,7 @@ import {
 import { createEngineerParameters, formatSelectedEngineer, getInitialSalary } from './engineer';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import { ITEM_TYPES } from './item';
+import { formatInitialPlacementPanel } from './initialPlacement';
 import { getItemPageCount, getItemsOnPage, itemButtonRect, itemPageControlRects } from './itemBar';
 import { formatItemButton } from './itemPlacement';
 import { formatRefactoringAllocation } from './refactoringRatioControl';
@@ -587,6 +601,110 @@ describe('購入バーのレイアウト（ページ切替 #58）', () => {
       for (const other of others) {
         expect(intersects(button, other)).toBe(false);
       }
+    }
+  });
+});
+
+describe('初期配置UIのレイアウト(#47)', () => {
+  const fontPx = parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10);
+  // 最長想定のパネルの行。残ポイントは初期値より増えない（撤去しても初期値まで）ので、初期値で全アイテムを選んだときの最長。
+  const panelLines = ITEM_TYPES.flatMap((itemType) => formatInitialPlacementPanel(STAGE_POINTS_INITIAL, itemType));
+  const longestPanelChars = Math.max(...panelLines.map((line) => line.length));
+  const panelRect: Rect = {
+    x: INITIAL_PLACEMENT_PANEL_POSITION.x,
+    y: INITIAL_PLACEMENT_PANEL_POSITION.y,
+    width: longestPanelChars * fontPx,
+    height: INITIAL_PLACEMENT_PANEL_LINES * INITIAL_PLACEMENT_LINE_HEIGHT,
+  };
+  const startButtonRect: Rect = {
+    ...INITIAL_PLACEMENT_START_BUTTON_POSITION,
+    width: INITIAL_PLACEMENT_START_BUTTON_SIZE.width,
+    height: INITIAL_PLACEMENT_START_BUTTON_SIZE.height,
+  };
+  // メッセージの最長想定は「〇〇を撤去しました」（最長の短い名前）と固定の失敗メッセージ。
+  const longestName = Math.max(...ITEM_TYPES.map((itemType) => ITEM_SHORT_NAMES[itemType].length));
+  const messageRect = textRect(
+    INITIAL_PLACEMENT_MESSAGE_POSITION,
+    'あ'.repeat(Math.max(longestName + 'を撤去しました'.length, 'そこにはアイテムがありません'.length)),
+    fontPx,
+  );
+  const setupRects: readonly { readonly name: string; readonly rect: Rect }[] = [
+    { name: 'パネル', rect: panelRect },
+    { name: '開始ボタン', rect: startButtonRect },
+    { name: 'メッセージ', rect: messageRect },
+  ];
+  // 割合UI(#40)の外接矩形（両ボタンの枠線を含めて過大に見積もる）。
+  const ratioStroke = REFACTORING_RATIO_BUTTON_SIZE.strokeWidth;
+  const ratioRect: Rect = {
+    x: REFACTORING_RATIO_UI_POSITION.x - ratioStroke,
+    y: REFACTORING_RATIO_UI_POSITION.y - ratioStroke,
+    width:
+      REFACTORING_RATIO_BUTTON_SIZE.width * 2 + REFACTORING_RATIO_LABEL_WIDTH + REFACTORING_RATIO_UI_GAP * 2 + ratioStroke * 2,
+    height: REFACTORING_RATIO_BUTTON_SIZE.height + ratioStroke * 2,
+  };
+  const within = (inner: Rect, outer: Rect): boolean =>
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.width <= outer.x + outer.width &&
+    inner.y + inner.height <= outer.y + outer.height;
+
+  it('境界値: パネル・開始ボタン・メッセージは上から順に重ならず並び、開始ボタンの文字はボタン幅に収まる', () => {
+    expect(panelRect.y + panelRect.height).toBeLessThanOrEqual(startButtonRect.y);
+    expect(startButtonRect.y + startButtonRect.height).toBeLessThanOrEqual(messageRect.y);
+    expect(INITIAL_PLACEMENT_TEXT.startButton.length * fontPx).toBeLessThanOrEqual(INITIAL_PLACEMENT_START_BUTTON_SIZE.width);
+  });
+
+  it.each(setupRects)('$name は初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS）とフィールドの内側に収まる', ({ rect }) => {
+    expect(within(rect, INITIAL_PLACEMENT_UI_BOUNDS)).toBe(true);
+    expect(within(rect, { x: 0, y: 0, width: FIELD_WIDTH, height: FIELD_HEIGHT })).toBe(true);
+  });
+
+  it.each(setupRects)('$name は HUD の4行・選択中のエンジニア・昇給減給パネルと交差しない', ({ rect }) => {
+    for (const other of [...hudRects, ...salaryRects]) {
+      expect(intersects(rect, other.rect)).toBe(false);
+    }
+  });
+
+  it.each(setupRects)('$name は雇用ボタン・エンジニア数・雇用メッセージ・割合UIと交差しない', ({ rect }) => {
+    for (const other of [...hireButtonRects, ...hireTextRects, ratioRect]) {
+      expect(intersects(rect, other)).toBe(false);
+    }
+  });
+
+  it.each(setupRects)('$name は購入ボタン・ページ切替UI・購入メッセージ・全行の休暇マーカー・リリース地点と交差しない', ({ rect }) => {
+    for (const other of [...itemBarRects, itemMessageRect, ...spawnRows.map((row) => vacationMarkerRect(row))]) {
+      expect(intersects(rect, other)).toBe(false);
+    }
+    expect(intersects(rect, cellRect(RELEASE_POINT_CELL.col, RELEASE_POINT_CELL.row))).toBe(false);
+  });
+
+  it.each(setupRects)('$name は AIエージェントのボタン(#53)と交差しない', ({ rect }) => {
+    for (const other of aiAgentButtonRects) {
+      expect(intersects(rect, other.rect)).toBe(false);
+    }
+  });
+
+  it('境界値: 初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS）は AIエージェントのボタン・購入バーと交差しない', () => {
+    for (const other of [...aiAgentButtonRects.map((entry) => entry.rect), ...itemBarRects]) {
+      expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, other)).toBe(false);
+    }
+  });
+
+  it('初期配置UIの範囲と重なるセル（置けない行を除く）は、すべて初期配置の間は置けないセル', () => {
+    for (let col = 0; col < FIELD_COLS; col += 1) {
+      for (let row = 0; row < FIELD_ROWS; row += 1) {
+        const blockedRow = (ITEM_BLOCKED_ROWS as readonly number[]).includes(row);
+        if (!blockedRow && intersects(INITIAL_PLACEMENT_UI_BOUNDS, cellRect(col, row))) {
+          expect(INITIAL_PLACEMENT_BLOCKED_CELLS).toContainEqual({ col, row });
+        }
+      }
+    }
+  });
+
+  it('境界値: 初期配置の間に置けないセルは行1〜3 × col 11〜15 で、範囲と重ならないセルを含まない', () => {
+    expect(INITIAL_PLACEMENT_BLOCKED_CELLS).toHaveLength(15);
+    for (const cell of INITIAL_PLACEMENT_BLOCKED_CELLS) {
+      expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, cellRect(cell.col, cell.row))).toBe(true);
     }
   });
 });

@@ -727,6 +727,87 @@ export const ITEM_MESSAGE_DURATION_MS = 2000;
 // 仮・要確認(#51): 月額 = Math.round(購入価格 × この倍率)。企画書の月額アイテムの「価格」を月額の価格と読み、購入時と同じ額（倍率 1）にした。数値の調整口。
 export const ITEM_MONTHLY_FEE_RATIO = 1;
 
+// 仮・要確認(#47): 企画書(8)は「ステージポイントによる初期配置」とだけで、ポイントの初期値・コスト・返却・持ち越し・開始条件は未記載。以下はすべて仮の値（要調整。一次資料に定義なし）。
+// 仮の規則: ステージポイントは資金(funds)とは別の単位で、プレイ開始前（初期配置フェーズ）にだけ使う。資金は変えない。
+// 配置済みのセルをもう一度押すと撤去して、そのコストを全額返す。配置ゼロ・残ポイントありでも開始でき、残ポイントは開始時に破棄する（持ち越さない）。
+// 再開始（倒産後のリスタート）では毎回 STAGE_POINTS_INITIAL・配置なしから始める。月額アイテムの月額費用は、プレイ中に買ったものと同じく資金から引く(#51)。
+// 仮・要確認(#47): ステージ開始時のステージポイント。
+export const STAGE_POINTS_INITIAL = 6;
+// 仮・要確認(#47): 価格の段階（ITEM_PRICE_TIER_BY_TYPE）ごとの配置コスト（ステージポイント）。安い < 普通 < 高い の順を保つ。
+export const STAGE_POINT_COST_BY_TIER = { cheap: 1, normal: 2, expensive: 3 } as const;
+// 仮・要確認(#47): 初期配置を終えてプレイを始めるキー。Phaser の KeyCodes のキー名。
+// 移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・アイテム(4〜9・ページ G/H)・AIエージェント(V/B/N)・昇給減給(Q/E/R/F)・割合(Z/X)と重ならない。
+// リスタート(ENTER/SPACE)と同じ ENTER だが、リスタートはゲームオーバー中だけ、開始は初期配置フェーズ中だけ動くため衝突しない。
+export const INITIAL_PLACEMENT_START_KEYS = ['ENTER'] as const;
+// 仮・要確認(#47): 初期配置UI（残ポイント・選択中のアイテム・操作説明のパネル、開始ボタン、メッセージ）の配置。
+// 右上の行1〜3（col 11〜15、x=660〜960・y=60〜240）に置く。行0の雇用UI（人数・メッセージは y≦約67）の下、
+// HUD（x≦約576）・昇給減給パネル（x≦416）の右、選択中のエンジニアの情報行（y≧208。AIエージェントの表示 #53 で右へ伸びる）の上、リリース地点（行4）の上。重なるセルは初期配置フェーズの間だけ置けない（INITIAL_PLACEMENT_BLOCKED_CELLS）。
+const INITIAL_PLACEMENT_UI_LEFT_COL = 11;
+const INITIAL_PLACEMENT_UI_MARGIN = 8;
+export const INITIAL_PLACEMENT_PANEL_POSITION = {
+  x: CELL_SIZE * INITIAL_PLACEMENT_UI_LEFT_COL + INITIAL_PLACEMENT_UI_MARGIN,
+  y: 68,
+} as const;
+// 仮・要確認(#47): パネル・開始ボタン・メッセージの文字サイズと行の間隔（ピクセル）。パネルは4行（残ポイント・選択中・操作説明2行）。
+// 1行の高さは 文字サイズ × 1.25（縁取りを含めた余裕）を切り上げ + 行の間隔 = 20px として範囲を見積もる。
+export const INITIAL_PLACEMENT_FONT_SIZE = '14px';
+// 行の間隔は 2px。選択中のエンジニアの情報行（y=208〜、AIエージェントの表示 #53 で右へ長くなった）と重ならないよう、メッセージの下端を y=208 に収める。
+export const INITIAL_PLACEMENT_LINE_SPACING = 2;
+export const INITIAL_PLACEMENT_PANEL_LINES = 4;
+const INITIAL_PLACEMENT_LINE_HEIGHT_RATIO = 1.25;
+export const INITIAL_PLACEMENT_LINE_HEIGHT =
+  Math.ceil(parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10) * INITIAL_PLACEMENT_LINE_HEIGHT_RATIO) + INITIAL_PLACEMENT_LINE_SPACING;
+// 仮・要確認(#47): パネル・開始ボタン・メッセージの間の縦の余白（ピクセル）。
+const INITIAL_PLACEMENT_UI_GAP = 6;
+// 仮・要確認(#47): パネルの文言。
+export const INITIAL_PLACEMENT_TEXT = {
+  title: '初期配置',
+  points: '残りポイント: ',
+  pointUnit: 'pt',
+  selected: '選択: ',
+  instructionSelect: '[4〜9]/下のボタンで選択',
+  instructionPlace: 'クリックで配置・撤去',
+  startButton: '[ENTER] プレイ開始',
+} as const;
+// 仮・要確認(#47): 開始ボタンの位置・大きさ（パネルの下、y=154〜182）。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+export const INITIAL_PLACEMENT_START_BUTTON_SIZE = { width: 200, height: 28 } as const;
+export const INITIAL_PLACEMENT_START_BUTTON_POSITION = {
+  x: INITIAL_PLACEMENT_PANEL_POSITION.x,
+  y: INITIAL_PLACEMENT_PANEL_POSITION.y + INITIAL_PLACEMENT_PANEL_LINES * INITIAL_PLACEMENT_LINE_HEIGHT + INITIAL_PLACEMENT_UI_GAP,
+} as const;
+// 仮・要確認(#47): 初期配置の結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。開始ボタンの下（y=188〜208）。
+export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
+  x: INITIAL_PLACEMENT_PANEL_POSITION.x,
+  y: INITIAL_PLACEMENT_START_BUTTON_POSITION.y + INITIAL_PLACEMENT_START_BUTTON_SIZE.height + INITIAL_PLACEMENT_UI_GAP,
+} as const;
+export const INITIAL_PLACEMENT_MESSAGE_COLOR = ITEM_MESSAGE_COLOR;
+export const INITIAL_PLACEMENT_MESSAGE_DURATION_MS = ITEM_MESSAGE_DURATION_MS;
+// 仮・要確認(#47): 初期配置UIが占める範囲の右端・下端（ピクセル）。右端はフィールド右端から余白を引いた位置、
+// 下端はメッセージ（1行）の下端。
+const INITIAL_PLACEMENT_UI_RIGHT = FIELD_COLS * CELL_SIZE - INITIAL_PLACEMENT_UI_MARGIN;
+const INITIAL_PLACEMENT_UI_BOTTOM = INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT;
+export const INITIAL_PLACEMENT_UI_BOUNDS = {
+  x: INITIAL_PLACEMENT_PANEL_POSITION.x,
+  y: INITIAL_PLACEMENT_PANEL_POSITION.y,
+  width: INITIAL_PLACEMENT_UI_RIGHT - INITIAL_PLACEMENT_PANEL_POSITION.x,
+  height: INITIAL_PLACEMENT_UI_BOTTOM - INITIAL_PLACEMENT_PANEL_POSITION.y,
+} as const;
+// 仮・要確認(#47): 初期配置フェーズの間だけ置けないセル（初期配置UIと重なるセル）。ITEM_BLOCKED_CELLS と同じ計算方法
+// （右端・下端ちょうどがセル境界なら次のセルは含めない）。プレイ開始で UI を消すので、プレイ中の購入では置ける。
+const initialPlacementMinCol = Math.floor(INITIAL_PLACEMENT_UI_BOUNDS.x / CELL_SIZE);
+const initialPlacementMaxCol = Math.ceil(INITIAL_PLACEMENT_UI_RIGHT / CELL_SIZE) - 1;
+const initialPlacementMinRow = Math.floor(INITIAL_PLACEMENT_UI_BOUNDS.y / CELL_SIZE);
+const initialPlacementMaxRow = Math.ceil(INITIAL_PLACEMENT_UI_BOTTOM / CELL_SIZE) - 1;
+export const INITIAL_PLACEMENT_BLOCKED_CELLS = Array.from(
+  { length: initialPlacementMaxRow - initialPlacementMinRow + 1 },
+  (_, r) => initialPlacementMinRow + r,
+).flatMap((row) =>
+  Array.from({ length: initialPlacementMaxCol - initialPlacementMinCol + 1 }, (_, c) => ({
+    col: initialPlacementMinCol + c,
+    row,
+  })),
+);
+
 // 仮・要確認(#58): 企画書(8)の「その他のアイテム」の効果の数値は未定。以下はすべて仮の値（試作で調整する）。
 // 時限効果の時刻はゲーム内の経過ミリ秒（elapsedMs）で測る。同じ効果を重ねて買っても効果量は足さず、残り時間だけ延ばす（買い直した時点から数え直す）。
 // 仮・要確認(#58): 静的解析ツール（Linter）の攻撃間隔（ミリ秒）。企画書「連射が速い」より、共通の ITEM_ATTACK_COOLDOWN_MS より短くする。

@@ -20,6 +20,9 @@ import {
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
+  INITIAL_PLACEMENT_BLOCKED_CELLS,
+  INITIAL_PLACEMENT_START_KEYS,
+  ITEM_BLOCKED_CELLS,
   ITEM_BUY_KEYS,
   ITEM_PAGE_KEYS,
   MAX_ENGINEERS,
@@ -68,6 +71,9 @@ import {
   drawGameOver,
   drawHireButtons,
   drawHireMessage,
+  drawInitialPlacementMessage,
+  drawInitialPlacementPanel,
+  drawInitialPlacementStartButton,
   drawItemAttackEffect,
   drawItemButtons,
   drawItemMessage,
@@ -224,6 +230,15 @@ import {
   shouldItemHesitate,
 } from './itemPlacement';
 import type { ItemPlacedPayload, ItemUsedPayload, PlacedItem } from './itemPlacement';
+import {
+  createInitialPlacementState,
+  finishInitialPlacement,
+  formatInitialPlacementMessage,
+  formatInitialPlacementPanel,
+  placeInitialItem,
+  removeInitialItem,
+} from './initialPlacement';
+import type { InitialPlacementState } from './initialPlacement';
 import { formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, stepItemPage } from './itemBar';
 import type { ItemPageDirection } from './itemBar';
 import {
@@ -310,6 +325,16 @@ class MainScene extends Phaser.Scene {
   private vacationMarkers = new Map<number, VacationMarker>();
   // ルートの線と出現場所の円（routeId がキー）(#32)。退職でルートが消えるときに destroy() する。
   private routeDrawings = new Map<number, RouteDrawing>();
+  // 初期配置(#47)。setup の間は時間を止め、ステージポイントでアイテムを置く。開始操作で playing に移る。create() で毎回 setup に戻す。
+  private phase: 'setup' | 'playing' = 'setup';
+  private initialPlacement: InitialPlacementState = createInitialPlacementState();
+  // 初期配置で置くアイテムの種類（購入ボタン・購入キーで選ぶ）。
+  private initialPlacementItemType: ItemType = ITEM_TYPES[0];
+  // 初期配置で置いたアイテムの描画（アイテム id がキー）。撤去で destroy() する。プレイ開始後は使わない。
+  private initialPlacementDrawings = new Map<number, Phaser.GameObjects.Container>();
+  private initialPlacementPanelText?: Phaser.GameObjects.Text;
+  private initialPlacementStartButton?: Phaser.GameObjects.Container;
+  private initialPlacementMessageText?: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -396,6 +421,17 @@ class MainScene extends Phaser.Scene {
       (direction) => this.changeItemPage(direction),
     );
     this.refreshItemBar();
+    // 初期配置(#47)。scene.restart() でも毎回 STAGE_POINTS_INITIAL・配置なしの setup から始める。
+    this.phase = 'setup';
+    this.initialPlacement = createInitialPlacementState();
+    this.initialPlacementItemType = ITEM_TYPES[0];
+    this.initialPlacementDrawings = new Map();
+    this.initialPlacementMessageText = undefined;
+    this.initialPlacementPanelText = drawInitialPlacementPanel(
+      this,
+      formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementItemType),
+    );
+    this.initialPlacementStartButton = drawInitialPlacementStartButton(this, () => this.startPlay());
     drawReleasePoint(this);
     this.player = drawPlayer(this);
     const keyboard = this.input.keyboard;
@@ -426,10 +462,16 @@ class MainScene extends Phaser.Scene {
       keyboard.addKey(REFACTORING_RATIO_KEYS.feature).on('down', () => this.changeRefactoringRatio('feature'));
       keyboard.addKey(REFACTORING_RATIO_KEYS.refactoring).on('down', () => this.changeRefactoringRatio('refactoring'));
       register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
+      register(INITIAL_PLACEMENT_START_KEYS).forEach((key) => key.on('down', () => this.startPlay()));
     }
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
       if (this.gameOver.over) {
         this.tryRestart();
+        return;
+      }
+      // 初期配置(#47)の間は、押したセルにアイテムを置く・撤去する。主人公の移動・攻撃はしない。
+      if (this.phase === 'setup') {
+        this.onInitialPlacementPointerDown({ x: pointer.worldX, y: pointer.worldY }, currentlyOver);
         return;
       }
       // 雇うボタン・休暇マーカー上の押下では、離すまで主人公の移動・攻撃をしない。
@@ -453,6 +495,92 @@ class MainScene extends Phaser.Scene {
     });
   }
 
+  // 初期配置(#47)で置くアイテムの種類を選び、パネルの表示を更新する。
+  private selectInitialPlacementItem(itemType: ItemType): void {
+    this.initialPlacementItemType = itemType;
+    this.refreshInitialPlacementPanel();
+  }
+
+  private refreshInitialPlacementPanel(): void {
+    this.initialPlacementPanelText?.setText([
+      ...formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementItemType),
+    ]);
+  }
+
+  private showInitialPlacementMessage(message: string): void {
+    this.initialPlacementMessageText?.destroy();
+    this.initialPlacementMessageText = drawInitialPlacementMessage(this, message);
+  }
+
+  // 初期配置(#47)の押下。ボタン・マーカー上の押下（currentlyOver あり）は何もしない（ボタン側の処理だけ動く）。
+  // 置いてあるセルなら撤去してポイントを全額返し、空のセルなら選択中の種類を置く。資金は変えない（changeFunds は通さない）。
+  private onInitialPlacementPointerDown(
+    point: { readonly x: number; readonly y: number },
+    currentlyOver: readonly Phaser.GameObjects.GameObject[],
+  ): void {
+    if (this.phase !== 'setup' || currentlyOver.length > 0) {
+      return;
+    }
+    const cell = pointToCell(point);
+    const removal = removeInitialItem(this.initialPlacement, cell);
+    if (removal.ok) {
+      this.initialPlacement = removal.state;
+      const drawing = this.initialPlacementDrawings.get(removal.item.id);
+      if (drawing === undefined) {
+        throw new Error(`初期配置のアイテムの描画が見つかりません: id=${removal.item.id}`);
+      }
+      drawing.destroy();
+      this.initialPlacementDrawings.delete(removal.item.id);
+      this.showInitialPlacementMessage(formatInitialPlacementMessage(removal, removal.item.itemType));
+      this.refreshInitialPlacementPanel();
+      return;
+    }
+    const itemType = this.initialPlacementItemType;
+    // 初期配置UIと重なるセルは、初期配置の間だけ置けない（UI はプレイ開始で消える）。
+    const result = placeInitialItem(this.initialPlacement, itemType, cell, {
+      routes: this.routes,
+      blockedCells: [...ITEM_BLOCKED_CELLS, ...INITIAL_PLACEMENT_BLOCKED_CELLS],
+    });
+    this.showInitialPlacementMessage(formatInitialPlacementMessage(result, itemType));
+    if (!result.ok) {
+      return;
+    }
+    this.initialPlacement = result.state;
+    this.initialPlacementDrawings.set(result.item.id, drawPlacedItem(this, result.item));
+    this.refreshInitialPlacementPanel();
+  }
+
+  // 初期配置(#47)を終えてプレイを始める。配置ゼロ・残ポイントありでも始められる（残ポイントは破棄）。
+  // 順序: 配置を引き継ぐ → 初期配置UIを消す → playing にする → 押したままのポインターで主人公が動かないようにする。
+  private startPlay(): void {
+    if (this.phase !== 'setup' || this.gameOver.over) {
+      return;
+    }
+    const itemState = finishInitialPlacement(this.initialPlacement);
+    this.placedItems = itemState.placedItems;
+    this.nextItemId = itemState.nextId;
+    this.initialPlacementPanelText?.destroy();
+    this.initialPlacementPanelText = undefined;
+    this.initialPlacementStartButton?.destroy();
+    this.initialPlacementStartButton = undefined;
+    this.initialPlacementMessageText?.destroy();
+    this.initialPlacementMessageText = undefined;
+    // 初期配置で置いた主人公についてまわるアイテム（ペアプロ相棒 #58）は、購入時と同じく followItemViews で主人公に付ける。
+    this.placedItems
+      .filter((item) => isFollowItem(item.itemType))
+      .forEach((item) => {
+        const view = this.initialPlacementDrawings.get(item.id);
+        if (view === undefined) {
+          throw new Error(`初期配置のアイテムの描画が見つかりません: id=${item.id}`);
+        }
+        this.followItemViews.set(item.id, view);
+      });
+    // アイテムの描画はプレイ中も残す（撤去はもうしないので参照だけ捨てる）。
+    this.initialPlacementDrawings = new Map();
+    this.phase = 'playing';
+    this.attackPointerHeld = this.input.activePointer.isDown;
+  }
+
   // 現在の攻撃対象（フィールド上を流れているコードの一覧）を返す。
   // 命中判定（findAttackTarget）は渡された一覧だけを見る。
   private getAttackTargets(): readonly ActiveCode[] {
@@ -462,7 +590,7 @@ class MainScene extends Phaser.Scene {
   // クールダウンが明けていれば攻撃する。射程内で最も近いコード1つに命中し、空振りでもクールダウンを消費する。
   // 命中時は CODE_HIT_EVENT を発行する。後続タスクは `scene.events.on(CODE_HIT_EVENT, ...)` で接続する。
   private tryAttack(): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const player = this.player;
@@ -484,6 +612,10 @@ class MainScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (this.gameOver.over) {
+      return;
+    }
+    // 初期配置(#47)の間は時間を止める（時限効果の期限・予約した障害・時計・月の精算・コードの出現・アイテムの攻撃・愛着心・退職・大障害の判定をしない）。
+    if (this.phase === 'setup') {
       return;
     }
     // 期限切れの時限効果(#58)をフレームの最初に外す。時刻はゲーム内の経過時間（elapsedMs）。
@@ -610,7 +742,7 @@ class MainScene extends Phaser.Scene {
   // 機能開発とリファクタリングの割合を1段階寄せる(#40)。ゲームオーバー中と、両端で値が変わらないときは何もしない。
   // 次のリリースから resolveWorkTechDebt に新しい割合が使われる。
   private changeRefactoringRatio(direction: RefactoringRatioDirection): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const next = stepRefactoringRatio(this.refactoringRatio, direction);
@@ -624,7 +756,7 @@ class MainScene extends Phaser.Scene {
   // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
   // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う。
   private hire(rank: string): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const result = hireEngineer(
@@ -661,7 +793,7 @@ class MainScene extends Phaser.Scene {
 
   // 昇給・減給の対象を前・次のエンジニアに切り替える。ゲームオーバー中は何もしない。
   private selectEngineer(direction: EngineerSelectDirection): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, this.selectedEngineerId, direction);
@@ -672,7 +804,7 @@ class MainScene extends Phaser.Scene {
   // 変えた額はすぐ Engineer.salary に入り、次の月次精算（onMonthElapsed → getEngineerSalaries）から支払う。手数料はかけない（changeFunds は呼ばない）。
   // メッセージは雇用メッセージと同じ場所に出し、直前の雇用・給与メッセージは消す。
   private adjustSalary(direction: SalaryDirection): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const result = adjustEngineerSalary(this.engineers, this.selectedEngineerId, direction);
@@ -709,7 +841,7 @@ class MainScene extends Phaser.Scene {
   // 費用は changeFunds を通して引く（倒産判定もここで動く）。月額は次の月次精算（onMonthElapsed → settleMonthBoundary）から引く。
   // メッセージは昇給・減給と同じく雇用メッセージの場所に出し、直前の雇用・給与メッセージは消す。
   private buyAiAgent(agentType: AiAgentType): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const engineerId = this.findSelectedEngineer()?.id ?? null;
@@ -735,8 +867,13 @@ class MainScene extends Phaser.Scene {
   }
 
   // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  // 初期配置(#47)の間は買わず、置くアイテムの種類を選ぶだけにする（購入バーのページ切り替えは changeItemPage がそのまま動く）。
   // 置かないアイテム（placement: none #58）は useInstantItem で買って、その場で効果を発動する。
   private buyItem(itemType: ItemType): void {
+    if (this.phase === 'setup') {
+      this.selectInitialPlacementItem(itemType);
+      return;
+    }
     const player = this.player;
     if (this.gameOver.over || !player) {
       return;
@@ -771,6 +908,9 @@ class MainScene extends Phaser.Scene {
 
   // 置かないアイテム(#58)を買って効果を発動する。費用は changeFunds(…, 'item') で引き、倒産したら効果は発動しない。
   private useInstantItem(itemType: ItemType): void {
+    if (this.phase === 'setup') {
+      return;
+    }
     const result = purchaseInstantItem(
       { funds: this.funds, gameOver: this.gameOver.over, hasRollbackTarget: canRollback(this.lastIncident) },
       itemType,
@@ -1381,7 +1521,7 @@ class MainScene extends Phaser.Scene {
   // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
   // 休暇中は担当エンジニアの愛着心が時間経過で上がる(#30、update の advanceEngineersAttachment が onVacation から反映)。
   private toggleVacation(routeId: number): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const engineer = findEngineerByRoute(this.engineers, routeId);
