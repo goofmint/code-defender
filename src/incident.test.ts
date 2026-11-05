@@ -9,6 +9,7 @@ import {
   incidentDamage,
   INCIDENT_EVENT,
   settleIncident,
+  settleScheduledIncident,
 } from './incident';
 import { MALICIOUS_CODE_TYPE_DEFINITIONS, MALICIOUS_CODE_TYPES } from './maliciousCode';
 import { sellReleasedCode } from './sales';
@@ -149,5 +150,23 @@ describe('同一フレームの複数リリース', () => {
     const result = releaseAll(1000000, [malicious(1, 'typo'), normal(2), malicious(3, 'bug')]);
     expect(result.count).toBe(2);
     expect(result.funds).toBe(1000000 + REVENUE_PER_NORMAL_CODE - (3 + 10) * INCIDENT_DAMAGE_UNIT_YEN);
+  });
+});
+
+describe('settleScheduledIncident: 予約した障害（金曜日の夕方デプロイ #58）', () => {
+  const notOver: GameOverState = { over: false, at: null };
+
+  it('コード id・種別なしで損害ぶん資金を引く（マイナスもそのまま）', () => {
+    expect(settleScheduledIncident(100, 300, notOver)).toEqual({
+      codeId: null,
+      maliciousType: undefined,
+      damage: 300,
+      fundsBefore: 100,
+      fundsAfter: -200,
+    });
+  });
+
+  it('ゲームオーバー後は null', () => {
+    expect(settleScheduledIncident(100, 300, { over: true, at: 1 })).toBeNull();
   });
 });

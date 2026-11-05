@@ -1,4 +1,6 @@
 import {
+  AI_AGENT_NONE_LABEL,
+  AI_AGENT_SHORT_NAMES,
   ENGINEER_ATTACHMENT_CHANGE,
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
@@ -21,6 +23,7 @@ import {
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
 import type { EngineerTendency } from './config';
+import type { AiAgentType } from './aiAgent';
 import { MS_PER_GAME_DAY } from './gameTime';
 import { createRoutes } from './route';
 import type { Route } from './route';
@@ -77,6 +80,9 @@ export type Engineer = {
   // 月給の初期額（円）(#31)。雇ったとき・初期編成のときに salary と同じ額（getInitialSalary）が入り、その後は変えない。
   // 昇給・減給(#34)は salary だけを置き換える。愛着心への影響（salaryAttachment.ts）は salary とこの値の差額で決める。
   readonly initialSalary: number;
+  // 付けている AIコーディングエージェントの種類(#53)。付けていなければ null。雇ったとき・初期編成のときは null。
+  // 1人1個。変えるのは aiAgent.ts の equipAiAgent だけ（付け替えは上書き）。効果は aiAgent.ts の aiAgentSpawnIntervalMs / aiAgentMaliciousRateModifiers。
+  readonly aiAgent: AiAgentType | null;
 } & EngineerParameters;
 
 export type EngineerHiredPayload = {
@@ -311,6 +317,7 @@ export const createInitialEngineers = (
       vacationRateReduction: 0,
       salary: getInitialSalary(ranks[index]),
       initialSalary: getInitialSalary(ranks[index]),
+      aiAgent: null,
       ...createEngineerParameters(ranks[index], personality),
     };
   });
@@ -440,6 +447,7 @@ export const hireEngineer = (
     vacationRateReduction: 0,
     salary: getInitialSalary(rank),
     initialSalary: getInitialSalary(rank),
+    aiAgent: null,
     ...createEngineerParameters(rank, personality),
   };
   return {
@@ -580,11 +588,14 @@ export const selectAdjacentEngineerId = (
   return engineers[(index + offset + engineers.length) % engineers.length].id;
 };
 
-// 選択中のエンジニアの情報行。「選択: #id ランク 月給 300,000円」。対象がいなければ「選択: 対象なし」。
+// 選択中のエンジニアの情報行。「選択: #id ランク 月給 300,000円 AI: 強い」（AIエージェント(#53)を付けていなければ「AI: なし」）。
+// 対象がいなければ「選択: 対象なし」。
 export const formatSelectedEngineer = (engineer: Engineer | null): string =>
   engineer === null
     ? '選択: 対象なし'
-    : `選択: #${engineer.id} ${getRankLabel(engineer.rank)} 月給 ${formatYen(engineer.salary)}`;
+    : `選択: #${engineer.id} ${getRankLabel(engineer.rank)} 月給 ${formatYen(engineer.salary)} AI: ${
+        engineer.aiAgent === null ? AI_AGENT_NONE_LABEL : AI_AGENT_SHORT_NAMES[engineer.aiAgent]
+      }`;
 
 // 昇給・減給の操作ボタンのラベル。「[Q] 前へ」。
 export const formatSalaryButton = (key: string, label: string): string => `[${key}] ${label}`;

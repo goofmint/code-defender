@@ -2,28 +2,44 @@ import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
+  AI_AGENT_BUY_KEYS,
   ATTACK_DAMAGE,
   ATTACK_KEYS,
   CAT_DELETE_INTERVAL_MS,
+  CI_INTERCEPT_RATE,
+  CI_SLOW_MULTIPLIER,
+  CODE_FREEZE_DURATION_MS,
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_REFACTORING_RATIO,
   ENGINEER_HIRE_COST,
+  FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS,
+  FRIDAY_DEPLOY_INCIDENT_DELAY_MS,
+  FRIDAY_DEPLOY_SALES,
   GAME_OVER_RESTART_KEYS,
   HIRE_KEYS,
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
+  INITIAL_PLACEMENT_BLOCKED_CELLS,
+  INITIAL_PLACEMENT_START_KEYS,
+  ITEM_BLOCKED_CELLS,
   ITEM_BUY_KEYS,
+  ITEM_PAGE_KEYS,
   MAX_ENGINEERS,
+  PIZZA_DURATION_MS,
+  PIZZA_TECH_DEBT,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  PLAYER_SPEED,
   REFACTORING_RATIO_KEYS,
+  SENIOR_NOTE_PREVENTED_MESSAGE,
   REVENUE_PER_NORMAL_CODE,
   SALARY_ADJUST_KEYS,
   SALARY_SELECT_KEYS,
   TECH_DEBT_INITIAL,
   TECH_DEBT_OUTAGE_FLASH_COLOR,
   TECH_DEBT_OUTAGE_FLASH_DURATION_MS,
+  WORKS_FINE_DURATION_MS,
 } from './config';
 import {
   ATTACK_COOLDOWN_MS,
@@ -44,6 +60,7 @@ import {
   movePlayerToward,
 } from './player';
 import {
+  drawAiAgentButtons,
   drawAttackEffect,
   drawCode,
   drawDefeatEffect,
@@ -55,6 +72,9 @@ import {
   drawGameOver,
   drawHireButtons,
   drawHireMessage,
+  drawInitialPlacementMessage,
+  drawInitialPlacementPanel,
+  drawInitialPlacementStartButton,
   drawItemAttackEffect,
   drawItemButtons,
   drawItemMessage,
@@ -73,7 +93,7 @@ import {
   flashCode,
   setPlayerFacing,
 } from './render';
-import type { RouteDrawing, VacationMarker } from './render';
+import type { ItemBar, RouteDrawing, VacationMarker } from './render';
 import {
   CODE_RELEASED_EVENT,
   advanceCode,
@@ -81,6 +101,8 @@ import {
   moveDistanceUnlessPaused,
   partitionCodesByRoute,
   pickCodeKind,
+  remainingPathDistance,
+  rewindCode,
   spawnCode,
   stepSpawnTimerUnlessPaused,
 } from './codeFlow';
@@ -96,7 +118,7 @@ import {
 import type { MonthElapsedEvent } from './gameTime';
 import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFate } from './defeat';
 import type { CodeDefeatedPayload } from './defeat';
-import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
+import { addFunds, createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
 import { accumulateScore, formatCumulativeSales, INITIAL_SCORE } from './score';
 import {
@@ -112,11 +134,27 @@ import type { NormalCodePenalizedPayload } from './penalty';
 import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
 import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
+import {
+  AI_AGENT_EQUIPPED_EVENT,
+  aiAgentMaliciousRateModifiers,
+  aiAgentSpawnIntervalMs,
+  equipAiAgent,
+  formatAiAgentMessage,
+} from './aiAgent';
+import type { AiAgentEquippedPayload, AiAgentType } from './aiAgent';
 import { settleMonthBoundary } from './monthBoundary';
-import { INCIDENT_EVENT, settleIncident } from './incident';
+import {
+  calculateDamage,
+  INCIDENT_EVENT,
+  INCIDENT_PREVENTED_EVENT,
+  settleIncident,
+  settleScheduledIncident,
+} from './incident';
+import type { IncidentEvent, IncidentPreventedPayload } from './incident';
 import { advanceTechDebtNeglect, MAJOR_OUTAGE_EVENT, settleMajorOutage } from './outage';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
+  accumulateTechDebt,
   createTechDebtChangedEvent,
   formatTechDebt,
   refactoringMaliciousRateModifier,
@@ -161,21 +199,73 @@ import type {
 import { addRoute, cellCenter, removeRoute } from './route';
 import { CODE_DELETED_BY_CAT_EVENT, pickRandomCode } from './cat';
 import type { CodeDeletedByCatPayload } from './cat';
-import { getItemDamage, isRandomDeleteItem, ITEM_TYPES } from './item';
+import {
+  getItemActivation,
+  getItemDamage,
+  getItemPlacement,
+  getItemRange,
+  isAttackItem,
+  isFollowItem,
+  isRandomDeleteItem,
+  ITEM_DEFINITIONS,
+  ITEM_TYPES,
+} from './item';
+import { advanceHold, applyHold, getItemHoldMs } from './itemHold';
+import { ciSlowedDistance, hasActiveCi, rollCiInterception } from './ci';
+import { pickMaliciousType } from './maliciousCode';
 import type { ItemType } from './item';
 import {
   canItemAttack,
+  countItemsCovering,
   createItemState,
+  findCodesToReveal,
   findItemTarget,
+  formatItemButton,
   formatItemMessage,
+  getItemAttackCooldownMs,
+  getItemOrigin,
+  isIncidentPreventedByNote,
   ITEM_PLACED_EVENT,
+  ITEM_USED_EVENT,
   pointToCell,
+  purchaseInstantItem,
   purchaseItem,
+  shouldItemHesitate,
 } from './itemPlacement';
-import type { ItemPlacedPayload, PlacedItem } from './itemPlacement';
-import type { Route } from './route';
+import type { ItemPlacedPayload, ItemUsedPayload, PlacedItem } from './itemPlacement';
+import {
+  createInitialPlacementState,
+  finishInitialPlacement,
+  formatInitialPlacementMessage,
+  formatInitialPlacementPanel,
+  placeInitialItem,
+  removeInitialItem,
+} from './initialPlacement';
+import type { InitialPlacementState } from './initialPlacement';
+import { formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, stepItemPage } from './itemBar';
+import type { ItemPageDirection } from './itemBar';
+import {
+  canRollback,
+  codeMoveMultiplier,
+  coffeeSpawnIntervalMultiplier,
+  documentationMaliciousRateModifiers,
+  expireEffects,
+  isEffectActive,
+  playerSpeedMultiplier,
+  recordIncident,
+  rollbackIncident,
+  rollFridayDeployIncident,
+  scheduleIncident,
+  spawnIntervalMultiplier,
+  startEffect,
+  startEnergyDrink,
+  takeDueIncidents,
+} from './itemEffect';
+import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
+import type { Point, Route } from './route';
 
-type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics };
+// revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま。
+type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics; readonly revealed?: boolean };
 
 type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[]>;
 
@@ -188,6 +278,8 @@ class MainScene extends Phaser.Scene {
   private nextCodeId = 0;
   // 不正なコードの残り hp（コードIDがキー）。FlowingCode は変更しない。撃破・リリースで削除する。
   private codeHp = new Map<number, number>();
+  // テストツールの足止め(#54)の残り時間（ミリ秒）。キーはコード id。足止め中のコードだけが持つ。
+  private codeHold = new Map<number, number>();
   private lastAttackTime: number | null = null;
   // 主人公のタップで攻撃したポインターを離すまで true。この間はポインターでの移動を止める。
   private attackPointerHeld = false;
@@ -218,11 +310,34 @@ class MainScene extends Phaser.Scene {
   private selectedEngineerText?: Phaser.GameObjects.Text;
   private placedItems: readonly PlacedItem[] = [];
   private nextItemId = 0;
+  // 主人公についてまわるアイテム（ペアプロ相棒 #58）の表示（アイテム id がキー）。毎フレーム主人公の位置 + ずれへ動かす。
+  private followItemViews = new Map<number, Phaser.GameObjects.Container>();
   private itemMessageText?: Phaser.GameObjects.Text;
+  // 購入バーの現在のページ（0 始まり）(#58)。キー 4〜9 はこのページの枠を買う。
+  private itemPage = 0;
+  private itemBar?: ItemBar;
+  // 購入時に発動したアイテムの時限効果(#58)。時刻は elapsedMs。
+  private activeEffects: readonly ActiveEffect[] = [];
+  // 金曜日の夕方デプロイ(#58)で予約した障害。
+  private scheduledIncidents: readonly ScheduledIncident[] = [];
+  // 直前の障害の記録（ロールバックボタン #58）。まだ障害がなければ null。
+  private lastIncident: IncidentRecord | null = null;
+  // ドキュメント(#58)を最初に買った時刻（elapsedMs）。買っていなければ null。
+  private documentationPurchasedAtMs: number | null = null;
   // 休暇の切り替えマーカー（routeId がキー）(#35)。
   private vacationMarkers = new Map<number, VacationMarker>();
   // ルートの線と出現場所の円（routeId がキー）(#32)。退職でルートが消えるときに destroy() する。
   private routeDrawings = new Map<number, RouteDrawing>();
+  // 初期配置(#47)。setup の間は時間を止め、ステージポイントでアイテムを置く。開始操作で playing に移る。create() で毎回 setup に戻す。
+  private phase: 'setup' | 'playing' = 'setup';
+  private initialPlacement: InitialPlacementState = createInitialPlacementState();
+  // 初期配置で置くアイテムの種類（購入ボタン・購入キーで選ぶ）。
+  private initialPlacementItemType: ItemType = ITEM_TYPES[0];
+  // 初期配置で置いたアイテムの描画（アイテム id がキー）。撤去で destroy() する。プレイ開始後は使わない。
+  private initialPlacementDrawings = new Map<number, Phaser.GameObjects.Container>();
+  private initialPlacementPanelText?: Phaser.GameObjects.Text;
+  private initialPlacementStartButton?: Phaser.GameObjects.Container;
+  private initialPlacementMessageText?: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -271,6 +386,7 @@ class MainScene extends Phaser.Scene {
     this.spawnElapsed = new Map();
     this.nextCodeId = 0;
     this.codeHp = new Map();
+    this.codeHold = new Map();
     this.routeDrawings = drawRoutes(this, this.routes);
     this.vacationMarkers = new Map();
     this.routes.forEach((route) => this.addVacationMarker(route));
@@ -291,11 +407,34 @@ class MainScene extends Phaser.Scene {
       (direction) => this.selectEngineer(direction),
       (direction) => this.adjustSalary(direction),
     );
+    drawAiAgentButtons(this, (agentType) => this.buyAiAgent(agentType));
     const itemState = createItemState();
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;
+    this.followItemViews = new Map();
     this.itemMessageText = undefined;
-    drawItemButtons(this, ITEM_TYPES, (itemType) => this.buyItem(itemType));
+    this.activeEffects = [];
+    this.scheduledIncidents = [];
+    this.lastIncident = null;
+    this.documentationPurchasedAtMs = null;
+    this.itemPage = 0;
+    this.itemBar = drawItemButtons(
+      this,
+      (slot) => this.buyItemSlot(slot),
+      (direction) => this.changeItemPage(direction),
+    );
+    this.refreshItemBar();
+    // 初期配置(#47)。scene.restart() でも毎回 STAGE_POINTS_INITIAL・配置なしの setup から始める。
+    this.phase = 'setup';
+    this.initialPlacement = createInitialPlacementState();
+    this.initialPlacementItemType = ITEM_TYPES[0];
+    this.initialPlacementDrawings = new Map();
+    this.initialPlacementMessageText = undefined;
+    this.initialPlacementPanelText = drawInitialPlacementPanel(
+      this,
+      formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementItemType),
+    );
+    this.initialPlacementStartButton = drawInitialPlacementStartButton(this, () => this.startPlay());
     drawReleasePoint(this);
     this.player = drawPlayer(this);
     const keyboard = this.input.keyboard;
@@ -317,16 +456,25 @@ class MainScene extends Phaser.Scene {
       keyboard.addKey(SALARY_SELECT_KEYS.next).on('down', () => this.selectEngineer('next'));
       keyboard.addKey(SALARY_ADJUST_KEYS.raise).on('down', () => this.adjustSalary('raise'));
       keyboard.addKey(SALARY_ADJUST_KEYS.cut).on('down', () => this.adjustSalary('cut'));
-      ITEM_BUY_KEYS.forEach((name, index) =>
-        keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
-      );
+      keyboard.addKey(AI_AGENT_BUY_KEYS.strong).on('down', () => this.buyAiAgent('strong'));
+      keyboard.addKey(AI_AGENT_BUY_KEYS.normal).on('down', () => this.buyAiAgent('normal'));
+      keyboard.addKey(AI_AGENT_BUY_KEYS.cheap).on('down', () => this.buyAiAgent('cheap'));
+      ITEM_BUY_KEYS.forEach((name, slot) => keyboard.addKey(name).on('down', () => this.buyItemSlot(slot)));
+      keyboard.addKey(ITEM_PAGE_KEYS.previous).on('down', () => this.changeItemPage('previous'));
+      keyboard.addKey(ITEM_PAGE_KEYS.next).on('down', () => this.changeItemPage('next'));
       keyboard.addKey(REFACTORING_RATIO_KEYS.feature).on('down', () => this.changeRefactoringRatio('feature'));
       keyboard.addKey(REFACTORING_RATIO_KEYS.refactoring).on('down', () => this.changeRefactoringRatio('refactoring'));
       register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
+      register(INITIAL_PLACEMENT_START_KEYS).forEach((key) => key.on('down', () => this.startPlay()));
     }
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
       if (this.gameOver.over) {
         this.tryRestart();
+        return;
+      }
+      // 初期配置(#47)の間は、押したセルにアイテムを置く・撤去する。主人公の移動・攻撃はしない。
+      if (this.phase === 'setup') {
+        this.onInitialPlacementPointerDown({ x: pointer.worldX, y: pointer.worldY }, currentlyOver);
         return;
       }
       // 雇うボタン・休暇マーカー上の押下では、離すまで主人公の移動・攻撃をしない。
@@ -350,6 +498,92 @@ class MainScene extends Phaser.Scene {
     });
   }
 
+  // 初期配置(#47)で置くアイテムの種類を選び、パネルの表示を更新する。
+  private selectInitialPlacementItem(itemType: ItemType): void {
+    this.initialPlacementItemType = itemType;
+    this.refreshInitialPlacementPanel();
+  }
+
+  private refreshInitialPlacementPanel(): void {
+    this.initialPlacementPanelText?.setText([
+      ...formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementItemType),
+    ]);
+  }
+
+  private showInitialPlacementMessage(message: string): void {
+    this.initialPlacementMessageText?.destroy();
+    this.initialPlacementMessageText = drawInitialPlacementMessage(this, message);
+  }
+
+  // 初期配置(#47)の押下。ボタン・マーカー上の押下（currentlyOver あり）は何もしない（ボタン側の処理だけ動く）。
+  // 置いてあるセルなら撤去してポイントを全額返し、空のセルなら選択中の種類を置く。資金は変えない（changeFunds は通さない）。
+  private onInitialPlacementPointerDown(
+    point: { readonly x: number; readonly y: number },
+    currentlyOver: readonly Phaser.GameObjects.GameObject[],
+  ): void {
+    if (this.phase !== 'setup' || currentlyOver.length > 0) {
+      return;
+    }
+    const cell = pointToCell(point);
+    const removal = removeInitialItem(this.initialPlacement, cell);
+    if (removal.ok) {
+      this.initialPlacement = removal.state;
+      const drawing = this.initialPlacementDrawings.get(removal.item.id);
+      if (drawing === undefined) {
+        throw new Error(`初期配置のアイテムの描画が見つかりません: id=${removal.item.id}`);
+      }
+      drawing.destroy();
+      this.initialPlacementDrawings.delete(removal.item.id);
+      this.showInitialPlacementMessage(formatInitialPlacementMessage(removal, removal.item.itemType));
+      this.refreshInitialPlacementPanel();
+      return;
+    }
+    const itemType = this.initialPlacementItemType;
+    // 初期配置UIと重なるセルは、初期配置の間だけ置けない（UI はプレイ開始で消える）。
+    const result = placeInitialItem(this.initialPlacement, itemType, cell, {
+      routes: this.routes,
+      blockedCells: [...ITEM_BLOCKED_CELLS, ...INITIAL_PLACEMENT_BLOCKED_CELLS],
+    });
+    this.showInitialPlacementMessage(formatInitialPlacementMessage(result, itemType));
+    if (!result.ok) {
+      return;
+    }
+    this.initialPlacement = result.state;
+    this.initialPlacementDrawings.set(result.item.id, drawPlacedItem(this, result.item));
+    this.refreshInitialPlacementPanel();
+  }
+
+  // 初期配置(#47)を終えてプレイを始める。配置ゼロ・残ポイントありでも始められる（残ポイントは破棄）。
+  // 順序: 配置を引き継ぐ → 初期配置UIを消す → playing にする → 押したままのポインターで主人公が動かないようにする。
+  private startPlay(): void {
+    if (this.phase !== 'setup' || this.gameOver.over) {
+      return;
+    }
+    const itemState = finishInitialPlacement(this.initialPlacement);
+    this.placedItems = itemState.placedItems;
+    this.nextItemId = itemState.nextId;
+    this.initialPlacementPanelText?.destroy();
+    this.initialPlacementPanelText = undefined;
+    this.initialPlacementStartButton?.destroy();
+    this.initialPlacementStartButton = undefined;
+    this.initialPlacementMessageText?.destroy();
+    this.initialPlacementMessageText = undefined;
+    // 初期配置で置いた主人公についてまわるアイテム（ペアプロ相棒 #58）は、購入時と同じく followItemViews で主人公に付ける。
+    this.placedItems
+      .filter((item) => isFollowItem(item.itemType))
+      .forEach((item) => {
+        const view = this.initialPlacementDrawings.get(item.id);
+        if (view === undefined) {
+          throw new Error(`初期配置のアイテムの描画が見つかりません: id=${item.id}`);
+        }
+        this.followItemViews.set(item.id, view);
+      });
+    // アイテムの描画はプレイ中も残す（撤去はもうしないので参照だけ捨てる）。
+    this.initialPlacementDrawings = new Map();
+    this.phase = 'playing';
+    this.attackPointerHeld = this.input.activePointer.isDown;
+  }
+
   // 現在の攻撃対象（フィールド上を流れているコードの一覧）を返す。
   // 命中判定（findAttackTarget）は渡された一覧だけを見る。
   private getAttackTargets(): readonly ActiveCode[] {
@@ -359,7 +593,7 @@ class MainScene extends Phaser.Scene {
   // クールダウンが明けていれば攻撃する。射程内で最も近いコード1つに命中し、空振りでもクールダウンを消費する。
   // 命中時は CODE_HIT_EVENT を発行する。後続タスクは `scene.events.on(CODE_HIT_EVENT, ...)` で接続する。
   private tryAttack(): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const player = this.player;
@@ -383,11 +617,23 @@ class MainScene extends Phaser.Scene {
     if (this.gameOver.over) {
       return;
     }
+    // 初期配置(#47)の間は時間を止める（時限効果の期限・予約した障害・時計・月の精算・コードの出現・アイテムの攻撃・愛着心・退職・大障害の判定をしない）。
+    if (this.phase === 'setup') {
+      return;
+    }
+    // 期限切れの時限効果(#58)をフレームの最初に外す。時刻はゲーム内の経過時間（elapsedMs）。
+    this.activeEffects = expireEffects(this.activeEffects, this.elapsedMs);
     // 愛着心が最低になったエンジニアは毎フレーム判定して退職させる(#32)。月次処理（advanceClock）より前に置き、退職者に給料を払わない。
     this.resignEngineers();
     const prevElapsedMs = this.elapsedMs;
     this.advanceClock(delta);
     // 月の給料で倒産したら、同じフレームの移動・コードの更新はしない。
+    if (this.gameOver.over) {
+      return;
+    }
+    // 金曜日の夕方デプロイ(#58)で予約した障害のうち、時刻が来たものを起こす。
+    this.fireScheduledIncidents();
+    // 予約した障害で倒産したら、同じフレームの移動・コードの更新はしない。
     if (this.gameOver.over) {
       return;
     }
@@ -400,7 +646,9 @@ class MainScene extends Phaser.Scene {
     // ゲーム内時計と同じ経過時間で愛着心を進める(#30、休暇中は上がり、配属中に高疲労なら下がる)。
     this.engineers = advanceEngineersAttachment(this.engineers, this.elapsedMs - prevElapsedMs);
     this.updatePlayer(delta);
+    this.moveFollowItems();
     this.updateCodes(delta);
+    this.revealCodes();
     this.updateItems(this.time.now);
   }
 
@@ -426,11 +674,13 @@ class MainScene extends Phaser.Scene {
         })
       : { x: 0, y: 0 };
     const position = { x: player.x, y: player.y };
+    // エナジードリンク(#58)の加速期・鈍化期は主人公の速度に倍率を掛ける。
+    const speed = PLAYER_SPEED * playerSpeedMultiplier(this.activeEffects, this.elapsedMs);
 
     // いずれかの移動キーが押されていればキーボード優先。方向が相殺されてゼロでもポインターには切り替えない。
     if (anyKeyDown) {
       if (keyDirection.x !== 0 || keyDirection.y !== 0) {
-        const next = clampToField(movePlayer(position, keyDirection, delta));
+        const next = clampToField(movePlayer(position, keyDirection, delta, speed));
         player.setPosition(next.x, next.y);
         this.updatePlayerFacing(player, keyDirection.x);
       }
@@ -450,7 +700,7 @@ class MainScene extends Phaser.Scene {
     if (direction.x === 0 && direction.y === 0) {
       return;
     }
-    const next = clampToField(movePlayerToward(position, target, direction, delta));
+    const next = clampToField(movePlayerToward(position, target, direction, delta, speed));
     player.setPosition(next.x, next.y);
     this.updatePlayerFacing(player, direction.x);
   }
@@ -505,7 +755,7 @@ class MainScene extends Phaser.Scene {
   // 機能開発とリファクタリングの割合を1段階寄せる(#40)。ゲームオーバー中と、両端で値が変わらないときは何もしない。
   // 次のリリースから resolveWorkTechDebt に新しい割合が使われる。
   private changeRefactoringRatio(direction: RefactoringRatioDirection): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const next = stepRefactoringRatio(this.refactoringRatio, direction);
@@ -519,7 +769,7 @@ class MainScene extends Phaser.Scene {
   // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
   // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う。
   private hire(rank: string): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const result = hireEngineer(
@@ -556,7 +806,7 @@ class MainScene extends Phaser.Scene {
 
   // 昇給・減給の対象を前・次のエンジニアに切り替える。ゲームオーバー中は何もしない。
   private selectEngineer(direction: EngineerSelectDirection): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, this.selectedEngineerId, direction);
@@ -567,7 +817,7 @@ class MainScene extends Phaser.Scene {
   // 変えた額はすぐ Engineer.salary に入り、次の月次精算（onMonthElapsed → getEngineerSalaries）から支払う。手数料はかけない（changeFunds は呼ばない）。
   // メッセージは雇用メッセージと同じ場所に出し、直前の雇用・給与メッセージは消す。
   private adjustSalary(direction: SalaryDirection): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const result = adjustEngineerSalary(this.engineers, this.selectedEngineerId, direction);
@@ -580,10 +830,69 @@ class MainScene extends Phaser.Scene {
     this.refreshSelectedEngineer();
   }
 
+  // 購入バーの現在ページの枠 slot のアイテムを買う(#58)。空の枠なら何もしない。
+  private buyItemSlot(slot: number): void {
+    const itemType = getItemOnPageSlot(ITEM_TYPES, this.itemPage, slot);
+    if (itemType === undefined) {
+      return;
+    }
+    this.buyItem(itemType);
+  }
+
+  // 購入バーのページを切り替える(#58)。ゲームオーバー中も切り替えられる（購入は buyItem が止める）。
+  private changeItemPage(direction: ItemPageDirection): void {
+    this.itemPage = stepItemPage(this.itemPage, direction, getItemPageCount(ITEM_TYPES.length));
+    this.refreshItemBar();
+  }
+
+  private refreshItemBar(): void {
+    const labels = getItemsOnPage(ITEM_TYPES, this.itemPage).map((itemType, slot) => formatItemButton(slot, itemType));
+    this.itemBar?.showPage(labels, formatItemPage(this.itemPage, getItemPageCount(ITEM_TYPES.length)));
+  }
+
+  // 仮・要確認(#53): 選択中のエンジニアに AIエージェントを付ける（付けていれば付け替える。前の種類の返金はしない）。ゲームオーバー中は何もしない。
+  // 費用は changeFunds を通して引く（倒産判定もここで動く）。月額は次の月次精算（onMonthElapsed → settleMonthBoundary）から引く。
+  // メッセージは昇給・減給と同じく雇用メッセージの場所に出し、直前の雇用・給与メッセージは消す。
+  private buyAiAgent(agentType: AiAgentType): void {
+    if (this.gameOver.over || this.phase === 'setup') {
+      return;
+    }
+    const engineerId = this.findSelectedEngineer()?.id ?? null;
+    const result = equipAiAgent(this.engineers, engineerId, agentType, {
+      funds: this.funds,
+      gameOver: this.gameOver.over,
+    });
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatAiAgentMessage(result, agentType));
+    if (!result.ok || engineerId === null) {
+      return;
+    }
+    this.engineers = [...result.engineers];
+    this.changeFunds(result.fundsAfter, 'aiAgent');
+    this.refreshSelectedEngineer();
+    const payload: AiAgentEquippedPayload = {
+      engineerId,
+      agentType,
+      price: result.price,
+      replaced: result.replaced,
+    };
+    this.events.emit(AI_AGENT_EQUIPPED_EVENT, payload);
+  }
+
   // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  // 初期配置(#47)の間は買わず、置くアイテムの種類を選ぶだけにする（購入バーのページ切り替えは changeItemPage がそのまま動く）。
+  // 置かないアイテム（placement: none #58）は useInstantItem で買って、その場で効果を発動する。
   private buyItem(itemType: ItemType): void {
+    if (this.phase === 'setup') {
+      this.selectInitialPlacementItem(itemType);
+      return;
+    }
     const player = this.player;
     if (this.gameOver.over || !player) {
+      return;
+    }
+    if (getItemPlacement(itemType) === 'none') {
+      this.useInstantItem(itemType);
       return;
     }
     const result = purchaseItem(
@@ -599,33 +908,200 @@ class MainScene extends Phaser.Scene {
     }
     this.placedItems = result.placedItems;
     this.nextItemId = result.item.id + 1;
-    drawPlacedItem(this, result.item);
+    const view = drawPlacedItem(this, result.item);
+    if (isFollowItem(result.item.itemType)) {
+      const origin = getItemOrigin(result.item, { x: player.x, y: player.y });
+      view.setPosition(origin.x, origin.y);
+      this.followItemViews.set(result.item.id, view);
+    }
     this.changeFunds(result.fundsAfter, 'item');
     const payload: ItemPlacedPayload = { item: result.item, price: result.price };
     this.events.emit(ITEM_PLACED_EVENT, payload);
   }
 
+  // 置かないアイテム(#58)を買って効果を発動する。費用は changeFunds(…, 'item') で引き、倒産したら効果は発動しない。
+  private useInstantItem(itemType: ItemType): void {
+    if (this.phase === 'setup') {
+      return;
+    }
+    const result = purchaseInstantItem(
+      { funds: this.funds, gameOver: this.gameOver.over, hasRollbackTarget: canRollback(this.lastIncident) },
+      itemType,
+    );
+    this.itemMessageText?.destroy();
+    this.itemMessageText = drawItemMessage(this, formatItemMessage(result, itemType));
+    if (!result.ok) {
+      return;
+    }
+    this.changeFunds(result.fundsAfter, 'item');
+    // 購入で倒産したら効果は発動しない（ロールバックの返金で倒産から復帰させない）。
+    if (this.gameOver.over) {
+      return;
+    }
+    this.applyInstantItemEffect(itemType);
+    const payload: ItemUsedPayload = { itemType, price: result.price };
+    this.events.emit(ITEM_USED_EVENT, payload);
+  }
+
+  // 置かないアイテム(#58)の効果。時限効果は elapsedMs から数える。
+  private applyInstantItemEffect(itemType: ItemType): void {
+    const effect = ITEM_DEFINITIONS[itemType].effect;
+    switch (effect) {
+      case 'codeFreeze':
+        this.activeEffects = startEffect(this.activeEffects, 'codeFreeze', this.elapsedMs, CODE_FREEZE_DURATION_MS);
+        return;
+      case 'specChangeStorm':
+        this.rewindAllCodes();
+        return;
+      case 'energyDrink':
+        this.activeEffects = startEnergyDrink(this.activeEffects, this.elapsedMs);
+        return;
+      case 'pizza': {
+        this.activeEffects = startEffect(this.activeEffects, 'pizza', this.elapsedMs, PIZZA_DURATION_MS);
+        const current = accumulateTechDebt(this.techDebt, PIZZA_TECH_DEBT);
+        this.changeTechDebt({ previous: this.techDebt, current, accumulated: PIZZA_TECH_DEBT, repaid: 0 }, 'pizza');
+        return;
+      }
+      case 'documentation':
+        // 買い直しても最初の購入時刻のまま（効果量は足さない）。
+        if (this.documentationPurchasedAtMs === null) {
+          this.documentationPurchasedAtMs = this.elapsedMs;
+        }
+        return;
+      case 'fridayDeploy':
+        this.changeFunds(addFunds(this.funds, FRIDAY_DEPLOY_SALES), 'sales');
+        if (rollFridayDeployIncident(Math.random)) {
+          this.scheduledIncidents = scheduleIncident(
+            this.scheduledIncidents,
+            this.elapsedMs + FRIDAY_DEPLOY_INCIDENT_DELAY_MS,
+            calculateDamage(FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS),
+          );
+        }
+        return;
+      case 'rollback': {
+        const rollback = rollbackIncident(this.funds, this.lastIncident);
+        this.lastIncident = rollback.record;
+        this.changeFunds(rollback.fundsAfter, 'rollback');
+        return;
+      }
+      case 'worksFine':
+        this.activeEffects = startEffect(this.activeEffects, 'worksFine', this.elapsedMs, WORKS_FINE_DURATION_MS);
+        return;
+      case 'attack':
+      case 'deleteRandomCode':
+      case 'reveal':
+      case 'coffee':
+      case 'seniorNote':
+        throw new Error(`置くアイテムは購入時に発動しません: ${itemType}`);
+      default: {
+        const unreachable: never = effect;
+        throw new Error(`未対応の効果: ${String(unreachable)}`);
+      }
+    }
+  }
+
+  // 仕様変更の嵐(#58): 流れているコードをすべてルートの始点に戻し、全ルートの生成タイマーを 0 にする（出現ペースのリセット）。
+  // id・種類・hp はそのまま。
+  private rewindAllCodes(): void {
+    this.codes = this.codes.map((code) => {
+      const rewound = rewindCode(code);
+      rewound.graphics.setPosition(rewound.position.x, rewound.position.y);
+      return rewound;
+    });
+    for (const route of this.routes) {
+      this.spawnElapsed.set(route.id, 0);
+    }
+  }
+
   // 置いたアイテムが、範囲内で最も近い不正なコードを自動で攻撃する。ゲームオーバー中はしない。
-  // 猫(#57)は攻撃せず、場のコードをランダムに1つ消す（deleteCodeByCat）。
+  // 猫(#57)は攻撃せず、場のコードをランダムに1つ消す（deleteCodeByCat）。攻撃しないアイテム（ラバーダックなど #58）はここでは何もしない。
+  // 攻撃間隔はアイテム別（Linter #58）。Linter は射程内に正常なコードがあると確率で発射を見送る（見送ってもクールダウンは消費する）。
   private updateItems(now: number): void {
     if (this.gameOver.over) {
       return;
     }
+    const worksFine = isEffectActive(this.activeEffects, 'worksFine', this.elapsedMs);
     this.placedItems = this.placedItems.map((item) => {
       if (isRandomDeleteItem(item.itemType)) {
         return this.deleteCodeByCat(item, now);
       }
-      if (!canItemAttack(now, item.lastAttackTime)) {
+      // CI(releaseGate) は汎用攻撃をしない。効果は updateCodes のリリース直前の減速と阻止(#55)。
+      if (getItemActivation(item.itemType) !== 'nearestTarget') {
         return item;
       }
-      const target = findItemTarget(item, this.codes);
+      // 攻撃しないアイテム（ラバーダック・コーヒーマシン・書き置きなど #58）は、それぞれの処理（revealCodes など）で効く。
+      if (!isAttackItem(item.itemType)) {
+        return item;
+      }
+      // 「動いてるからヨシ！」(#58)の間は置いたアイテムは攻撃しない（主人公の攻撃は止めない）。
+      if (worksFine) {
+        return item;
+      }
+      if (!canItemAttack(now, item.lastAttackTime, getItemAttackCooldownMs(item.itemType))) {
+        return item;
+      }
+      const origin = this.getItemOrigin(item);
+      const target = findItemTarget(item, this.codes, origin);
       if (!target) {
         return item;
       }
-      drawItemAttackEffect(this, cellCenter(item.cell), target.position);
+      if (shouldItemHesitate(item.itemType, origin, this.codes, Math.random)) {
+        return { ...item, lastAttackTime: now };
+      }
+      drawItemAttackEffect(this, origin, target.position);
       flashCode(this, target.graphics);
       this.damageMaliciousCode(target, getItemDamage(item.itemType, target.maliciousType));
+      // テストツールは撃破されずに残った不正コードを足止めする(#54)。足止め時間 0 の種別では何もしない。
+      const holdMs = getItemHoldMs(item.itemType);
+      if (holdMs > 0 && this.codeHp.has(target.id)) {
+        this.codeHold.set(target.id, applyHold(this.codeHold.get(target.id) ?? 0, holdMs));
+      }
       return { ...item, lastAttackTime: now };
+    });
+  }
+
+  // アイテムの攻撃の起点(#58)。主人公についてまわるアイテムは主人公の位置 + ずれ、それ以外は置いたセルの中心。
+  private getItemOrigin(item: PlacedItem): Point {
+    if (!isFollowItem(item.itemType)) {
+      return cellCenter(item.cell);
+    }
+    const player = this.player;
+    if (!player) {
+      throw new Error(`主人公がいないため、ついてまわるアイテムの位置を決められません: id=${item.id}`);
+    }
+    return getItemOrigin(item, { x: player.x, y: player.y });
+  }
+
+  // 主人公についてまわるアイテム（ペアプロ相棒 #58）の表示を、攻撃の起点と同じ位置へ動かす。
+  private moveFollowItems(): void {
+    for (const item of this.placedItems) {
+      const view = this.followItemViews.get(item.id);
+      if (view === undefined) {
+        continue;
+      }
+      const origin = this.getItemOrigin(item);
+      view.setPosition(origin.x, origin.y);
+    }
+  }
+
+  // ラバーダック(#58): 範囲内の不正なコードの正体を暴く。一度だけ濃い色で描き直し、その後は場から消えるまで濃いまま。
+  // hp・攻撃・損害は変えない。種別のバッジは種別があるときだけ（drawCode と同じ）。
+  private revealCodes(): void {
+    if (this.gameOver.over) {
+      return;
+    }
+    const revealIds = new Set(findCodesToReveal(this.placedItems, this.codes).map((code) => code.id));
+    if (revealIds.size === 0) {
+      return;
+    }
+    this.codes = this.codes.map((code) => {
+      if (!revealIds.has(code.id)) {
+        return code;
+      }
+      this.tweens.killTweensOf(code.graphics);
+      code.graphics.destroy();
+      const graphics = drawCode(this, code.kind, code.position, code.maliciousType, true);
+      return { ...code, revealed: true, graphics };
     });
   }
 
@@ -711,14 +1187,15 @@ class MainScene extends Phaser.Scene {
     this.codes = remaining;
   }
 
-  // 流れているコードを精算せずに消す(#32)。codes 配列からの削除は呼び出し側で行う。
+  // 流れているコードを精算せずに消す(#32)。CI の阻止(#55)の後処理でも使う。codes 配列からの削除は呼び出し側で行う。
   private discardCode(code: ActiveCode): void {
     this.codeHp.delete(code.id);
+    this.codeHold.delete(code.id);
     this.tweens.killTweensOf(code.graphics);
     code.graphics.destroy();
   }
 
-  // 月の境界ごとに給料、続けて月額アイテムの費用を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
+  // 月の境界ごとに給料、続けて月額アイテムの費用（エンジニアに付けた AIエージェント(#53)の月額を含む）を引く。給料は雇っているエンジニアそれぞれのランク別月給の合計（主人公の給料は含めない）。
   // 給料の対象は this.engineers の全員（ルート未割当・休暇中も含む）(#37)。休暇などの状態で this.engineers を絞ってから渡さない。
   private onMonthElapsed(event: MonthElapsedEvent): void {
     const { salary, itemFee } = settleMonthBoundary(
@@ -727,6 +1204,7 @@ class MainScene extends Phaser.Scene {
       getEngineerSalaries(this.engineers),
       this.placedItems,
       this.gameOver.over,
+      this.engineers,
     );
     this.changeFunds(salary.fundsAfter, 'salary');
     this.events.emit(SALARY_PAID_EVENT, salary);
@@ -749,6 +1227,8 @@ class MainScene extends Phaser.Scene {
     if (!result.triggered) {
       return;
     }
+    // 予約した障害(#58)はゲームオーバーで捨てる（リスタートでも create で空にする）。
+    this.scheduledIncidents = [];
     this.tweens.pauseAll();
     drawGameOver(this, this.score, getElapsedDays(this.elapsedMs));
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
@@ -774,10 +1254,46 @@ class MainScene extends Phaser.Scene {
     if (incident === null) {
       return;
     }
+    // 伝説のシニアの書き置き(#58): リリース地点が範囲内なら、資金を変える前に障害を防ぐ（損害・演出・INCIDENT_EVENT・直前の障害の記録なし）。
+    if (isIncidentPreventedByNote(this.placedItems)) {
+      this.itemMessageText?.destroy();
+      this.itemMessageText = drawItemMessage(this, SENIOR_NOTE_PREVENTED_MESSAGE);
+      const prevented: IncidentPreventedPayload = {
+        codeId: payload.id,
+        maliciousType: incident.maliciousType,
+        damage: incident.damage,
+      };
+      this.events.emit(INCIDENT_PREVENTED_EVENT, prevented);
+      return;
+    }
+    this.applyIncident(incident);
+  }
+
+  // 確定した障害の損害を資金から引き、演出と INCIDENT_EVENT を出す（リリースの障害・予約した障害 #58 共通）。
+  // ロールバックボタン(#58)で取り消せるよう、損害額を直前の障害として記録する（前の記録は置き換える）。
+  private applyIncident(incident: IncidentEvent): void {
+    this.lastIncident = recordIncident(incident.damage);
     this.changeFunds(incident.fundsAfter, 'damage');
     const { r, g, b } = Phaser.Display.Color.IntegerToRGB(INCIDENT_FLASH_COLOR);
     this.cameras.main.flash(INCIDENT_FLASH_DURATION_MS, r, g, b);
     this.events.emit(INCIDENT_EVENT, incident);
+  }
+
+  // 金曜日の夕方デプロイ(#58)で予約した障害のうち、elapsedMs までに時刻が来たものを予約順に起こす。書き置きでは防がない。
+  // 倒産したら残りは起こさない（予約は onFundsChanged で捨てる）。
+  private fireScheduledIncidents(): void {
+    const { due, pending } = takeDueIncidents(this.scheduledIncidents, this.elapsedMs);
+    if (due.length === 0) {
+      return;
+    }
+    this.scheduledIncidents = pending;
+    for (const scheduled of due) {
+      const incident = settleScheduledIncident(this.funds, scheduled.damage, this.gameOver);
+      if (incident === null) {
+        return;
+      }
+      this.applyIncident(incident);
+    }
   }
 
   // 技術的負債が閾値を超えたまま猶予時間を過ぎたら大障害を起こし、損害ぶん資金を減らす(#46)。
@@ -868,45 +1384,67 @@ class MainScene extends Phaser.Scene {
   // #45 技術的負債（プロダクト全体の増加。techDebtMaliciousRateModifier。負債 0 では差分 0 を加える）。
   // 負債はコード生成のたびに this.techDebt から計算する。同じフレームのリリースで負債が変わった場合は、次回の updateCodes の生成から反映される。
   // #41 リファクタリング（プロダクト全体の減少。refactoringMaliciousRateModifier）。
+  // #53 AIエージェント（担当エンジニア単位の増加。aiAgentMaliciousRateModifiers）。末尾に加える。
   // 今後の補正はこの配列に差分を追加して合成する。
   private maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[] {
     return [
       ...vacationMaliciousRateModifiers(engineer),
       techDebtMaliciousRateModifier(this.techDebt),
       refactoringMaliciousRateModifier(this.refactoringRatio),
+      ...aiAgentMaliciousRateModifiers(engineer),
+      // #58 ドキュメント（担当がジュニアのルートだけ、購入からの経過時間に応じて減少）。
+      ...documentationMaliciousRateModifiers(engineer?.rank, this.documentationPurchasedAtMs, this.elapsedMs),
     ];
   }
 
   private updateCodes(delta: number): void {
-    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートに同じ間隔を使う。
+    // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートの基準の間隔にする（AIエージェントの倍率はルートごとに掛ける）。
     // フレーム内（リリース精算など）で負債が変わっても、反映は次のフレームから。
     // 新規ルートの初期値にも同じ間隔を渡し、負債があっても最初の更新ですぐ1個生成されるようにする（既存の挙動を維持）。
-    const spawnIntervalMs = techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS);
+    // ピザ(#58)の間は全ルートの間隔に倍率を掛ける。
+    const spawnIntervalMs =
+      techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS) *
+      spawnIntervalMultiplier(this.activeEffects, this.elapsedMs);
+    // コードフリーズ(#58)の間は全ルートを休暇と同じく止める（生成・移動を止め、リリース・売上も止まる。ゲーム内時計は進める）。
+    const frozen = isEffectActive(this.activeEffects, 'codeFreeze', this.elapsedMs);
     for (const route of this.routes) {
       // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
       const engineer = findEngineerByRoute(this.engineers, route.id);
-      // 担当者の休暇中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
-      // 生成間隔は技術的負債で延びた実効間隔(#44)を使う。
+      // コーヒーマシン(#58): 出現場所（担当エンジニアの席）を範囲に含む台数で、このルートの間隔に倍率を掛ける。
+      const coffeeIntervalMs =
+        spawnIntervalMs *
+        coffeeSpawnIntervalMultiplier(countItemsCovering(this.placedItems, 'coffee', cellCenter(route.spawn)));
+      // 生成間隔は技術的負債で延びた実効間隔(#44)にアイテムの倍率(#58)を掛け、さらに担当者の AIエージェント(#53)の倍率を掛けた値を使う（ルートごと）。
+      const routeSpawnIntervalMs = aiAgentSpawnIntervalMs(engineer, coffeeIntervalMs);
+      // 担当者の休暇中・コードフリーズ(#58)中は生成タイマーを止める(#36)。解除後は止めた時点の経過時間から再開する。
       const step = stepSpawnTimerUnlessPaused(
-        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(spawnIntervalMs),
+        this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(routeSpawnIntervalMs),
         delta,
-        spawnIntervalMs,
-        isAssigneeOnVacation(engineer),
+        routeSpawnIntervalMs,
+        isAssigneeOnVacation(engineer) || frozen,
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
         // 担当エンジニアのランクに応じた割合(#12)に補正(#13)を加える。担当者がいないルートは既定の割合を使う。
         const rank = engineer?.rank;
         const rate = effectiveMaliciousRate(rank, this.elapsedMs, this.maliciousRateModifiersFor(engineer));
-        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, rate), route);
+        // 不正なコードには種別を抽選して付ける(#56)。HP初期化・描画・アイテムの得意判定で同じ種別を使う。
+        const kind = pickCodeKind(Math.random, rate);
+        const maliciousType = kind === 'malicious' ? pickMaliciousType(Math.random) : undefined;
+        const code = spawnCode(this.nextCodeId++, kind, route, maliciousType);
         if (code.kind === 'malicious') {
-          this.codeHp.set(code.id, getInitialHp());
+          this.codeHp.set(code.id, getInitialHp(code.maliciousType));
         }
-        this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position) });
+        this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position, code.maliciousType) });
       }
     }
 
-    const distance = (codeSpeedAt(this.elapsedMs) * delta) / 1000;
+    const speed = codeSpeedAt(this.elapsedMs);
+    // 「動いてるからヨシ！」(#58)の間はコードの移動距離に倍率を掛ける。
+    const worksFineMultiplier = codeMoveMultiplier(this.activeEffects, this.elapsedMs);
+    // CI(#55): 置いていればリリース地点までの残り距離がゾーン長以下の部分を減速する。複数あっても重ねがけしない。
+    const ciActive = hasActiveCi(this.placedItems);
+    const ciZoneLength = getItemRange('ci');
     const flowing: ActiveCode[] = [];
     for (const [index, active] of this.codes.entries()) {
       // 同じフレームで倒産したら、残りのコードは処理せず流れたままにする（追加の損害を出さない）。
@@ -914,8 +1452,15 @@ class MainScene extends Phaser.Scene {
         flowing.push(...this.codes.slice(index));
         break;
       }
-      // 担当者の休暇中はそのルートのコードを進めない(#36)。流れたまま残るので攻撃はできる。
-      const moved = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId));
+      // テストツールの足止め中(#54)は、足止めが切れたあとの時間だけ進む。足止めのないコードは delta のまま。
+      const movableMs = this.advanceCodeHold(active.id, delta);
+      const distance = ((speed * movableMs) / 1000) * worksFineMultiplier;
+      // 担当者の休暇中・コードフリーズ(#58)中はそのルートのコードを進めない(#36)。流れたまま残るので攻撃はできる。
+      const unslowed = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId) || frozen);
+      // CI の減速(#55)。休暇中の 0 は 0 のまま。正常・不正どちらのコードにも効く。
+      const moved = ciActive
+        ? ciSlowedDistance(remainingPathDistance(active), unslowed, ciZoneLength, CI_SLOW_MULTIPLIER)
+        : unslowed;
       const next: ActiveCode = { ...advanceCode(active, moved), graphics: active.graphics };
       // hp を持つのは不正なコードだけ。正常なコードは撃破されない。
       const hp = this.codeHp.get(next.id);
@@ -923,8 +1468,20 @@ class MainScene extends Phaser.Scene {
       if (fate === 'defeated') {
         continue;
       }
+      // 判定順は 撃破 → CI の阻止(#55) → リリース。阻止は撃破として扱い、リリース・資金・障害・売上は発生させない。
+      const interceptor =
+        fate === 'released' ? rollCiInterception(this.placedItems, next, Math.random, CI_INTERCEPT_RATE) : null;
+      if (interceptor !== null) {
+        drawItemAttackEffect(this, cellCenter(interceptor.cell), next.position);
+        this.discardCode(next);
+        drawDefeatEffect(this, next.position);
+        const defeatedPayload: CodeDefeatedPayload = { id: next.id, routeId: next.routeId };
+        this.events.emit(CODE_DEFEATED_EVENT, defeatedPayload);
+        continue;
+      }
       if (fate === 'released') {
         this.codeHp.delete(next.id);
+        this.codeHold.delete(next.id);
         next.graphics.destroy();
         const payload: CodeReleasedPayload = {
           id: next.id,
@@ -939,6 +1496,21 @@ class MainScene extends Phaser.Scene {
       }
     }
     this.codes = flowing;
+  }
+
+  // コードの足止め(#54)を1フレーム進め、このフレームで移動に使える時間を返す。足止めが切れたら記録を消す。
+  private advanceCodeHold(codeId: number, delta: number): number {
+    const remainingMs = this.codeHold.get(codeId);
+    if (remainingMs === undefined) {
+      return delta;
+    }
+    const step = advanceHold(remainingMs, delta);
+    if (step.remainingMs > 0) {
+      this.codeHold.set(codeId, step.remainingMs);
+    } else {
+      this.codeHold.delete(codeId);
+    }
+    return step.movableMs;
   }
 
   // エンジニアが増えたときに出現場所とルートを追加して描画する。上限などで追加できなければ undefined。
@@ -965,7 +1537,7 @@ class MainScene extends Phaser.Scene {
   // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
   // 休暇中は担当エンジニアの愛着心が時間経過で上がる(#30、update の advanceEngineersAttachment が onVacation から反映)。
   private toggleVacation(routeId: number): void {
-    if (this.gameOver.over) {
+    if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
     const engineer = findEngineerByRoute(this.engineers, routeId);

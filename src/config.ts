@@ -279,7 +279,9 @@ export const MALICIOUS_CODE_PARAMS = {
   typo: { badgeColor: 0xec407a, badgeRadiusRatio: 0.18, hp: 1, damage: 3 },
 } as const;
 
-// 仮: 種類（#10）が未割り当ての不正なコードの hp。種類のランダム割り当ては未決定のため、当面は全員これを使う。企画書には未記載。
+// 仮・要確認(#56): 通常生成の不正なコードには、上の9種類から一様抽選で種類を割り当てる（maliciousCode.ts の pickMaliciousType）。
+// 種類ごとの出現割合と導入順（ゲーム序盤から全種類を出すか）は企画書で未決定。決まったら抽選を差し替える。
+// 仮: 種類（#10）が未割り当ての不正なコードの hp。通常生成では種類を割り当てるため、種類なしで生成したときだけ使う。企画書には未記載。
 export const DEFAULT_MALICIOUS_CODE_HP = 3;
 // 仮: 攻撃1回（1ヒット）あたりのダメージ。企画書には未記載。
 export const ATTACK_DAMAGE = 1;
@@ -508,6 +510,36 @@ export const SALARY_UI_POSITION = {
 } as const;
 export const SALARY_BUTTON_SIZE = { width: 80, height: 28, gap: 8 } as const;
 export const SALARY_BUTTON_FONT_SIZE = '14px';
+// 仮・要確認(#53): AIコーディングエージェント（強い・普通・安い）。企画書(8)は「エンジニアに付けて出力ペースを上げる」「普通は強いより、安いは最も不正なコードを混ぜやすい」
+// 「価格は高い・普通・安い」「月額」とだけで、具体的な数値・操作は未記載。以下はすべて仮の値。
+// 価格の段階（ITEM_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
+export const AI_AGENT_PRICE_TIER_BY_TYPE = { strong: 'expensive', normal: 'normal', cheap: 'cheap' } as const;
+// 仮・要確認(#53): 装着中のエンジニアが担当するルートのコード生成間隔に掛ける倍率。0.5 なら間隔が半分（出力ペース2倍）。
+// 企画書は3種とも「出力ペースを上げる」とだけで差の記載がないため、全種同じ値にする。0 以下・有限でない値は 1（効果なし）として扱う。
+export const AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE = { strong: 0.5, normal: 0.5, cheap: 0.5 } as const;
+// 仮・要確認(#53): 装着中のエンジニアの不正コード率に加える差分（0〜1 のパーセントポイント。0.05 で +5 ポイント）。
+// 強い=0（増えない）、普通=+5、安い=+10 ポイント（「強いより混ぜやすい」「最も混ぜやすい」の順）。[CODE_MALICIOUS_RATE_MIN, 1] への制限は effectiveMaliciousRate に任せる。
+export const AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE = { strong: 0, normal: 0.05, cheap: 0.1 } as const;
+// 仮・要確認(#53): 倍率を掛けた後のコード生成間隔の下限（ミリ秒）。倍率の調整で生成が速くなりすぎないようにする。
+export const CODE_SPAWN_INTERVAL_MIN_MS = 500;
+// 仮・要確認(#53): ボタン・メッセージ・選択中のエンジニアの情報行に使う短い名前。
+export const AI_AGENT_SHORT_NAMES = { strong: '強い', normal: '普通', cheap: '安い' } as const;
+// 仮・要確認(#53): 選択中のエンジニアの情報行で、AIエージェントを付けていないときの表示。
+export const AI_AGENT_NONE_LABEL = 'なし';
+// 仮・要確認(#53): AIエージェントを選択中のエンジニアに付けるキー（strong / normal / cheap）。Phaser の KeyCodes のキー名。
+// 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給(Q/E/R/F)・割合UI(Z/X)と重ならない。
+export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as const;
+// 仮・要確認(#53): AIエージェントのボタンの並び順（左から）。
+export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
+// 仮・要確認(#53): AIエージェントのボタンの配置。昇給・減給ボタン（y=238〜266）の下に間隔 4px をあけて並べる（y=270〜298、x=72〜416）。
+// 右端は昇給・減給ボタンと同じ 416 で、アイテムを置けないセル（行1〜4 × col 1〜6）に収まる。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+const AI_AGENT_UI_GAP_Y = 4;
+export const AI_AGENT_UI_POSITION = {
+  x: SALARY_UI_POSITION.x,
+  y: SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height + AI_AGENT_UI_GAP_Y,
+} as const;
+export const AI_AGENT_BUTTON_SIZE = { width: 112, height: 28, gap: 4 } as const;
+export const AI_AGENT_BUTTON_FONT_SIZE = '12px';
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
@@ -552,7 +584,7 @@ export const ITEM_STRONG_AGAINST_MULTIPLIER = 2;
 // 仮・要確認(#48): 企画書(8)は「リリースで稼いだポイントでプレイ中にアイテムを追加できる」とだけで、通貨・操作・置ける場所は未記載。以下はすべて仮の値。
 // 通貨: 別のポイントは作らず資金(funds)で買う。正常コードのリリースは売上として資金に入り(#17)、スコアも累計売上(#22)で、別通貨が存在しないため。
 // 価格の段階(円)。企画書の「安い・普通・高い」に対応。1回の購入額。月額払いの毎月の引き落としは #51。
-export const ITEM_PRICE_TIERS = { cheap: 50000, normal: 100000, expensive: 200000 } as const;
+export const ITEM_PRICE_TIERS = { cheap: 25000, normal: 50000, expensive: 100000 } as const;
 // アイテムごとの価格の段階（企画書 8 の価格列）。
 export const ITEM_PRICE_TIER_BY_TYPE = {
   codeRabbit: 'expensive',
@@ -562,6 +594,18 @@ export const ITEM_PRICE_TIER_BY_TYPE = {
   securityScanner: 'expensive',
   pairProgrammer: 'normal',
   cat: 'cheap',
+  // 仮・要確認(#58): 以下 11 個は企画書 8 の価格列（安い・普通・高い）どおり。
+  rubberDuck: 'cheap',
+  codeFreeze: 'normal',
+  specChangeStorm: 'normal',
+  coffeeMachine: 'cheap',
+  energyDrink: 'cheap',
+  pizza: 'cheap',
+  documentation: 'normal',
+  fridayDeploy: 'cheap',
+  rollbackButton: 'expensive',
+  worksFine: 'cheap',
+  seniorNote: 'expensive',
 } as const;
 // 仮・要確認(#48): アイテムを置けない行（UI と重なる行）。上端=雇うボタン・HUD、下端=アイテム購入ボタン。
 export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
@@ -577,12 +621,22 @@ const salaryUiRight =
   SALARY_UI_POSITION.x +
   SALARY_BUTTON_ORDER.length * SALARY_BUTTON_SIZE.width +
   (SALARY_BUTTON_ORDER.length - 1) * SALARY_BUTTON_SIZE.gap;
+// 仮・要確認(#53): AIエージェントのボタン（y=270〜298、x=72〜416）も範囲の計算に含める（今の値では行1〜4 × col 1〜6 のまま）。
+const aiAgentUiRight =
+  AI_AGENT_UI_POSITION.x +
+  AI_AGENT_BUTTON_ORDER.length * AI_AGENT_BUTTON_SIZE.width +
+  (AI_AGENT_BUTTON_ORDER.length - 1) * AI_AGENT_BUTTON_SIZE.gap;
 const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
-const itemHudMaxCol = Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight) / CELL_SIZE) - 1;
+const itemHudMaxCol =
+  Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight, aiAgentUiRight) / CELL_SIZE) - 1;
 const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
 const itemHudMaxRow =
   Math.ceil(
-    Math.max(TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT, SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height) / CELL_SIZE,
+    Math.max(
+      TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT,
+      SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height,
+      AI_AGENT_UI_POSITION.y + AI_AGENT_BUTTON_SIZE.height,
+    ) / CELL_SIZE,
   ) - 1;
 export const ITEM_BLOCKED_CELLS = Array.from(
   { length: itemHudMaxRow - itemHudMinRow + 1 },
@@ -590,11 +644,19 @@ export const ITEM_BLOCKED_CELLS = Array.from(
 ).flatMap((row) =>
   Array.from({ length: itemHudMaxCol - itemHudMinCol + 1 }, (_, c) => ({ col: itemHudMinCol + c, row })),
 );
-// 仮・要確認(#48): アイテム購入キー（ITEM_TYPES の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・昇給・減給(Q/E/R/F)・リスタートと重ならない。Phaser の KeyCodes のキー名。
-// 仮・要確認(#57): 猫は 9 の次の数字キー 0。
-export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'ZERO'] as const;
+// 仮・要確認(#48): アイテム購入キー（購入バーの現在ページの枠の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・昇給・減給(Q/E/R/F)・リスタートと重ならない。Phaser の KeyCodes のキー名。
+// 仮・要確認(#58): アイテムが 18 個になったため、購入バーをページ切替式にした。キー 4〜9 は現在ページの 1〜6 枠目を買う（#57 の猫のキー 0 は廃止）。
+export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
 // 購入ボタンに表示するキーの文字（ITEM_BUY_KEYS と同じ順序）。
-export const ITEM_BUY_KEY_LABELS = ['4', '5', '6', '7', '8', '9', '0'] as const;
+export const ITEM_BUY_KEY_LABELS = ['4', '5', '6', '7', '8', '9'] as const;
+// 仮・要確認(#58): 購入バー1ページの枠数。購入キーの数と同じ。
+export const ITEM_PAGE_SIZE = ITEM_BUY_KEYS.length;
+// 仮・要確認(#58): 購入バーのページ切替キー（前のページ・次のページ）。他の操作キーと重ならない。端では反対側の端へ回り込む。
+export const ITEM_PAGE_KEYS = { previous: 'G', next: 'H' } as const;
+export const ITEM_PAGE_BUTTON_LABELS = {
+  previous: `◀${ITEM_PAGE_KEYS.previous}`,
+  next: `${ITEM_PAGE_KEYS.next}▶`,
+} as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
 export const ITEM_SHORT_NAMES = {
   codeRabbit: 'CodeRabbit',
@@ -604,6 +666,17 @@ export const ITEM_SHORT_NAMES = {
   securityScanner: 'Scanner',
   pairProgrammer: 'Pair',
   cat: 'Cat',
+  rubberDuck: 'Duck',
+  codeFreeze: 'Freeze',
+  specChangeStorm: 'SpecStorm',
+  coffeeMachine: 'Coffee',
+  energyDrink: 'Energy',
+  pizza: 'Pizza',
+  documentation: 'Docs',
+  fridayDeploy: 'FriDeploy',
+  rollbackButton: 'Rollback',
+  worksFine: 'Yoshi!',
+  seniorNote: 'Senior',
 } as const;
 export const ITEM_MARKS = {
   codeRabbit: 'CR',
@@ -613,9 +686,24 @@ export const ITEM_MARKS = {
   securityScanner: 'Sec',
   pairProgrammer: 'Pair',
   cat: 'Cat',
+  // 仮・要確認(#58): フィールドに置くのはラバーダック・コーヒーマシン・書き置きだけ。他は購入時に発動して置かないが、表の形を揃えるために持つ。
+  rubberDuck: 'Duck',
+  codeFreeze: 'Frz',
+  specChangeStorm: 'Spec',
+  coffeeMachine: 'Cof',
+  energyDrink: 'Enr',
+  pizza: 'Piz',
+  documentation: 'Doc',
+  fridayDeploy: 'Fri',
+  rollbackButton: 'RB',
+  worksFine: 'Yoshi',
+  seniorNote: 'Note',
 } as const;
 // 仮・要確認(#48): アイテムの攻撃間隔（ミリ秒）。全アイテム共通。置いた直後はクールダウンなしで攻撃できる。
 export const ITEM_ATTACK_COOLDOWN_MS = 1000;
+// 仮・要確認(#54): テストツールが攻撃した不正コードを足止めする時間（ミリ秒）。企画書(8)は「足止め」とだけで、時間は未定。
+// ITEM_ATTACK_COOLDOWN_MS より短くし、テストツール1つで同じコードを止め続けられないようにする（次の攻撃までに必ず少し動く）。
+export const TEST_TOOL_HOLD_MS = 500;
 // 仮・要確認(#57): 猫がコードを1つ消す間隔（ミリ秒）。企画書は「ランダムで消す」だけで間隔は未記載。
 // 正常なコードも消して売上を減らすため、攻撃間隔(ITEM_ATTACK_COOLDOWN_MS)より長くする。置いた直後は待たずに消せる。
 export const CAT_DELETE_INTERVAL_MS = 5000;
@@ -629,6 +717,18 @@ export const ITEM_COLORS = {
   securityScanner: 0xe53935,
   pairProgrammer: 0xfdd835,
   cat: 0x8d6e63,
+  // 仮・要確認(#58)
+  rubberDuck: 0xffeb3b,
+  codeFreeze: 0x81d4fa,
+  specChangeStorm: 0xab47bc,
+  coffeeMachine: 0x6d4c41,
+  energyDrink: 0x76ff03,
+  pizza: 0xff7043,
+  documentation: 0xeceff1,
+  fridayDeploy: 0xf06292,
+  rollbackButton: 0x26a69a,
+  worksFine: 0x9ccc65,
+  seniorNote: 0xbcaaa4,
 } as const;
 export const ITEM_MARK_STYLE = { fontSize: '14px', color: '#ffffff', strokeColor: '#000000', strokeThickness: 3 } as const;
 // 仮・要確認(#48): アイテムの攻撃演出（アイテムから対象への線）の色・太さ・表示時間（ミリ秒）。
@@ -637,8 +737,12 @@ export const ITEM_ATTACK_LINE = { color: 0xffffff, width: 3, durationMs: 150 } a
 // 仮・要確認(#35): 左端 x は出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右端。出現場所は列0の行0〜8のどこにでも出るため、
 // 行8の出現場所・休暇マーカー（当たり判定 x=14〜46）と重ならないようにする。
 // 仮・要確認(#57): 猫で7個になったため幅を 146→124 に縮め、7個で x=60〜952 とフィールド幅960に収める。
+// 仮・要確認(#58): ページ切替式にしたため1ページは6枠（x=60〜824）。幅は #57 の 124 のまま。
 export const ITEM_UI_POSITION = { x: CELL_SIZE * (ENGINEER_SPAWN_COL + 1), y: FIELD_ROWS * CELL_SIZE - 34 } as const;
 export const ITEM_BUTTON_SIZE = { width: 124, height: 28, gap: 4 } as const;
+// 仮・要確認(#58): ページ切替UI。6枠目の右（x=828）から [前のページ][ページ表示][次のページ] を並べる。高さは購入ボタンと同じ。
+// 右端は 828 + 40 × 3 + 4 × 2 = 956 でフィールド幅960に収まる。
+export const ITEM_PAGE_UI_SIZE = { width: 40, gap: 4 } as const;
 export const ITEM_BUTTON_COLORS = { fill: 0x1e3a2a, stroke: 0x6cff9c, text: '#ffffff' } as const;
 // 仮・要確認(#48): 購入ボタンの背景の不透明度。下端の行を流れるコードがボタン越しに見えるよう半透明にする。
 export const ITEM_BUTTON_FILL_ALPHA = 0.7;
@@ -730,3 +834,138 @@ export const RELEASE_BURST = {
   particleDistance: 36,
   durationMs: 450,
 } as const;
+
+// 仮・要確認(#47): 企画書(8)は「ステージポイントによる初期配置」とだけで、ポイントの初期値・コスト・返却・持ち越し・開始条件は未記載。以下はすべて仮の値（要調整。一次資料に定義なし）。
+// 仮の規則: ステージポイントは資金(funds)とは別の単位で、プレイ開始前（初期配置フェーズ）にだけ使う。資金は変えない。
+// 配置済みのセルをもう一度押すと撤去して、そのコストを全額返す。配置ゼロ・残ポイントありでも開始でき、残ポイントは開始時に破棄する（持ち越さない）。
+// 再開始（倒産後のリスタート）では毎回 STAGE_POINTS_INITIAL・配置なしから始める。月額アイテムの月額費用は、プレイ中に買ったものと同じく資金から引く(#51)。
+// 仮・要確認(#47): ステージ開始時のステージポイント。
+export const STAGE_POINTS_INITIAL = 6;
+// 仮・要確認(#47): 価格の段階（ITEM_PRICE_TIER_BY_TYPE）ごとの配置コスト（ステージポイント）。安い < 普通 < 高い の順を保つ。
+export const STAGE_POINT_COST_BY_TIER = { cheap: 1, normal: 2, expensive: 3 } as const;
+// 仮・要確認(#47): 初期配置を終えてプレイを始めるキー。Phaser の KeyCodes のキー名。
+// 移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・アイテム(4〜9・ページ G/H)・AIエージェント(V/B/N)・昇給減給(Q/E/R/F)・割合(Z/X)と重ならない。
+// リスタート(ENTER/SPACE)と同じ ENTER だが、リスタートはゲームオーバー中だけ、開始は初期配置フェーズ中だけ動くため衝突しない。
+export const INITIAL_PLACEMENT_START_KEYS = ['ENTER'] as const;
+// 仮・要確認(#47): 初期配置UI（残ポイント・選択中のアイテム・操作説明のパネル、開始ボタン、メッセージ）の配置。
+// 右上の行1〜3（col 11〜15、x=660〜960・y=60〜240）に置く。行0の雇用UI（人数・メッセージは y≦約67）の下、
+// HUD（x≦約576）・昇給減給パネル（x≦416）の右、選択中のエンジニアの情報行（y≧208。AIエージェントの表示 #53 で右へ伸びる）の上、リリース地点（行4）の上。重なるセルは初期配置フェーズの間だけ置けない（INITIAL_PLACEMENT_BLOCKED_CELLS）。
+const INITIAL_PLACEMENT_UI_LEFT_COL = 11;
+const INITIAL_PLACEMENT_UI_MARGIN = 8;
+export const INITIAL_PLACEMENT_PANEL_POSITION = {
+  x: CELL_SIZE * INITIAL_PLACEMENT_UI_LEFT_COL + INITIAL_PLACEMENT_UI_MARGIN,
+  y: 68,
+} as const;
+// 仮・要確認(#47): パネル・開始ボタン・メッセージの文字サイズと行の間隔（ピクセル）。パネルは4行（残ポイント・選択中・操作説明2行）。
+// 1行の高さは 文字サイズ × 1.25（縁取りを含めた余裕）を切り上げ + 行の間隔 = 20px として範囲を見積もる。
+export const INITIAL_PLACEMENT_FONT_SIZE = '14px';
+// 行の間隔は 2px。選択中のエンジニアの情報行（y=208〜、AIエージェントの表示 #53 で右へ長くなった）と重ならないよう、メッセージの下端を y=208 に収める。
+export const INITIAL_PLACEMENT_LINE_SPACING = 2;
+export const INITIAL_PLACEMENT_PANEL_LINES = 4;
+const INITIAL_PLACEMENT_LINE_HEIGHT_RATIO = 1.25;
+export const INITIAL_PLACEMENT_LINE_HEIGHT =
+  Math.ceil(parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10) * INITIAL_PLACEMENT_LINE_HEIGHT_RATIO) + INITIAL_PLACEMENT_LINE_SPACING;
+// 仮・要確認(#47): パネル・開始ボタン・メッセージの間の縦の余白（ピクセル）。
+const INITIAL_PLACEMENT_UI_GAP = 6;
+// 仮・要確認(#47): パネルの文言。
+export const INITIAL_PLACEMENT_TEXT = {
+  title: '初期配置',
+  points: '残りポイント: ',
+  pointUnit: 'pt',
+  selected: '選択: ',
+  instructionSelect: '[4〜9]/下のボタンで選択',
+  instructionPlace: 'クリックで配置・撤去',
+  startButton: '[ENTER] プレイ開始',
+} as const;
+// 仮・要確認(#47): 開始ボタンの位置・大きさ（パネルの下、y=154〜182）。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+export const INITIAL_PLACEMENT_START_BUTTON_SIZE = { width: 200, height: 28 } as const;
+export const INITIAL_PLACEMENT_START_BUTTON_POSITION = {
+  x: INITIAL_PLACEMENT_PANEL_POSITION.x,
+  y: INITIAL_PLACEMENT_PANEL_POSITION.y + INITIAL_PLACEMENT_PANEL_LINES * INITIAL_PLACEMENT_LINE_HEIGHT + INITIAL_PLACEMENT_UI_GAP,
+} as const;
+// 仮・要確認(#47): 初期配置の結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。開始ボタンの下（y=188〜208）。
+export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
+  x: INITIAL_PLACEMENT_PANEL_POSITION.x,
+  y: INITIAL_PLACEMENT_START_BUTTON_POSITION.y + INITIAL_PLACEMENT_START_BUTTON_SIZE.height + INITIAL_PLACEMENT_UI_GAP,
+} as const;
+export const INITIAL_PLACEMENT_MESSAGE_COLOR = ITEM_MESSAGE_COLOR;
+export const INITIAL_PLACEMENT_MESSAGE_DURATION_MS = ITEM_MESSAGE_DURATION_MS;
+// 仮・要確認(#47): 初期配置UIが占める範囲の右端・下端（ピクセル）。右端はフィールド右端から余白を引いた位置、
+// 下端はメッセージ（1行）の下端。
+const INITIAL_PLACEMENT_UI_RIGHT = FIELD_COLS * CELL_SIZE - INITIAL_PLACEMENT_UI_MARGIN;
+const INITIAL_PLACEMENT_UI_BOTTOM = INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT;
+export const INITIAL_PLACEMENT_UI_BOUNDS = {
+  x: INITIAL_PLACEMENT_PANEL_POSITION.x,
+  y: INITIAL_PLACEMENT_PANEL_POSITION.y,
+  width: INITIAL_PLACEMENT_UI_RIGHT - INITIAL_PLACEMENT_PANEL_POSITION.x,
+  height: INITIAL_PLACEMENT_UI_BOTTOM - INITIAL_PLACEMENT_PANEL_POSITION.y,
+} as const;
+// 仮・要確認(#47): 初期配置フェーズの間だけ置けないセル（初期配置UIと重なるセル）。ITEM_BLOCKED_CELLS と同じ計算方法
+// （右端・下端ちょうどがセル境界なら次のセルは含めない）。プレイ開始で UI を消すので、プレイ中の購入では置ける。
+const initialPlacementMinCol = Math.floor(INITIAL_PLACEMENT_UI_BOUNDS.x / CELL_SIZE);
+const initialPlacementMaxCol = Math.ceil(INITIAL_PLACEMENT_UI_RIGHT / CELL_SIZE) - 1;
+const initialPlacementMinRow = Math.floor(INITIAL_PLACEMENT_UI_BOUNDS.y / CELL_SIZE);
+const initialPlacementMaxRow = Math.ceil(INITIAL_PLACEMENT_UI_BOTTOM / CELL_SIZE) - 1;
+export const INITIAL_PLACEMENT_BLOCKED_CELLS = Array.from(
+  { length: initialPlacementMaxRow - initialPlacementMinRow + 1 },
+  (_, r) => initialPlacementMinRow + r,
+).flatMap((row) =>
+  Array.from({ length: initialPlacementMaxCol - initialPlacementMinCol + 1 }, (_, c) => ({
+    col: initialPlacementMinCol + c,
+    row,
+  })),
+);
+
+// 仮・要確認(#58): 企画書(8)の「その他のアイテム」の効果の数値は未定。以下はすべて仮の値（試作で調整する）。
+// 時限効果の時刻はゲーム内の経過ミリ秒（elapsedMs）で測る。同じ効果を重ねて買っても効果量は足さず、残り時間だけ延ばす（買い直した時点から数え直す）。
+// 仮・要確認(#58): 静的解析ツール（Linter）の攻撃間隔（ミリ秒）。企画書「連射が速い」より、共通の ITEM_ATTACK_COOLDOWN_MS より短くする。
+export const LINTER_ATTACK_COOLDOWN_MS = 400;
+// 仮・要確認(#58): Linter の射程内に正常なコードがあるとき、発射を見送る確率（企画書「怪しい見た目の正常コードに反応しかけて、ときどき止まる」）。
+// 見送ってもクールダウンは消費する。正常なコードは攻撃しない。
+export const LINTER_HESITATION_PROBABILITY = 0.3;
+// 仮・要確認(#58): ペアプロ相棒が主人公についてまわるときの、主人公の中心からのずれ（ピクセル）。攻撃の起点もこの位置。
+export const PAIR_PROGRAMMER_FOLLOW_OFFSET = { x: CELL_SIZE * 0.6, y: -CELL_SIZE * 0.6 } as const;
+// 仮・要確認(#58): ラバーダックで正体がバレた不正なコードの見た目。塗りと枠を濃い色にする。
+export const REVEALED_CODE_STYLE = { fillColor: 0x8b0000, strokeColor: 0x3d0000 } as const;
+// ゲーム内1日のミリ秒（gameTime.ts の MS_PER_GAME_DAY と同じ計算。config は gameTime を読み込めないためここで求める）。
+const GAME_DAY_MS = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH;
+// 仮・要確認(#58): コードフリーズの継続時間（ミリ秒）。ゲーム内5日。
+export const CODE_FREEZE_DURATION_MS = GAME_DAY_MS * 5;
+// 仮・要確認(#58): コーヒーマシン。範囲内（担当ルートの出現場所が範囲内のエンジニア）の台数がクラッシュ閾値以下なら生成間隔に BOOST を掛け、
+// 閾値を超えるとカフェイン切れで CRASH を掛ける。台数が 0 なら掛けない。
+export const COFFEE_SPAWN_INTERVAL_BOOST_MULTIPLIER = 0.75;
+export const COFFEE_SPAWN_INTERVAL_CRASH_MULTIPLIER = 1.5;
+export const COFFEE_CRASH_THRESHOLD = 2;
+// 仮・要確認(#58): エナジードリンク。購入から BOOST の時間は主人公の速度に BOOST 倍率、その後 SLUMP の時間は SLUMP 倍率を掛ける。
+export const ENERGY_DRINK_BOOST_DURATION_MS = GAME_DAY_MS * 3;
+export const ENERGY_DRINK_BOOST_SPEED_MULTIPLIER = 2;
+export const ENERGY_DRINK_SLUMP_DURATION_MS = GAME_DAY_MS * 5;
+export const ENERGY_DRINK_SLUMP_SPEED_MULTIPLIER = 0.5;
+// 仮・要確認(#58): ピザ。継続時間の間、全ルートの生成間隔に倍率を掛ける（ペースが上がる）。購入時に技術的負債を少し溜める。
+export const PIZZA_DURATION_MS = GAME_DAY_MS * 10;
+export const PIZZA_SPAWN_INTERVAL_MULTIPLIER = 0.7;
+export const PIZZA_TECH_DEBT = 5;
+// 仮・要確認(#58): ドキュメント。最初に買った時点から、担当がジュニアのルートの不正コード率をゲーム内1か月あたり PER_MONTH ずつ下げ、MAX で止める。
+// 買い直しても購入時刻は最初のまま（効果量は足さない）。
+export const DOCUMENTATION_RATE_REDUCTION_PER_MONTH = 0.05;
+export const DOCUMENTATION_RATE_REDUCTION_MAX = 0.15;
+// 仮・要確認(#58): ドキュメントが効く担当エンジニアのランク（企画書「ジュニアの不正コード率が少しずつ下がる」）。ENGINEER_RANKS の id。
+export const DOCUMENTATION_TARGET_RANK = 'junior';
+// 仮・要確認(#58): 金曜日の夕方デプロイ。購入時に売上を入れ、PROBABILITY の確率で DELAY 後（週末）に大障害を起こす。
+export const FRIDAY_DEPLOY_SALES = 400000;
+export const FRIDAY_DEPLOY_INCIDENT_PROBABILITY = 0.7;
+export const FRIDAY_DEPLOY_INCIDENT_DELAY_MS = GAME_DAY_MS * 2;
+// 仮・要確認(#58): 金曜デプロイの大障害の損害ポイント。損害額 = この値 × INCIDENT_DAMAGE_UNIT_YEN。
+export const FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS = 50;
+// 仮・要確認(#58): 「動いてるからヨシ！」。継続時間の間、コードの移動距離に倍率を掛け、置いたアイテムは攻撃しない（主人公の攻撃は止めない）。
+export const WORKS_FINE_DURATION_MS = GAME_DAY_MS * 5;
+export const WORKS_FINE_CODE_SPEED_MULTIPLIER = 2;
+// 仮・要確認(#58): 伝説のシニアの書き置きで障害を防いだときのメッセージ。
+export const SENIOR_NOTE_PREVENTED_MESSAGE = '書き置きのおかげで障害を防いだ（中身は誰も読めない）';
+
+// 仮・要確認(#55): 企画書(8)は CI を「リリース直前で不正なコードを確率で止める・減速させる」とだけで、数値は未定。以下はすべて仮の値。
+// 効果範囲の長さは CI の範囲（getItemRange('ci')、近距離）を、リリース地点までの経路の残り距離として使う。
+// 基本の阻止確率（0〜1）。CI 1個ごとに独立に判定する。得意な種類（bug・lowPerformance）は ITEM_STRONG_AGAINST_MULTIPLIER 倍（上限 1）。
+export const CI_INTERCEPT_RATE = 0.4;
+// 効果範囲内の移動速度の倍率（0〜1）。正常・不正どちらのコードにも効く。CI が複数あっても重ねがけしない。
+export const CI_SLOW_MULTIPLIER = 0.8;
