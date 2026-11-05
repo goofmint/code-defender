@@ -4,6 +4,7 @@ import {
   ITEM_POWER_DAMAGE,
   ITEM_RANGE_RATIOS,
   ITEM_STRONG_AGAINST_MULTIPLIER,
+  LINTER_ATTACK_COOLDOWN_MS,
 } from './config';
 import {
   calculateItemDamage,
@@ -11,12 +12,15 @@ import {
   getItemRange,
   ITEM_DEFINITIONS,
   ITEM_TYPES,
+  getItemPlacement,
+  isAttackItem,
+  isFollowItem,
   isItemSpecialty,
   isRandomDeleteItem,
   isTargetInItemRange,
   isWithinRange,
 } from './item';
-import type { ItemPower, ItemRange, ItemType } from './item';
+import type { ItemEffect, ItemPlacement, ItemPower, ItemRange, ItemRangeSpec, ItemType } from './item';
 import { applyHit, getInitialHp } from './defeat';
 import { MALICIOUS_CODE_TYPES } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
@@ -24,7 +28,7 @@ import type { MaliciousCodeType } from './maliciousCode';
 const origin = { x: 100, y: 100 };
 
 describe('アイテムのデータ', () => {
-  it('7アイテムが企画書の順序で定義されている', () => {
+  it('18アイテムが登録順（既存7個の後に #58 の11個）で定義されている', () => {
     expect(ITEM_TYPES).toEqual([
       'codeRabbit',
       'linter',
@@ -33,6 +37,17 @@ describe('アイテムのデータ', () => {
       'securityScanner',
       'pairProgrammer',
       'cat',
+      'rubberDuck',
+      'codeFreeze',
+      'specChangeStorm',
+      'coffeeMachine',
+      'energyDrink',
+      'pizza',
+      'documentation',
+      'fridayDeploy',
+      'rollbackButton',
+      'worksFine',
+      'seniorNote',
     ]);
   });
 
@@ -89,7 +104,59 @@ describe('アイテムのデータ', () => {
       power: 'none',
       targetsNormalCode: true,
       effect: 'deleteRandomCode',
+      placement: 'cell',
+      followsPlayer: false,
+      attackCooldownMs: null,
     });
+  });
+
+  it.each<[ItemType, string, ItemRangeSpec, ItemEffect, ItemPlacement]>([
+    ['rubberDuck', 'ラバーダック', 'middle', 'reveal', 'cell'],
+    ['codeFreeze', 'コードフリーズ', 'none', 'codeFreeze', 'none'],
+    ['specChangeStorm', '仕様変更の嵐', 'none', 'specChangeStorm', 'none'],
+    ['coffeeMachine', 'コーヒーマシン', 'short', 'coffee', 'cell'],
+    ['energyDrink', 'エナジードリンク', 'none', 'energyDrink', 'none'],
+    ['pizza', 'ピザ', 'none', 'pizza', 'none'],
+    ['documentation', 'ドキュメント', 'none', 'documentation', 'none'],
+    ['fridayDeploy', '金曜日の夕方デプロイ', 'none', 'fridayDeploy', 'none'],
+    ['rollbackButton', 'ロールバックボタン', 'none', 'rollback', 'none'],
+    ['worksFine', '「動いてるからヨシ！」', 'none', 'worksFine', 'none'],
+    ['seniorNote', '伝説のシニアの書き置き', 'middle', 'seniorNote', 'cell'],
+  ])('#58 の %s（%s）は1回払い・攻撃力と得意なし・範囲 %s・効果 %s・置き方 %s', (itemType, label, range, effect, placement) => {
+    expect(ITEM_DEFINITIONS[itemType]).toEqual({
+      label,
+      payment: 'oneTime',
+      strongAgainst: { kind: 'none' },
+      range,
+      power: 'none',
+      targetsNormalCode: false,
+      effect,
+      placement,
+      followsPlayer: false,
+      attackCooldownMs: null,
+    });
+    expect(getItemPlacement(itemType)).toBe(placement);
+  });
+
+  it('正常なコードも対象にするのは猫だけ（企画書 8 の例外）', () => {
+    expect(ITEM_TYPES.filter((itemType) => ITEM_DEFINITIONS[itemType].targetsNormalCode)).toEqual(['cat']);
+  });
+
+  it('主人公についてまわるのはペアプロ相棒だけ、アイテム別の攻撃間隔を持つのは Linter だけ', () => {
+    expect(ITEM_TYPES.filter((itemType) => isFollowItem(itemType))).toEqual(['pairProgrammer']);
+    expect(ITEM_TYPES.filter((itemType) => ITEM_DEFINITIONS[itemType].attackCooldownMs !== null)).toEqual(['linter']);
+    expect(ITEM_DEFINITIONS.linter.attackCooldownMs).toBe(LINTER_ATTACK_COOLDOWN_MS);
+  });
+
+  it('攻撃するのは既存の6アイテムだけ', () => {
+    expect(ITEM_TYPES.filter((itemType) => isAttackItem(itemType))).toEqual([
+      'codeRabbit',
+      'linter',
+      'testTool',
+      'ci',
+      'securityScanner',
+      'pairProgrammer',
+    ]);
   });
 
   it.each<[ItemType, boolean]>([
@@ -100,6 +167,8 @@ describe('アイテムのデータ', () => {
     ['securityScanner', false],
     ['pairProgrammer', false],
     ['cat', true],
+    ['rubberDuck', false],
+    ['codeFreeze', false],
   ])('isRandomDeleteItem(%s) は %s', (itemType, expected) => {
     expect(isRandomDeleteItem(itemType)).toBe(expected);
   });
@@ -127,6 +196,11 @@ describe('getItemRange', () => {
     ['securityScanner', 150],
     ['pairProgrammer', 90],
     ['cat', Infinity],
+    ['rubberDuck', 150],
+    ['coffeeMachine', 90],
+    ['seniorNote', 150],
+    ['codeFreeze', 0],
+    ['rollbackButton', 0],
   ])('%s の範囲は %s px', (itemType, px) => {
     expect(getItemRange(itemType)).toBe(px);
   });
@@ -226,9 +300,20 @@ const SPECIALTY: Record<ItemType, readonly MaliciousCodeType[]> = {
   securityScanner: ['vulnerabilityCritical', 'vulnerabilityMajor'],
   pairProgrammer: ['spaghetti'],
   cat: [],
+  rubberDuck: [],
+  codeFreeze: [],
+  specChangeStorm: [],
+  coffeeMachine: [],
+  energyDrink: [],
+  pizza: [],
+  documentation: [],
+  fridayDeploy: [],
+  rollbackButton: [],
+  worksFine: [],
+  seniorNote: [],
 };
 
-describe('isItemSpecialty（7アイテム×9種類）', () => {
+describe('isItemSpecialty（18アイテム×9種類）', () => {
   const cases = ITEM_TYPES.flatMap((itemType) =>
     MALICIOUS_CODE_TYPES.map((t): [ItemType, MaliciousCodeType, boolean] => [
       itemType,
@@ -289,6 +374,20 @@ describe('猫(#57)のダメージ', () => {
 
   it.each([...MALICIOUS_CODE_TYPES, undefined])('猫は %s にも 0', (t) => {
     expect(getItemDamage('cat', t)).toBe(0);
+  });
+});
+
+describe('#58 の攻撃しないアイテムのダメージ', () => {
+  const nonAttackItems = ITEM_TYPES.filter((itemType) => !isAttackItem(itemType));
+
+  it('攻撃しないアイテムは猫と #58 の11個', () => {
+    expect(nonAttackItems).toHaveLength(12);
+  });
+
+  it.each(nonAttackItems)('%s はどの種類にも（種類なしにも）0', (itemType) => {
+    for (const t of [...MALICIOUS_CODE_TYPES, undefined]) {
+      expect(getItemDamage(itemType, t)).toBe(0);
+    }
   });
 });
 

@@ -14,7 +14,14 @@ import {
   RELEASE_POINT_CELL,
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
-import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES, itemTargetsNormalCode } from './item';
+import {
+  getItemPlacement,
+  getItemRange,
+  ITEM_DEFINITIONS,
+  ITEM_TYPES,
+  isFollowItem,
+  itemTargetsNormalCode,
+} from './item';
 import type { ItemPayment, ItemType } from './item';
 import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
@@ -23,6 +30,8 @@ export type ItemPriceTier = keyof typeof ITEM_PRICE_TIERS;
 
 // アイテムを置いたときに scene.events で発行するイベント名。
 export const ITEM_PLACED_EVENT = 'item-placed';
+// 置かないアイテム（購入時に発動 #58）を使ったときに scene.events で発行するイベント名。
+export const ITEM_USED_EVENT = 'item-used';
 
 export type PlacedItem = {
   readonly id: number;
@@ -34,6 +43,11 @@ export type PlacedItem = {
 
 export type ItemPlacedPayload = {
   readonly item: PlacedItem;
+  readonly price: number;
+};
+
+export type ItemUsedPayload = {
+  readonly itemType: ItemType;
   readonly price: number;
 };
 
@@ -95,16 +109,22 @@ const isOpenTerrain = (cell: GridCell, context: PlacementContext): boolean => {
   return !context.routes.some((route) => getRouteCells(route).some((c) => isSameCell(c, cell)));
 };
 
+// セルを占有しているアイテムがあるか。主人公についてまわるアイテム（ペアプロ相棒 #58）はセルにとどまらないので数えない。
+const isOccupied = (cell: GridCell, placedItems: readonly PlacedItem[]): boolean =>
+  placedItems.some((item) => !isFollowItem(item.itemType) && isSameCell(item.cell, cell));
+
 // アイテムを置けるセルか。既にアイテムがあるセルは不可。
 export const isPlaceableCell = (cell: GridCell, context: PlacementContext): boolean =>
-  isOpenTerrain(cell, context) && !context.placedItems.some((item) => isSameCell(item.cell, cell));
+  isOpenTerrain(cell, context) && !isOccupied(cell, context.placedItems);
 
+// noEligibleIncident はロールバックボタン(#58)専用。取り消せる直前の障害がない。
 export type PurchaseFailReason =
   | 'gameOver'
   | 'unknownItem'
   | 'notPlaceable'
   | 'occupied'
-  | 'insufficientFunds';
+  | 'insufficientFunds'
+  | 'noEligibleIncident';
 
 export type PurchaseResult =
   | {
@@ -133,6 +153,8 @@ const isItemType = (value: string): value is ItemType =>
 
 // アイテムを買って置く。判定順: ゲームオーバー → 不明なアイテム → 置けない場所 → 既にある → 資金不足。
 // 資金がちょうど価格なら買えて 0 になる。入力は変更しない。
+// 置かないアイテム（placement: none #58）は purchaseInstantItem で買う。ここに渡すと notPlaceable。
+// 主人公についてまわるアイテム（ペアプロ相棒 #58）はセルにとどまらないので、置けない場所・既にあるの判定をしない（cell は購入時の位置として記録する）。
 export const purchaseItem = (
   state: PurchaseState,
   itemType: string,
@@ -141,11 +163,14 @@ export const purchaseItem = (
 ): PurchaseResult => {
   if (state.gameOver) return { ok: false, reason: 'gameOver' };
   if (!isItemType(itemType)) return { ok: false, reason: 'unknownItem' };
-  if (!isOpenTerrain(cell, { ...options, placedItems: state.placedItems })) {
-    return { ok: false, reason: 'notPlaceable' };
-  }
-  if (state.placedItems.some((item) => isSameCell(item.cell, cell))) {
-    return { ok: false, reason: 'occupied' };
+  if (getItemPlacement(itemType) === 'none') return { ok: false, reason: 'notPlaceable' };
+  if (!isFollowItem(itemType)) {
+    if (!isOpenTerrain(cell, { ...options, placedItems: state.placedItems })) {
+      return { ok: false, reason: 'notPlaceable' };
+    }
+    if (isOccupied(cell, state.placedItems)) {
+      return { ok: false, reason: 'occupied' };
+    }
   }
   const price = getItemPrice(itemType, options.tiers, options.tierByType);
   if (state.funds < price) return { ok: false, reason: 'insufficientFunds' };
@@ -159,9 +184,48 @@ export const purchaseItem = (
   };
 };
 
-// 購入結果のメッセージ。ゲームオーバー中は表示しないので空文字。
-export const formatItemMessage = (result: PurchaseResult, itemType: string): string => {
-  if (result.ok) return `${ITEM_SHORT_NAMES[result.item.itemType]}を置きました`;
+export type InstantPurchaseResult =
+  | {
+      readonly ok: true;
+      readonly itemType: ItemType;
+      readonly fundsAfter: number;
+      readonly price: number;
+    }
+  | { readonly ok: false; readonly reason: PurchaseFailReason };
+
+export type InstantPurchaseState = {
+  readonly funds: number;
+  readonly gameOver: boolean;
+  // 取り消せる直前の障害があるか（ロールバックボタン #58 の判定だけに使う）。
+  readonly hasRollbackTarget: boolean;
+};
+
+// 置かないアイテム（placement: none #58）を買う。セルは見ない。placedItems にも入れない。
+// 判定順: ゲームオーバー → 不明なアイテム → 置くアイテム（notPlaceable。purchaseItem で買う） → ロールバックの対象なし → 資金不足。
+// 資金がちょうど価格なら買えて 0 になる。効果の発動は呼び出し側（MainScene）が行う。入力は変更しない。
+export const purchaseInstantItem = (
+  state: InstantPurchaseState,
+  itemType: string,
+  options: Pick<PurchaseOptions, 'tiers' | 'tierByType'> = {},
+): InstantPurchaseResult => {
+  if (state.gameOver) return { ok: false, reason: 'gameOver' };
+  if (!isItemType(itemType)) return { ok: false, reason: 'unknownItem' };
+  if (getItemPlacement(itemType) !== 'none') return { ok: false, reason: 'notPlaceable' };
+  if (ITEM_DEFINITIONS[itemType].effect === 'rollback' && !state.hasRollbackTarget) {
+    return { ok: false, reason: 'noEligibleIncident' };
+  }
+  const price = getItemPrice(itemType, options.tiers, options.tierByType);
+  if (state.funds < price) return { ok: false, reason: 'insufficientFunds' };
+  return { ok: true, itemType, fundsAfter: state.funds - price, price };
+};
+
+// 購入結果のメッセージ。ゲームオーバー中は表示しないので空文字。置かないアイテム(#58)は「〜を使いました」。
+export const formatItemMessage = (result: PurchaseResult | InstantPurchaseResult, itemType: string): string => {
+  if (result.ok) {
+    return 'item' in result
+      ? `${ITEM_SHORT_NAMES[result.item.itemType]}を置きました`
+      : `${ITEM_SHORT_NAMES[result.itemType]}を使いました`;
+  }
   switch (result.reason) {
     case 'gameOver':
       return '';
@@ -169,6 +233,8 @@ export const formatItemMessage = (result: PurchaseResult, itemType: string): str
       return `不明なアイテムです: ${itemType}`;
     case 'insufficientFunds':
       return '資金が足りません';
+    case 'noEligibleIncident':
+      return '取り消せる障害がありません';
     default:
       return 'そこには置けません';
   }
@@ -190,7 +256,7 @@ export const getItemMonthlyFee = (
 };
 
 // 購入ボタンの文言。「[5] Linter 5万円」。月額払いは「[4] CodeRabbit 20万/月」（ボタン幅に収めるため「円」を省く）。
-// キーの文字は ITEM_BUY_KEY_LABELS の index 番目（4〜9、猫は 0）。
+// index は購入バーのページ内の枠番号(#58)。キーの文字は ITEM_BUY_KEY_LABELS の index 番目（4〜9）。
 // 月額払いは精算と同じ月額（getItemMonthlyFee）を表示する。
 export const formatItemButton = (
   index: number,
@@ -225,18 +291,24 @@ export const findTargetFor = <T extends AttackTarget>(
   findAttackTarget(query.position, filterItemTargets(codes, query.targetsNormalCode), query.range);
 
 // アイテムの範囲内で最も近い攻撃対象。アイテムの targetsNormalCode が false なら正常なコードは近くても除く。
+// origin は攻撃の起点。既定は置いたセルの中心。主人公についてまわるアイテム（ペアプロ相棒 #58）は主人公の位置からのずれを渡す。
 export const findItemTarget = <T extends AttackTarget>(
   item: PlacedItem,
   codes: readonly T[],
+  origin: Point = cellCenter(item.cell),
 ): T | null =>
   findTargetFor(
     {
-      position: cellCenter(item.cell),
+      position: origin,
       range: getItemRange(item.itemType),
       targetsNormalCode: itemTargetsNormalCode(item.itemType),
     },
     codes,
   );
+
+// アイテムの攻撃間隔（ミリ秒）。アイテム別の間隔（Linter #58）があればそれ、なければ共通の ITEM_ATTACK_COOLDOWN_MS。
+export const getItemAttackCooldownMs = (itemType: ItemType): number =>
+  ITEM_DEFINITIONS[itemType].attackCooldownMs ?? ITEM_ATTACK_COOLDOWN_MS;
 
 // 攻撃できるか。初回(null)は常に可能。経過時間がクールダウン以上なら可能。
 export const canItemAttack = (

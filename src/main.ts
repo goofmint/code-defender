@@ -5,16 +5,23 @@ import {
   ATTACK_DAMAGE,
   ATTACK_KEYS,
   CAT_DELETE_INTERVAL_MS,
+  CODE_FREEZE_DURATION_MS,
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_REFACTORING_RATIO,
   ENGINEER_HIRE_COST,
+  FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS,
+  FRIDAY_DEPLOY_INCIDENT_DELAY_MS,
+  FRIDAY_DEPLOY_SALES,
   GAME_OVER_RESTART_KEYS,
   HIRE_KEYS,
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
   ITEM_BUY_KEYS,
+  ITEM_PAGE_KEYS,
   MAX_ENGINEERS,
+  PIZZA_DURATION_MS,
+  PIZZA_TECH_DEBT,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
   REFACTORING_RATIO_KEYS,
@@ -24,6 +31,7 @@ import {
   TECH_DEBT_INITIAL,
   TECH_DEBT_OUTAGE_FLASH_COLOR,
   TECH_DEBT_OUTAGE_FLASH_DURATION_MS,
+  WORKS_FINE_DURATION_MS,
 } from './config';
 import {
   ATTACK_COOLDOWN_MS,
@@ -70,7 +78,7 @@ import {
   drawVacationMarker,
   flashCode,
 } from './render';
-import type { RouteDrawing, VacationMarker } from './render';
+import type { ItemBar, RouteDrawing, VacationMarker } from './render';
 import {
   CODE_RELEASED_EVENT,
   advanceCode,
@@ -78,6 +86,7 @@ import {
   moveDistanceUnlessPaused,
   partitionCodesByRoute,
   pickCodeKind,
+  rewindCode,
   spawnCode,
   stepSpawnTimerUnlessPaused,
 } from './codeFlow';
@@ -93,7 +102,7 @@ import {
 import type { MonthElapsedEvent } from './gameTime';
 import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFate } from './defeat';
 import type { CodeDefeatedPayload } from './defeat';
-import { createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
+import { addFunds, createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
 import { accumulateScore, formatCumulativeSales, INITIAL_SCORE } from './score';
 import {
@@ -110,10 +119,11 @@ import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
 import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
-import { INCIDENT_EVENT, settleIncident } from './incident';
+import { calculateDamage, INCIDENT_EVENT, settleIncident } from './incident';
 import { advanceTechDebtNeglect, MAJOR_OUTAGE_EVENT, settleMajorOutage } from './outage';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
+  accumulateTechDebt,
   createTechDebtChangedEvent,
   formatTechDebt,
   resolveWorkTechDebt,
@@ -157,18 +167,33 @@ import type {
 import { addRoute, cellCenter, removeRoute } from './route';
 import { CODE_DELETED_BY_CAT_EVENT, pickRandomCode } from './cat';
 import type { CodeDeletedByCatPayload } from './cat';
-import { getItemDamage, isRandomDeleteItem, ITEM_TYPES } from './item';
+import { getItemDamage, getItemPlacement, isRandomDeleteItem, ITEM_DEFINITIONS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import {
   canItemAttack,
   createItemState,
   findItemTarget,
+  formatItemButton,
   formatItemMessage,
   ITEM_PLACED_EVENT,
+  ITEM_USED_EVENT,
   pointToCell,
+  purchaseInstantItem,
   purchaseItem,
 } from './itemPlacement';
-import type { ItemPlacedPayload, PlacedItem } from './itemPlacement';
+import type { ItemPlacedPayload, ItemUsedPayload, PlacedItem } from './itemPlacement';
+import { formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, stepItemPage } from './itemBar';
+import type { ItemPageDirection } from './itemBar';
+import {
+  canRollback,
+  recordIncident,
+  rollbackIncident,
+  rollFridayDeployIncident,
+  scheduleIncident,
+  startEffect,
+  startEnergyDrink,
+} from './itemEffect';
+import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
 import type { Route } from './route';
 
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics };
@@ -215,6 +240,17 @@ class MainScene extends Phaser.Scene {
   private placedItems: readonly PlacedItem[] = [];
   private nextItemId = 0;
   private itemMessageText?: Phaser.GameObjects.Text;
+  // 購入バーの現在のページ（0 始まり）(#58)。キー 4〜9 はこのページの枠を買う。
+  private itemPage = 0;
+  private itemBar?: ItemBar;
+  // 購入時に発動したアイテムの時限効果(#58)。時刻は elapsedMs。
+  private activeEffects: readonly ActiveEffect[] = [];
+  // 金曜日の夕方デプロイ(#58)で予約した障害。
+  private scheduledIncidents: readonly ScheduledIncident[] = [];
+  // 直前の障害の記録（ロールバックボタン #58）。まだ障害がなければ null。
+  private lastIncident: IncidentRecord | null = null;
+  // ドキュメント(#58)を最初に買った時刻（elapsedMs）。買っていなければ null。
+  private documentationPurchasedAtMs: number | null = null;
   // 休暇の切り替えマーカー（routeId がキー）(#35)。
   private vacationMarkers = new Map<number, VacationMarker>();
   // ルートの線と出現場所の円（routeId がキー）(#32)。退職でルートが消えるときに destroy() する。
@@ -291,7 +327,17 @@ class MainScene extends Phaser.Scene {
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;
     this.itemMessageText = undefined;
-    drawItemButtons(this, ITEM_TYPES, (itemType) => this.buyItem(itemType));
+    this.activeEffects = [];
+    this.scheduledIncidents = [];
+    this.lastIncident = null;
+    this.documentationPurchasedAtMs = null;
+    this.itemPage = 0;
+    this.itemBar = drawItemButtons(
+      this,
+      (slot) => this.buyItemSlot(slot),
+      (direction) => this.changeItemPage(direction),
+    );
+    this.refreshItemBar();
     drawReleasePoint(this);
     this.player = drawPlayer(this);
     const keyboard = this.input.keyboard;
@@ -313,9 +359,9 @@ class MainScene extends Phaser.Scene {
       keyboard.addKey(SALARY_SELECT_KEYS.next).on('down', () => this.selectEngineer('next'));
       keyboard.addKey(SALARY_ADJUST_KEYS.raise).on('down', () => this.adjustSalary('raise'));
       keyboard.addKey(SALARY_ADJUST_KEYS.cut).on('down', () => this.adjustSalary('cut'));
-      ITEM_BUY_KEYS.forEach((name, index) =>
-        keyboard.addKey(name).on('down', () => this.buyItem(ITEM_TYPES[index])),
-      );
+      ITEM_BUY_KEYS.forEach((name, slot) => keyboard.addKey(name).on('down', () => this.buyItemSlot(slot)));
+      keyboard.addKey(ITEM_PAGE_KEYS.previous).on('down', () => this.changeItemPage('previous'));
+      keyboard.addKey(ITEM_PAGE_KEYS.next).on('down', () => this.changeItemPage('next'));
       keyboard.addKey(REFACTORING_RATIO_KEYS.feature).on('down', () => this.changeRefactoringRatio('feature'));
       keyboard.addKey(REFACTORING_RATIO_KEYS.refactoring).on('down', () => this.changeRefactoringRatio('refactoring'));
       register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
@@ -566,10 +612,35 @@ class MainScene extends Phaser.Scene {
     this.refreshSelectedEngineer();
   }
 
+  // 購入バーの現在ページの枠 slot のアイテムを買う(#58)。空の枠なら何もしない。
+  private buyItemSlot(slot: number): void {
+    const itemType = getItemOnPageSlot(ITEM_TYPES, this.itemPage, slot);
+    if (itemType === undefined) {
+      return;
+    }
+    this.buyItem(itemType);
+  }
+
+  // 購入バーのページを切り替える(#58)。ゲームオーバー中も切り替えられる（購入は buyItem が止める）。
+  private changeItemPage(direction: ItemPageDirection): void {
+    this.itemPage = stepItemPage(this.itemPage, direction, getItemPageCount(ITEM_TYPES.length));
+    this.refreshItemBar();
+  }
+
+  private refreshItemBar(): void {
+    const labels = getItemsOnPage(ITEM_TYPES, this.itemPage).map((itemType, slot) => formatItemButton(slot, itemType));
+    this.itemBar?.showPage(labels, formatItemPage(this.itemPage, getItemPageCount(ITEM_TYPES.length)));
+  }
+
   // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  // 置かないアイテム（placement: none #58）は useInstantItem で買って、その場で効果を発動する。
   private buyItem(itemType: ItemType): void {
     const player = this.player;
     if (this.gameOver.over || !player) {
+      return;
+    }
+    if (getItemPlacement(itemType) === 'none') {
+      this.useInstantItem(itemType);
       return;
     }
     const result = purchaseItem(
@@ -589,6 +660,97 @@ class MainScene extends Phaser.Scene {
     this.changeFunds(result.fundsAfter, 'item');
     const payload: ItemPlacedPayload = { item: result.item, price: result.price };
     this.events.emit(ITEM_PLACED_EVENT, payload);
+  }
+
+  // 置かないアイテム(#58)を買って効果を発動する。費用は changeFunds(…, 'item') で引き、倒産したら効果は発動しない。
+  private useInstantItem(itemType: ItemType): void {
+    const result = purchaseInstantItem(
+      { funds: this.funds, gameOver: this.gameOver.over, hasRollbackTarget: canRollback(this.lastIncident) },
+      itemType,
+    );
+    this.itemMessageText?.destroy();
+    this.itemMessageText = drawItemMessage(this, formatItemMessage(result, itemType));
+    if (!result.ok) {
+      return;
+    }
+    this.changeFunds(result.fundsAfter, 'item');
+    // 購入で倒産したら効果は発動しない（ロールバックの返金で倒産から復帰させない）。
+    if (this.gameOver.over) {
+      return;
+    }
+    this.applyInstantItemEffect(itemType);
+    const payload: ItemUsedPayload = { itemType, price: result.price };
+    this.events.emit(ITEM_USED_EVENT, payload);
+  }
+
+  // 置かないアイテム(#58)の効果。時限効果は elapsedMs から数える。
+  private applyInstantItemEffect(itemType: ItemType): void {
+    const effect = ITEM_DEFINITIONS[itemType].effect;
+    switch (effect) {
+      case 'codeFreeze':
+        this.activeEffects = startEffect(this.activeEffects, 'codeFreeze', this.elapsedMs, CODE_FREEZE_DURATION_MS);
+        return;
+      case 'specChangeStorm':
+        this.rewindAllCodes();
+        return;
+      case 'energyDrink':
+        this.activeEffects = startEnergyDrink(this.activeEffects, this.elapsedMs);
+        return;
+      case 'pizza': {
+        this.activeEffects = startEffect(this.activeEffects, 'pizza', this.elapsedMs, PIZZA_DURATION_MS);
+        const current = accumulateTechDebt(this.techDebt, PIZZA_TECH_DEBT);
+        this.changeTechDebt({ previous: this.techDebt, current, accumulated: PIZZA_TECH_DEBT, repaid: 0 }, 'pizza');
+        return;
+      }
+      case 'documentation':
+        // 買い直しても最初の購入時刻のまま（効果量は足さない）。
+        if (this.documentationPurchasedAtMs === null) {
+          this.documentationPurchasedAtMs = this.elapsedMs;
+        }
+        return;
+      case 'fridayDeploy':
+        this.changeFunds(addFunds(this.funds, FRIDAY_DEPLOY_SALES), 'sales');
+        if (rollFridayDeployIncident(Math.random)) {
+          this.scheduledIncidents = scheduleIncident(
+            this.scheduledIncidents,
+            this.elapsedMs + FRIDAY_DEPLOY_INCIDENT_DELAY_MS,
+            calculateDamage(FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS),
+          );
+        }
+        return;
+      case 'rollback': {
+        const rollback = rollbackIncident(this.funds, this.lastIncident);
+        this.lastIncident = rollback.record;
+        this.changeFunds(rollback.fundsAfter, 'rollback');
+        return;
+      }
+      case 'worksFine':
+        this.activeEffects = startEffect(this.activeEffects, 'worksFine', this.elapsedMs, WORKS_FINE_DURATION_MS);
+        return;
+      case 'attack':
+      case 'deleteRandomCode':
+      case 'reveal':
+      case 'coffee':
+      case 'seniorNote':
+        throw new Error(`置くアイテムは購入時に発動しません: ${itemType}`);
+      default: {
+        const unreachable: never = effect;
+        throw new Error(`未対応の効果: ${String(unreachable)}`);
+      }
+    }
+  }
+
+  // 仕様変更の嵐(#58): 流れているコードをすべてルートの始点に戻し、全ルートの生成タイマーを 0 にする（出現ペースのリセット）。
+  // id・種類・hp はそのまま。
+  private rewindAllCodes(): void {
+    this.codes = this.codes.map((code) => {
+      const rewound = rewindCode(code);
+      rewound.graphics.setPosition(rewound.position.x, rewound.position.y);
+      return rewound;
+    });
+    for (const route of this.routes) {
+      this.spawnElapsed.set(route.id, 0);
+    }
   }
 
   // 置いたアイテムが、範囲内で最も近い不正なコードを自動で攻撃する。ゲームオーバー中はしない。
@@ -757,6 +919,8 @@ class MainScene extends Phaser.Scene {
     if (incident === null) {
       return;
     }
+    // ロールバックボタン(#58)で取り消せるよう、確定した障害の損害額を記録する（前の記録は置き換える）。
+    this.lastIncident = recordIncident(incident.damage);
     this.changeFunds(incident.fundsAfter, 'damage');
     const { r, g, b } = Phaser.Display.Color.IntegerToRGB(INCIDENT_FLASH_COLOR);
     this.cameras.main.flash(INCIDENT_FLASH_DURATION_MS, r, g, b);

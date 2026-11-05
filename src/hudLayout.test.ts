@@ -12,11 +12,17 @@ import {
   HIRE_UI_POSITION,
   ENGINEER_SALARY_MAX,
   ITEM_BLOCKED_CELLS,
-  ITEM_BUTTON_SIZE,
+  ATTACK_KEYS,
+  GAME_OVER_RESTART_KEYS,
   ITEM_BUY_KEY_LABELS,
   ITEM_BUY_KEYS,
   ITEM_MESSAGE_POSITION,
-  ITEM_UI_POSITION,
+  ITEM_PAGE_KEYS,
+  ITEM_PAGE_SIZE,
+  PLAYER_MOVE_KEYS,
+  REFACTORING_RATIO_KEYS,
+  SALARY_ADJUST_KEYS,
+  SALARY_SELECT_KEYS,
   REFACTORING_RATIO_BUTTON_SIZE,
   REFACTORING_RATIO_FONT_SIZE,
   REFACTORING_RATIO_LABEL_WIDTH,
@@ -36,6 +42,8 @@ import {
 import { createEngineerParameters, formatSelectedEngineer, getInitialSalary } from './engineer';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import { ITEM_TYPES } from './item';
+import { getItemPageCount, getItemsOnPage, itemButtonRect, itemPageControlRects } from './itemBar';
+import { formatItemButton } from './itemPlacement';
 import { formatRefactoringAllocation } from './refactoringRatioControl';
 import { SPAWN_MARKER_STYLE } from './route';
 import { formatTechDebt } from './techDebt';
@@ -85,6 +93,15 @@ const HIRE_TEXT_MAX_CHARS = 30;
 const hireTextRects: readonly Rect[] = [HIRE_COUNT_POSITION, HIRE_MESSAGE_POSITION].map((position) =>
   textRect(position, 'あ'.repeat(HIRE_TEXT_MAX_CHARS), HIRE_TEXT_FONT_PX),
 );
+
+// 購入バー(#58): ページ内の枠（どのページも同じ位置）とページ切替UI（前・ページ表示・次）。
+const itemPageControls = itemPageControlRects();
+const itemBarRects: readonly Rect[] = [
+  ...Array.from({ length: ITEM_PAGE_SIZE }, (_, slot) => itemButtonRect(slot)),
+  itemPageControls.previous,
+  itemPageControls.label,
+  itemPageControls.next,
+];
 
 describe('intersects（ヘルパー）', () => {
   const base: Rect = { x: 10, y: 10, width: 10, height: 10 };
@@ -172,13 +189,8 @@ const vacationMarkerRect = (row: number): Rect => {
 const spawnRows = Array.from({ length: FIELD_ROWS }, (_, row) => row);
 
 describe('休暇マーカーとボタンのレイアウト（#35）', () => {
-  // drawItemButtons と同じ計算。
-  const itemButtonRects: readonly Rect[] = ITEM_TYPES.map((_, index) => ({
-    x: ITEM_UI_POSITION.x + index * (ITEM_BUTTON_SIZE.width + ITEM_BUTTON_SIZE.gap),
-    y: ITEM_UI_POSITION.y,
-    width: ITEM_BUTTON_SIZE.width,
-    height: ITEM_BUTTON_SIZE.height,
-  }));
+  // drawItemButtons と同じ計算（ページ内の枠とページ切替UI #58）。
+  const itemButtonRects: readonly Rect[] = itemBarRects;
 
   it('境界値: 行8（最下行）のマーカーは x=14〜46・y=494〜526、最初の購入ボタンは出現列の右（x≧60）から始まる', () => {
     expect(vacationMarkerRect(FIELD_ROWS - 1)).toEqual({ x: 14, y: 494, width: 32, height: 32 });
@@ -325,12 +337,6 @@ const salaryRects: readonly { readonly name: string; readonly rect: Rect }[] = [
   { name: '選択中のエンジニア', rect: selectedEngineerRect },
   ...salaryButtonRects.map((rect, index) => ({ name: `給与ボタン${SALARY_BUTTON_ORDER[index]}`, rect })),
 ];
-const itemButtonRects: readonly Rect[] = ITEM_BUY_KEYS.map((_, index) => ({
-  x: ITEM_UI_POSITION.x + index * (ITEM_BUTTON_SIZE.width + ITEM_BUTTON_SIZE.gap),
-  y: ITEM_UI_POSITION.y,
-  width: ITEM_BUTTON_SIZE.width,
-  height: ITEM_BUTTON_SIZE.height,
-}));
 const itemMessageRect = textRect(ITEM_MESSAGE_POSITION, 'あ'.repeat(HIRE_TEXT_MAX_CHARS), HIRE_TEXT_FONT_PX);
 
 describe('昇給・減給パネルのレイアウト(#34)', () => {
@@ -378,7 +384,7 @@ describe('昇給・減給パネルのレイアウト(#34)', () => {
   });
 
   it.each(salaryRects)('$name は購入ボタン・購入メッセージと交差しない', ({ rect }) => {
-    for (const other of [...itemButtonRects, itemMessageRect]) {
+    for (const other of [...itemBarRects, itemMessageRect]) {
       expect(intersects(rect, other)).toBe(false);
     }
   });
@@ -417,29 +423,61 @@ describe('昇給・減給パネルのレイアウト(#34)', () => {
   });
 });
 
-describe('購入ボタン7個のレイアウト（猫 #57）', () => {
-  it('購入キー・キー表示・アイテムの数はすべて7で一致する', () => {
-    expect(ITEM_TYPES).toHaveLength(7);
-    expect(ITEM_BUY_KEYS).toHaveLength(ITEM_TYPES.length);
-    expect(ITEM_BUY_KEY_LABELS).toHaveLength(ITEM_TYPES.length);
-    expect(itemButtonRects).toHaveLength(ITEM_TYPES.length);
+describe('購入バーのレイアウト（ページ切替 #58）', () => {
+  const itemButtonRects = itemBarRects;
+  const pageCount = getItemPageCount(ITEM_TYPES.length);
+
+  it('購入キー・キー表示・ページの枠数はすべて6で一致し、18個は3ページになる', () => {
+    expect(ITEM_BUY_KEYS).toHaveLength(6);
+    expect(ITEM_BUY_KEY_LABELS).toHaveLength(ITEM_BUY_KEYS.length);
+    expect(ITEM_PAGE_SIZE).toBe(ITEM_BUY_KEYS.length);
+    expect(ITEM_TYPES).toHaveLength(18);
+    expect(pageCount).toBe(3);
   });
 
-  it('境界値: 先頭は x=60 から、7個目の右端は x=952 でフィールド幅以内', () => {
-    expect(itemButtonRects[0].x).toBe((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
-    const last = itemButtonRects[itemButtonRects.length - 1];
-    expect(last.x + last.width).toBe(952);
-    expect(last.x + last.width).toBeLessThanOrEqual(FIELD_WIDTH);
+  it('ページ切替キーは他の操作キーと重ならない', () => {
+    const others: readonly string[] = [
+      ...ITEM_BUY_KEYS,
+      ...HIRE_KEYS,
+      ...Object.values(PLAYER_MOVE_KEYS).flat(),
+      ...ATTACK_KEYS,
+      ...GAME_OVER_RESTART_KEYS,
+      ...Object.values(SALARY_SELECT_KEYS),
+      ...Object.values(SALARY_ADJUST_KEYS),
+      ...Object.values(REFACTORING_RATIO_KEYS),
+    ];
+    for (const key of Object.values(ITEM_PAGE_KEYS)) {
+      expect(others).not.toContain(key);
+    }
   });
 
-  it.each(itemButtonRects.map((rect, index) => ({ index, rect })))('$index 番目のボタンはフィールド内に収まる', ({ rect }) => {
+  it('境界値: 先頭は x=60 から、6枠目の右端は x=824、ページ切替UIの右端は x=956 でフィールド幅以内', () => {
+    expect(itemButtonRect(0).x).toBe((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
+    const lastSlot = itemButtonRect(ITEM_PAGE_SIZE - 1);
+    expect(lastSlot.x + lastSlot.width).toBe(824);
+    const { next } = itemPageControlRects();
+    expect(next.x + next.width).toBe(956);
+    expect(next.x + next.width).toBeLessThanOrEqual(FIELD_WIDTH);
+  });
+
+  // 幅 124px・11px に収まることを確かめた最長の文言（config.ts の ITEM_BUTTON_FONT_SIZE の注記 #57）より長くしない。
+  const LONGEST_FITTING_LABEL = formatItemButton(0, 'codeRabbit');
+  it.each(Array.from({ length: pageCount }, (_, page) => page))('%i ページ目: 全ボタンの文言は最長の既存の文言以下の長さ', (page) => {
+    const labels = getItemsOnPage(ITEM_TYPES, page).map((itemType, slot) => formatItemButton(slot, itemType));
+    expect(labels).toHaveLength(ITEM_PAGE_SIZE);
+    for (const label of labels) {
+      expect(label.length).toBeLessThanOrEqual(LONGEST_FITTING_LABEL.length);
+    }
+  });
+
+  it.each(itemButtonRects.map((rect, index) => ({ index, rect })))('$index 番目の矩形はフィールド内に収まる', ({ rect }) => {
     expect(rect.x).toBeGreaterThanOrEqual(0);
     expect(rect.y).toBeGreaterThanOrEqual(0);
     expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
     expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
   });
 
-  it('ボタンどうしが交差しない', () => {
+  it('ボタンどうし（ページ切替UIを含む）が交差しない', () => {
     for (let i = 0; i < itemButtonRects.length; i += 1) {
       for (let j = i + 1; j < itemButtonRects.length; j += 1) {
         expect(intersects(itemButtonRects[i], itemButtonRects[j])).toBe(false);

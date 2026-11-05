@@ -16,9 +16,8 @@ import {
 // 技術的負債が変化したときに scene.events で発行するイベント名。
 export const TECH_DEBT_CHANGED_EVENT = 'tech-debt-changed';
 
-// 技術的負債が変化した理由。機能開発で溜まる、リファクタリングで返す、作業1単位の精算（両方の正味）。
-// 後続タスク（ピザなど負債を返すアイテム）はここに理由を追加する。
-export type TechDebtChangeReason = 'feature' | 'refactoring' | 'work';
+// 技術的負債が変化した理由。機能開発で溜まる、リファクタリングで返す、作業1単位の精算（両方の正味）、ピザ(#58)で溜まる。
+export type TechDebtChangeReason = 'feature' | 'refactoring' | 'work' | 'pizza';
 
 export type TechDebtChangedEvent = {
   readonly previous: number;

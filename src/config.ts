@@ -529,6 +529,18 @@ export const ITEM_PRICE_TIER_BY_TYPE = {
   securityScanner: 'expensive',
   pairProgrammer: 'normal',
   cat: 'cheap',
+  // 仮・要確認(#58): 以下 11 個は企画書 8 の価格列（安い・普通・高い）どおり。
+  rubberDuck: 'cheap',
+  codeFreeze: 'normal',
+  specChangeStorm: 'normal',
+  coffeeMachine: 'cheap',
+  energyDrink: 'cheap',
+  pizza: 'cheap',
+  documentation: 'normal',
+  fridayDeploy: 'cheap',
+  rollbackButton: 'expensive',
+  worksFine: 'cheap',
+  seniorNote: 'expensive',
 } as const;
 // 仮・要確認(#48): アイテムを置けない行（UI と重なる行）。上端=雇うボタン・HUD、下端=アイテム購入ボタン。
 export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
@@ -557,11 +569,19 @@ export const ITEM_BLOCKED_CELLS = Array.from(
 ).flatMap((row) =>
   Array.from({ length: itemHudMaxCol - itemHudMinCol + 1 }, (_, c) => ({ col: itemHudMinCol + c, row })),
 );
-// 仮・要確認(#48): アイテム購入キー（ITEM_TYPES の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・昇給・減給(Q/E/R/F)・リスタートと重ならない。Phaser の KeyCodes のキー名。
-// 仮・要確認(#57): 猫は 9 の次の数字キー 0。
-export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE', 'ZERO'] as const;
+// 仮・要確認(#48): アイテム購入キー（購入バーの現在ページの枠の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・昇給・減給(Q/E/R/F)・リスタートと重ならない。Phaser の KeyCodes のキー名。
+// 仮・要確認(#58): アイテムが 18 個になったため、購入バーをページ切替式にした。キー 4〜9 は現在ページの 1〜6 枠目を買う（#57 の猫のキー 0 は廃止）。
+export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
 // 購入ボタンに表示するキーの文字（ITEM_BUY_KEYS と同じ順序）。
-export const ITEM_BUY_KEY_LABELS = ['4', '5', '6', '7', '8', '9', '0'] as const;
+export const ITEM_BUY_KEY_LABELS = ['4', '5', '6', '7', '8', '9'] as const;
+// 仮・要確認(#58): 購入バー1ページの枠数。購入キーの数と同じ。
+export const ITEM_PAGE_SIZE = ITEM_BUY_KEYS.length;
+// 仮・要確認(#58): 購入バーのページ切替キー（前のページ・次のページ）。他の操作キーと重ならない。端では反対側の端へ回り込む。
+export const ITEM_PAGE_KEYS = { previous: 'C', next: 'V' } as const;
+export const ITEM_PAGE_BUTTON_LABELS = {
+  previous: `◀${ITEM_PAGE_KEYS.previous}`,
+  next: `${ITEM_PAGE_KEYS.next}▶`,
+} as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
 export const ITEM_SHORT_NAMES = {
   codeRabbit: 'CodeRabbit',
@@ -571,6 +591,17 @@ export const ITEM_SHORT_NAMES = {
   securityScanner: 'Scanner',
   pairProgrammer: 'Pair',
   cat: 'Cat',
+  rubberDuck: 'Duck',
+  codeFreeze: 'Freeze',
+  specChangeStorm: 'SpecStorm',
+  coffeeMachine: 'Coffee',
+  energyDrink: 'Energy',
+  pizza: 'Pizza',
+  documentation: 'Docs',
+  fridayDeploy: 'FriDeploy',
+  rollbackButton: 'Rollback',
+  worksFine: 'Yoshi!',
+  seniorNote: 'Senior',
 } as const;
 export const ITEM_MARKS = {
   codeRabbit: 'CR',
@@ -580,6 +611,18 @@ export const ITEM_MARKS = {
   securityScanner: 'Sec',
   pairProgrammer: 'Pair',
   cat: 'Cat',
+  // 仮・要確認(#58): フィールドに置くのはラバーダック・コーヒーマシン・書き置きだけ。他は購入時に発動して置かないが、表の形を揃えるために持つ。
+  rubberDuck: 'Duck',
+  codeFreeze: 'Frz',
+  specChangeStorm: 'Spec',
+  coffeeMachine: 'Cof',
+  energyDrink: 'Enr',
+  pizza: 'Piz',
+  documentation: 'Doc',
+  fridayDeploy: 'Fri',
+  rollbackButton: 'RB',
+  worksFine: 'Yoshi',
+  seniorNote: 'Note',
 } as const;
 // 仮・要確認(#48): アイテムの攻撃間隔（ミリ秒）。全アイテム共通。置いた直後はクールダウンなしで攻撃できる。
 export const ITEM_ATTACK_COOLDOWN_MS = 1000;
@@ -596,6 +639,18 @@ export const ITEM_COLORS = {
   securityScanner: 0xe53935,
   pairProgrammer: 0xfdd835,
   cat: 0x8d6e63,
+  // 仮・要確認(#58)
+  rubberDuck: 0xffeb3b,
+  codeFreeze: 0x81d4fa,
+  specChangeStorm: 0xab47bc,
+  coffeeMachine: 0x6d4c41,
+  energyDrink: 0x76ff03,
+  pizza: 0xff7043,
+  documentation: 0xeceff1,
+  fridayDeploy: 0xf06292,
+  rollbackButton: 0x26a69a,
+  worksFine: 0x9ccc65,
+  seniorNote: 0xbcaaa4,
 } as const;
 export const ITEM_MARK_STYLE = { fontSize: '14px', color: '#ffffff', strokeColor: '#000000', strokeThickness: 3 } as const;
 // 仮・要確認(#48): アイテムの攻撃演出（アイテムから対象への線）の色・太さ・表示時間（ミリ秒）。
@@ -604,8 +659,12 @@ export const ITEM_ATTACK_LINE = { color: 0xffffff, width: 3, durationMs: 150 } a
 // 仮・要確認(#35): 左端 x は出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右端。出現場所は列0の行0〜8のどこにでも出るため、
 // 行8の出現場所・休暇マーカー（当たり判定 x=14〜46）と重ならないようにする。
 // 仮・要確認(#57): 猫で7個になったため幅を 146→124 に縮め、7個で x=60〜952 とフィールド幅960に収める。
+// 仮・要確認(#58): ページ切替式にしたため1ページは6枠（x=60〜824）。幅は #57 の 124 のまま。
 export const ITEM_UI_POSITION = { x: CELL_SIZE * (ENGINEER_SPAWN_COL + 1), y: FIELD_ROWS * CELL_SIZE - 34 } as const;
 export const ITEM_BUTTON_SIZE = { width: 124, height: 28, gap: 4 } as const;
+// 仮・要確認(#58): ページ切替UI。6枠目の右（x=828）から [前のページ][ページ表示][次のページ] を並べる。高さは購入ボタンと同じ。
+// 右端は 828 + 40 × 3 + 4 × 2 = 956 でフィールド幅960に収まる。
+export const ITEM_PAGE_UI_SIZE = { width: 40, gap: 4 } as const;
 export const ITEM_BUTTON_COLORS = { fill: 0x1e3a2a, stroke: 0x6cff9c, text: '#ffffff' } as const;
 // 仮・要確認(#48): 購入ボタンの背景の不透明度。下端の行を流れるコードがボタン越しに見えるよう半透明にする。
 export const ITEM_BUTTON_FILL_ALPHA = 0.7;
@@ -617,3 +676,48 @@ export const ITEM_MESSAGE_COLOR = '#b9f6ca';
 export const ITEM_MESSAGE_DURATION_MS = 2000;
 // 仮・要確認(#51): 月額 = Math.round(購入価格 × この倍率)。企画書の月額アイテムの「価格」を月額の価格と読み、購入時と同じ額（倍率 1）にした。数値の調整口。
 export const ITEM_MONTHLY_FEE_RATIO = 1;
+
+// 仮・要確認(#58): 企画書(8)の「その他のアイテム」の効果の数値は未定。以下はすべて仮の値（試作で調整する）。
+// 時限効果の時刻はゲーム内の経過ミリ秒（elapsedMs）で測る。同じ効果を重ねて買っても効果量は足さず、残り時間だけ延ばす（買い直した時点から数え直す）。
+// 仮・要確認(#58): 静的解析ツール（Linter）の攻撃間隔（ミリ秒）。企画書「連射が速い」より、共通の ITEM_ATTACK_COOLDOWN_MS より短くする。
+export const LINTER_ATTACK_COOLDOWN_MS = 400;
+// 仮・要確認(#58): Linter の射程内に正常なコードがあるとき、発射を見送る確率（企画書「怪しい見た目の正常コードに反応しかけて、ときどき止まる」）。
+// 見送ってもクールダウンは消費する。正常なコードは攻撃しない。
+export const LINTER_HESITATION_PROBABILITY = 0.3;
+// 仮・要確認(#58): ペアプロ相棒が主人公についてまわるときの、主人公の中心からのずれ（ピクセル）。攻撃の起点もこの位置。
+export const PAIR_PROGRAMMER_FOLLOW_OFFSET = { x: CELL_SIZE * 0.6, y: -CELL_SIZE * 0.6 } as const;
+// 仮・要確認(#58): ラバーダックで正体がバレた不正なコードの見た目。塗りと枠を濃い色にする。
+export const REVEALED_CODE_STYLE = { fillColor: 0x8b0000, strokeColor: 0x3d0000 } as const;
+// ゲーム内1日のミリ秒（gameTime.ts の MS_PER_GAME_DAY と同じ計算。config は gameTime を読み込めないためここで求める）。
+const GAME_DAY_MS = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH;
+// 仮・要確認(#58): コードフリーズの継続時間（ミリ秒）。ゲーム内5日。
+export const CODE_FREEZE_DURATION_MS = GAME_DAY_MS * 5;
+// 仮・要確認(#58): コーヒーマシン。範囲内（担当ルートの出現場所が範囲内のエンジニア）の台数がクラッシュ閾値以下なら生成間隔に BOOST を掛け、
+// 閾値を超えるとカフェイン切れで CRASH を掛ける。台数が 0 なら掛けない。
+export const COFFEE_SPAWN_INTERVAL_BOOST_MULTIPLIER = 0.75;
+export const COFFEE_SPAWN_INTERVAL_CRASH_MULTIPLIER = 1.5;
+export const COFFEE_CRASH_THRESHOLD = 2;
+// 仮・要確認(#58): エナジードリンク。購入から BOOST の時間は主人公の速度に BOOST 倍率、その後 SLUMP の時間は SLUMP 倍率を掛ける。
+export const ENERGY_DRINK_BOOST_DURATION_MS = GAME_DAY_MS * 3;
+export const ENERGY_DRINK_BOOST_SPEED_MULTIPLIER = 2;
+export const ENERGY_DRINK_SLUMP_DURATION_MS = GAME_DAY_MS * 5;
+export const ENERGY_DRINK_SLUMP_SPEED_MULTIPLIER = 0.5;
+// 仮・要確認(#58): ピザ。継続時間の間、全ルートの生成間隔に倍率を掛ける（ペースが上がる）。購入時に技術的負債を少し溜める。
+export const PIZZA_DURATION_MS = GAME_DAY_MS * 10;
+export const PIZZA_SPAWN_INTERVAL_MULTIPLIER = 0.7;
+export const PIZZA_TECH_DEBT = 5;
+// 仮・要確認(#58): ドキュメント。最初に買った時点から、担当がジュニアのルートの不正コード率をゲーム内1か月あたり PER_MONTH ずつ下げ、MAX で止める。
+// 買い直しても購入時刻は最初のまま（効果量は足さない）。
+export const DOCUMENTATION_RATE_REDUCTION_PER_MONTH = 0.05;
+export const DOCUMENTATION_RATE_REDUCTION_MAX = 0.15;
+// 仮・要確認(#58): 金曜日の夕方デプロイ。購入時に売上を入れ、PROBABILITY の確率で DELAY 後（週末）に大障害を起こす。
+export const FRIDAY_DEPLOY_SALES = 400000;
+export const FRIDAY_DEPLOY_INCIDENT_PROBABILITY = 0.7;
+export const FRIDAY_DEPLOY_INCIDENT_DELAY_MS = GAME_DAY_MS * 2;
+// 仮・要確認(#58): 金曜デプロイの大障害の損害ポイント。損害額 = この値 × INCIDENT_DAMAGE_UNIT_YEN。
+export const FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS = 50;
+// 仮・要確認(#58): 「動いてるからヨシ！」。継続時間の間、コードの移動距離に倍率を掛け、置いたアイテムは攻撃しない（主人公の攻撃は止めない）。
+export const WORKS_FINE_DURATION_MS = GAME_DAY_MS * 5;
+export const WORKS_FINE_CODE_SPEED_MULTIPLIER = 2;
+// 仮・要確認(#58): 伝説のシニアの書き置きで障害を防いだときのメッセージ。
+export const SENIOR_NOTE_PREVENTED_MESSAGE = '書き置きのおかげで障害を防いだ（中身は誰も読めない）';

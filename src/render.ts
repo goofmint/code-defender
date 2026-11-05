@@ -89,18 +89,18 @@ import {
   ITEM_BUTTON_COLORS,
   ITEM_BUTTON_FILL_ALPHA,
   ITEM_BUTTON_FONT_SIZE,
-  ITEM_BUTTON_SIZE,
   ITEM_COLORS,
   ITEM_MARK_STYLE,
   ITEM_MARKS,
   ITEM_MESSAGE_COLOR,
   ITEM_MESSAGE_DURATION_MS,
   ITEM_MESSAGE_POSITION,
-  ITEM_UI_POSITION,
+  ITEM_PAGE_BUTTON_LABELS,
+  ITEM_PAGE_SIZE,
 } from './config';
-import { formatItemButton } from './itemPlacement';
+import { itemButtonRect, itemPageControlRects } from './itemBar';
+import type { ItemBarRect, ItemPageDirection } from './itemBar';
 import type { PlacedItem } from './itemPlacement';
-import type { ItemType } from './item';
 import type { RefactoringRatioDirection } from './refactoringRatioControl';
 
 // 後続オブジェクトより常に下に描画する。
@@ -714,39 +714,88 @@ export const drawItemAttackEffect = (scene: Phaser.Scene, from: Point, to: Point
 // 仮: 購入ボタンはコード(0.5)より下に描く。下端の行を流れるコードを隠さないため。コードは当たり判定を持たないのでクリックはボタンに届く。
 const ITEM_BUTTON_DEPTH = 0.45;
 
-// アイテム購入ボタン（画面下端）。クリックで onBuy(itemType) を呼ぶ。
+// アイテム購入バー(#58)。ページ内の枠の操作を MainScene に返す。
+export type ItemBar = {
+  // 枠ごとのボタンの文言（空の枠は null で隠す）とページ表示を差し替える。
+  readonly showPage: (labels: readonly (string | null)[], pageLabel: string) => void;
+};
+
+// 購入バーのボタン1つ（Rectangle と Text の Container）。drawHireButtons と同じく、表示範囲と当たり判定を一致させるため矩形を半分ずらす。
+// stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
+const drawItemBarButton = (
+  scene: Phaser.Scene,
+  rect: ItemBarRect,
+  text: string,
+  onPress: () => void,
+): { readonly container: Phaser.GameObjects.Container; readonly label: Phaser.GameObjects.Text } => {
+  const { width, height } = rect;
+  const background = scene.add
+    .rectangle(0, 0, width, height, ITEM_BUTTON_COLORS.fill, ITEM_BUTTON_FILL_ALPHA)
+    .setOrigin(0)
+    .setStrokeStyle(2, ITEM_BUTTON_COLORS.stroke);
+  const label = scene.add
+    .text(width / 2, height / 2, text, {
+      fontSize: ITEM_BUTTON_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ITEM_BUTTON_COLORS.text,
+    })
+    .setOrigin(0.5);
+  const container = scene.add
+    .container(rect.x, rect.y, [background, label])
+    .setSize(width, height)
+    .setDepth(ITEM_BUTTON_DEPTH);
+  container.setInteractive(
+    new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+    Phaser.Geom.Rectangle.Contains,
+  );
+  container.on('pointerdown', onPress);
+  return { container, label };
+};
+
+// アイテム購入バー（画面下端）。ページ内の枠（ITEM_PAGE_SIZE 個）と、ページ切替UI（前・ページ表示・次）を描く(#58)。
+// 枠のクリックで onBuySlot(枠番号)、切替ボタンのクリックで onPage(向き) を呼ぶ。文言は返した showPage で差し替える。
 // ボタン上の pointerdown で移動・攻撃が起きないようにする処理は main.ts 側（currentlyOver で判定）。
 export const drawItemButtons = (
   scene: Phaser.Scene,
-  itemTypes: readonly ItemType[],
-  onBuy: (itemType: ItemType) => void,
-): Phaser.GameObjects.Container[] =>
-  itemTypes.map((itemType, index) => {
-    const { width, height, gap } = ITEM_BUTTON_SIZE;
-    const x = ITEM_UI_POSITION.x + index * (width + gap);
-    const background = scene.add
-      .rectangle(0, 0, width, height, ITEM_BUTTON_COLORS.fill, ITEM_BUTTON_FILL_ALPHA)
-      .setOrigin(0)
-      .setStrokeStyle(2, ITEM_BUTTON_COLORS.stroke);
-    const label = scene.add
-      .text(width / 2, height / 2, formatItemButton(index, itemType), {
-        fontSize: ITEM_BUTTON_FONT_SIZE,
-        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
-        color: ITEM_BUTTON_COLORS.text,
-      })
-      .setOrigin(0.5);
-    const button = scene.add
-      .container(x, ITEM_UI_POSITION.y, [background, label])
-      .setSize(width, height)
-      .setDepth(ITEM_BUTTON_DEPTH);
-    // drawHireButtons と同じ。表示範囲と当たり判定を一致させるため矩形を半分ずらす。
-    button.setInteractive(
-      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+  onBuySlot: (slot: number) => void,
+  onPage: (direction: ItemPageDirection) => void,
+): ItemBar => {
+  const slots = Array.from({ length: ITEM_PAGE_SIZE }, (_, slot) =>
+    drawItemBarButton(scene, itemButtonRect(slot), '', () => onBuySlot(slot)),
+  );
+  const controls = itemPageControlRects();
+  drawItemBarButton(scene, controls.previous, ITEM_PAGE_BUTTON_LABELS.previous, () => onPage('previous'));
+  drawItemBarButton(scene, controls.next, ITEM_PAGE_BUTTON_LABELS.next, () => onPage('next'));
+  // ページ表示の上で押しても主人公が動かないよう、割合UIの表示と同じく Zone に当たり判定を持たせる（押下時の処理はない）。
+  const { label: labelRect } = controls;
+  scene.add
+    .zone(labelRect.x, labelRect.y, labelRect.width, labelRect.height)
+    .setOrigin(0)
+    .setDepth(ITEM_BUTTON_DEPTH)
+    .setInteractive(
+      new Phaser.Geom.Rectangle(0, 0, labelRect.width, labelRect.height),
       Phaser.Geom.Rectangle.Contains,
     );
-    button.on('pointerdown', () => onBuy(itemType));
-    return button;
-  });
+  const pageText = scene.add
+    .text(labelRect.x + labelRect.width / 2, labelRect.y + labelRect.height / 2, '', {
+      fontSize: ITEM_BUTTON_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: ITEM_BUTTON_COLORS.text,
+    })
+    .setOrigin(0.5)
+    .setDepth(ITEM_BUTTON_DEPTH);
+  return {
+    showPage: (labels, pageLabel) => {
+      slots.forEach((slot, index) => {
+        const text = labels[index] ?? null;
+        // 隠した枠は当たり判定もなくなる（Phaser は非表示のオブジェクトを入力の対象にしない）。
+        slot.container.setVisible(text !== null);
+        slot.label.setText(text ?? '');
+      });
+      pageText.setText(pageLabel);
+    },
+  };
+};
 
 // アイテム購入の結果メッセージ。一定時間後に消す。置き換えるときは前のものを破棄してから呼ぶ。
 export const drawItemMessage = (scene: Phaser.Scene, message: string): Phaser.GameObjects.Text => {
