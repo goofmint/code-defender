@@ -50,7 +50,7 @@ const placed = (id: number, cell: GridCell, itemType: ItemType = 'linter'): Plac
   lastAttackTime: null,
 });
 
-describe('getItemPrice: 6アイテムの価格', () => {
+describe('getItemPrice: 7アイテムの価格', () => {
   it.each([
     ['codeRabbit', 200000],
     ['linter', 50000],
@@ -58,6 +58,7 @@ describe('getItemPrice: 6アイテムの価格', () => {
     ['ci', 100000],
     ['securityScanner', 200000],
     ['pairProgrammer', 100000],
+    ['cat', 50000],
   ] as const)('%s は %i 円', (itemType, price) => {
     expect(getItemPrice(itemType)).toBe(price);
   });
@@ -352,6 +353,23 @@ describe('formatItemMessage / formatItemButton', () => {
     expect(formatItemButton(1, 'linter')).toBe('[5] Linter 5万円');
     expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 20万/月');
     expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 20万/月');
+    expect(formatItemButton(6, 'cat')).toBe('[0] Cat 5万円');
+  });
+
+  it('7個のボタンのキー表示は 4〜9 と 0（猫 #57）', () => {
+    expect(ITEM_TYPES.map((itemType, index) => formatItemButton(index, itemType))).toEqual([
+      '[4] CodeRabbit 20万/月',
+      '[5] Linter 5万円',
+      '[6] Test 10万円',
+      '[7] CI 10万/月',
+      '[8] Scanner 20万/月',
+      '[9] Pair 10万/月',
+      '[0] Cat 5万円',
+    ]);
+  });
+
+  it('キー表示のない index は例外にする', () => {
+    expect(() => formatItemButton(ITEM_TYPES.length, 'cat')).toThrow();
   });
 
   it('月額の表示は精算と同じ倍率を使う（1回払いは倍率に関係なく購入価格）', () => {
@@ -409,12 +427,18 @@ describe('アイテムごとの正常なコードの扱い（targetsNormalCode�
     position: { x: origin.x + dx, y: origin.y },
   });
 
-  it('既存6アイテムはすべて false', () => {
-    expect(ITEM_TYPES).toHaveLength(6);
-    for (const type of ITEM_TYPES) {
+  it('猫以外の6アイテムはすべて false', () => {
+    const others = ITEM_TYPES.filter((type) => type !== 'cat');
+    expect(others).toHaveLength(6);
+    for (const type of others) {
       expect(ITEM_DEFINITIONS[type].targetsNormalCode).toBe(false);
       expect(itemTargetsNormalCode(type)).toBe(false);
     }
+  });
+
+  it('猫(#57)だけは true（正常なコードも消す）', () => {
+    expect(ITEM_DEFINITIONS.cat.targetsNormalCode).toBe(true);
+    expect(itemTargetsNormalCode('cat')).toBe(true);
   });
 
   describe('設定 false', () => {

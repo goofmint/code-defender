@@ -1,5 +1,5 @@
 // アイテムの属性（企画書 8）と、ダメージ計算・範囲判定の純粋関数。Phaser には依存しない（テスト可能にするため）。
-// 今回定義するのは「攻撃する」6アイテムだけ。攻撃力・得意が「なし」の他15アイテムは、
+// 定義済みは「攻撃する」6アイテムと、ランダムにコードを消す猫（#57）。攻撃力・得意が「なし」の他14アイテムは、
 // それぞれのタスク（#52〜）で追加する。価格は itemPlacement.ts（#48）、支払い区分は payment（#51）で持つ。
 import {
   ITEM_POWER_DAMAGE,
@@ -17,21 +17,27 @@ export const ITEM_TYPES = [
   'ci',
   'securityScanner',
   'pairProgrammer',
+  'cat',
 ] as const;
 
 export type ItemType = (typeof ITEM_TYPES)[number];
 
 // 得意な不正コード。万能型(all)は得意ボーナスなしで全種類に等倍（config.ts 参照）。
+// なし(none)は得意がない（猫 #57。攻撃しないため）。
 export type StrongAgainst =
   | { readonly kind: 'all' }
+  | { readonly kind: 'none' }
   | { readonly kind: 'types'; readonly types: readonly MaliciousCodeType[] };
 
 // 範囲の段階（企画書の表の言葉）。どこから測るか（基準点）は個別アイテムの担当。
 // 例: CI はリリース地点の直前、ペアプロ相棒は主人公の周り。
 export type ItemRange = 'short' | 'middle' | 'long';
 
-// 攻撃力の段階（弱・中・強）。
-export type ItemPower = 'weak' | 'medium' | 'strong';
+// 攻撃力の段階（弱・中・強）。なし(none)は攻撃しないアイテム（猫 #57）。
+export type ItemPower = 'none' | 'weak' | 'medium' | 'strong';
+
+// アイテムの効果。attack は範囲内の不正なコードを攻撃する。deleteRandomCode は場のコードを1つランダムに消す（猫 #57）。
+export type ItemEffect = 'attack' | 'deleteRandomCode';
 
 // 支払い区分（企画書 8 の「支払い」列）。monthly は月額払い、oneTime は購入時の1回払い。
 export type ItemPayment = 'monthly' | 'oneTime';
@@ -40,11 +46,13 @@ type ItemDefinition = {
   readonly label: string;
   readonly payment: ItemPayment;
   readonly strongAgainst: StrongAgainst;
-  readonly range: ItemRange;
+  // random は範囲を持たず、場のすべてのコードが対象（猫 #57）。
+  readonly range: ItemRange | 'random';
   readonly power: ItemPower;
-  // このアイテムが正常なコードも攻撃対象にするか。
-  // true にしてよいのは猫だけ（企画書 8 の例外）。猫は #57 で追加する。それ以外は false（正常なコードは攻撃しない）。
+  // このアイテムが正常なコードも対象にするか。
+  // true にしてよいのは猫だけ（企画書 8 の例外、#57）。それ以外は false（正常なコードは攻撃しない）。
   readonly targetsNormalCode: boolean;
+  readonly effect: ItemEffect;
 };
 
 export const ITEM_DEFINITIONS = {
@@ -55,6 +63,7 @@ export const ITEM_DEFINITIONS = {
     range: 'long',
     power: 'medium',
     targetsNormalCode: false,
+    effect: 'attack',
   },
   linter: {
     label: '静的解析ツール（Linter）',
@@ -63,6 +72,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'weak',
     targetsNormalCode: false,
+    effect: 'attack',
   },
   testTool: {
     label: 'テストツール',
@@ -71,6 +81,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'weak',
     targetsNormalCode: false,
+    effect: 'attack',
   },
   ci: {
     label: 'CI',
@@ -79,6 +90,7 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'medium',
     targetsNormalCode: false,
+    effect: 'attack',
   },
   securityScanner: {
     label: 'セキュリティスキャナー',
@@ -90,6 +102,7 @@ export const ITEM_DEFINITIONS = {
     range: 'middle',
     power: 'strong',
     targetsNormalCode: false,
+    effect: 'attack',
   },
   pairProgrammer: {
     label: 'ペアプロ相棒',
@@ -98,19 +111,37 @@ export const ITEM_DEFINITIONS = {
     range: 'short',
     power: 'medium',
     targetsNormalCode: false,
+    effect: 'attack',
+  },
+  cat: {
+    label: '猫',
+    payment: 'oneTime',
+    strongAgainst: { kind: 'none' },
+    range: 'random',
+    power: 'none',
+    targetsNormalCode: true,
+    effect: 'deleteRandomCode',
   },
 } as const satisfies Record<ItemType, ItemDefinition>;
 
-// このアイテムが正常なコードも攻撃対象にするか（企画書 8。猫だけが true になる予定）。
+// このアイテムが正常なコードも対象にするか（企画書 8。猫だけが true）。
 export const itemTargetsNormalCode = (itemType: ItemType): boolean =>
   ITEM_DEFINITIONS[itemType].targetsNormalCode;
 
+// 場のコードをランダムに消すアイテムか（猫 #57）。true なら攻撃（findItemTarget・damageMaliciousCode）を通さない。
+export const isRandomDeleteItem = (itemType: ItemType): boolean =>
+  ITEM_DEFINITIONS[itemType].effect === 'deleteRandomCode';
+
 // 範囲の段階をピクセルに変換する。設定値は引数で差し替えられる（既定値は config.ts）。
+// random（猫 #57）は距離の制限がないので Infinity。
 export const getItemRange = (
   itemType: ItemType,
   ratios: Readonly<Record<ItemRange, number>> = ITEM_RANGE_RATIOS,
   cellSize: number = CELL_SIZE,
-): number => ratios[ITEM_DEFINITIONS[itemType].range] * cellSize;
+): number => {
+  const range: ItemRange | 'random' = ITEM_DEFINITIONS[itemType].range;
+  return range === 'random' ? Infinity : ratios[range] * cellSize;
+};
 
 // 距離が範囲以下なら範囲内（境界ちょうども範囲内。attack.ts の findAttackTarget と同じ方針）。
 // rangePx が負・NaN のときは false。
@@ -125,7 +156,7 @@ export const isTargetInItemRange = (
 ): boolean => isWithinRange(itemPosition, targetPosition, getItemRange(itemType));
 
 // 得意な種類か。種類なし(undefined)は常に false。
-// 万能型(all)も false（得意ボーナスなしで全種類に等倍のため）。
+// 万能型(all)も false（得意ボーナスなしで全種類に等倍のため）。なし(none)も false。
 export const isItemSpecialty = (
   itemType: ItemType,
   maliciousType: MaliciousCodeType | undefined,

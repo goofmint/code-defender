@@ -1,6 +1,7 @@
 import {
   AI_AGENT_NONE_LABEL,
   AI_AGENT_SHORT_NAMES,
+  ENGINEER_ATTACHMENT_CHANGE,
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
@@ -23,6 +24,7 @@ import {
 } from './config';
 import type { EngineerTendency } from './config';
 import type { AiAgentType } from './aiAgent';
+import { MS_PER_GAME_DAY } from './gameTime';
 import { createRoutes } from './route';
 import type { Route } from './route';
 
@@ -39,6 +41,9 @@ export { ENGINEER_RANKS };
 
 // 雇ったときに scene.events で発行するイベント名。#27（出現場所とルートを増やす）などが購読する。
 export const ENGINEER_HIRED_EVENT = 'engineer-hired';
+
+// 愛着心が最低になって自主退職したときに scene.events で発行するイベント名(#32)。退職者1人につき1回。
+export const ENGINEER_RESIGNED_EVENT = 'engineer-resigned';
 
 // routeId: 担当ルート。雇った直後はまだルートがないので null。ENGINEER_HIRED_EVENT を受けてルートを追加したあと assignEngineerRoute で付ける。
 // パラメータ(#28): 疲労度・集中力・技術力・愛着心。Engineer にフラットな readonly フィールドとして持たせる。
@@ -83,6 +88,12 @@ export type Engineer = {
 export type EngineerHiredPayload = {
   readonly engineer: Engineer;
   readonly cost: number;
+};
+
+// routeId は退職者の担当ルート（ルートなしなら null）。engineer.routeId と同じ値。
+export type EngineerResignedPayload = {
+  readonly engineer: Engineer;
+  readonly routeId: number | null;
 };
 
 export type HireFailureReason = 'unknownRank' | 'limit' | 'insufficientFunds';
@@ -256,6 +267,39 @@ export const adjustEngineerParameter = (
     [key]: Number.isNaN(delta) ? engineer[key] : engineer[key] + delta,
   });
 
+// 愛着心の時間変化の設定(#30)。テストで閾値・速度を差し替えられるよう引数で受ける。
+export type EngineerAttachmentChangeConfig = typeof ENGINEER_ATTACHMENT_CHANGE;
+
+// 仮・要確認(#30): elapsedMs だけ時間が経ったときの愛着心を返す。入力は変更しない。
+// 休暇中なら疲労度に関係なく上がる。休暇中でなく、配属済み（routeId !== null）で疲労度が highFatigueThreshold 以上なら下がる。それ以外は変えない。
+// 変化量 = ゲーム内1日あたりの量 × elapsedMs / MS_PER_GAME_DAY。[MIN, MAX] への丸めは adjustEngineerParameter に任せる。
+// elapsedMs が 0 以下・NaN・±Infinity なら同じ engineer を返す（gameTime.ts のサニタイズと同じ扱い）。変化するときだけ新しいオブジェクトを返す。
+// 愛着心が 0 になってもエンジニアはそのまま返す（退職は #32 で扱う）。疲労度の増減はここでは扱わない。
+export const advanceEngineerAttachment = (
+  engineer: Engineer,
+  elapsedMs: number,
+  config: EngineerAttachmentChangeConfig = ENGINEER_ATTACHMENT_CHANGE,
+): Engineer => {
+  if (!(Number.isFinite(elapsedMs) && elapsedMs > 0)) {
+    return engineer;
+  }
+  const days = elapsedMs / MS_PER_GAME_DAY;
+  if (isEngineerOnVacation(engineer)) {
+    return adjustEngineerParameter(engineer, 'attachment', config.vacationAttachmentGainPerGameDay * days);
+  }
+  if (engineer.routeId !== null && engineer.fatigue >= config.highFatigueThreshold) {
+    return adjustEngineerParameter(engineer, 'attachment', -config.highFatigueAttachmentLossPerGameDay * days);
+  }
+  return engineer;
+};
+
+// 全エンジニアの愛着心を elapsedMs だけ進めた新しい配列を返す(#30)。各要素は独立に advanceEngineerAttachment で更新する。順序・長さは変えない。入力は変更しない。
+export const advanceEngineersAttachment = (
+  engineers: readonly Engineer[],
+  elapsedMs: number,
+  config: EngineerAttachmentChangeConfig = ENGINEER_ATTACHMENT_CHANGE,
+): Engineer[] => engineers.map((engineer) => advanceEngineerAttachment(engineer, elapsedMs, config));
+
 // 初期エンジニア。性格はランダム（random を注入できる）。パラメータは性格の補正つき(#29)。routes と ranks を同じ順序で対応させる（短い方に合わせる）。id は 0 からの連番。
 export const createInitialEngineers = (
   routes: readonly Route[],
@@ -329,7 +373,8 @@ export const toggleEngineerVacation = (engineers: readonly Engineer[], engineerI
 // 休暇中か。#36（休暇中はコードを止める）などの後続でも使う。
 export const isEngineerOnVacation = (engineer: Engineer): boolean => engineer.onVacation;
 
-// そのルートを担当するエンジニア。いなければ undefined。退職(#32)・休暇(#36)でルートを外す・止めるときに使う。
+// そのルートを担当するエンジニア。いなければ undefined。休暇(#36)でルートを止めるときに使う。
+// 退職(#32)ではルートからではなく退職者の routeId から片付ける（partitionResignedEngineers・main.ts の onEngineerResigned）。
 export const findEngineerByRoute = (
   engineers: readonly Engineer[],
   routeId: number,
@@ -348,6 +393,17 @@ export const findRouteIdOfEngineer = (
   engineers: readonly Engineer[],
   engineerId: number,
 ): number | null => engineers.find((engineer) => engineer.id === engineerId)?.routeId ?? null;
+
+// 愛着心が最低(ENGINEER_PARAMETER_MIN)以下なら自主退職する(#32)。最低値未満（-Infinity を含む）も退職。NaN は退職しない（比較が false）。
+export const shouldResign = (engineer: Engineer): boolean => engineer.attachment <= ENGINEER_PARAMETER_MIN;
+
+// 退職する人(resigned)と残る人(remaining)に分ける(#32)。どちらも元の並び順で、要素は入力と同じ参照。入力は変更しない。
+export const partitionResignedEngineers = (
+  engineers: readonly Engineer[],
+): { readonly remaining: Engineer[]; readonly resigned: Engineer[] } => ({
+  remaining: engineers.filter((engineer) => !shouldResign(engineer)),
+  resigned: engineers.filter(shouldResign),
+});
 
 // 仮・要確認(#27): ゲームオーバー中に雇用イベントを受けたらルートを追加しない（雇ったエンジニア自体は人数に入る）。
 export const shouldAddRouteOnHire = (gameOver: boolean): boolean => !gameOver;
@@ -411,6 +467,10 @@ export const getInitialSalary = (rank: EngineerRank): number => ENGINEER_MONTHLY
 
 export const formatEngineerCount = (count: number, max: number): string =>
   `エンジニア: ${count}/${max}`;
+
+// 自主退職(#32)のメッセージ。雇用メッセージと同じ場所に出す。
+export const formatResignedMessage = (engineer: Engineer): string =>
+  `#${engineer.id} ${getRankLabel(engineer.rank)}が退職しました`;
 
 export const formatHireButton = (index: number, rank: EngineerRank, cost: number): string =>
   `[${index + 1}] ${getRankLabel(rank)} ${cost / 10000}万円`;

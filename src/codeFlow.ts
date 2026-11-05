@@ -94,6 +94,16 @@ export const stepSpawnTimerUnlessPaused = (
 // そのコードを進める距離。停止中（担当者の休暇中 #36）は 0 で、advanceCode は元のコードをそのまま返す。
 export const moveDistanceUnlessPaused = (distance: number, paused: boolean): number => (paused ? 0 : distance);
 
+// routeId が一致するコード(removed)と、それ以外(remaining)に分ける（退職でルートが消えるとき #32）。
+// どちらも元の並び順で、要素は入力と同じ参照。入力は変更しない。シーン側の Graphics 付きのコードにも使えるよう総称型にする。
+export const partitionCodesByRoute = <T extends { readonly routeId: number }>(
+  codes: readonly T[],
+  routeId: number,
+): { readonly remaining: T[]; readonly removed: T[] } => ({
+  remaining: codes.filter((code) => code.routeId !== routeId),
+  removed: codes.filter((code) => code.routeId === routeId),
+});
+
 // random(0以上1未満) が割合未満なら不正コード。
 export const pickCodeKind = (random: () => number, maliciousRate: number): CodeKind =>
   random() < maliciousRate ? 'malicious' : 'normal';

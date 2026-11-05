@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CODE_SPAWN_INTERVAL_MS,
+  ENGINEER_ATTACHMENT_CHANGE,
   ENGINEER_HIRE_COST,
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
   ENGINEER_INITIAL_PARAMETERS,
@@ -26,6 +27,8 @@ import {
 import {
   adjustEngineerParameter,
   adjustEngineerSalary,
+  advanceEngineerAttachment,
+  advanceEngineersAttachment,
   applyPersonalityTendencies,
   assignEngineerRoute,
   clampEngineerParameter,
@@ -36,6 +39,7 @@ import {
   findRouteIdOfEngineer,
   getFatigueRateMultiplier,
   getPersonalityLabel,
+  getRankLabel,
   shouldAddRouteOnHire,
   formatEngineerCount,
   formatHireButton,
@@ -49,14 +53,18 @@ import {
   isEngineerOnVacation,
   isEngineerRank,
   isRouteOnVacation,
+  partitionResignedEngineers,
   pickRandomPersonality,
   selectAdjacentEngineerId,
   setEngineerVacation,
+  shouldResign,
+  formatResignedMessage,
   toggleEngineerVacation,
   updateEngineerParameters,
 } from './engineer';
 import type {
   Engineer,
+  EngineerAttachmentChangeConfig,
   EngineerParameterKey,
   EngineerPersonalityId,
   EngineerRank,
@@ -67,6 +75,7 @@ import type {
 import { addRoute, createRoutes, nextSpawnCell } from './route';
 import { advanceCode, moveDistanceUnlessPaused, spawnCode, stepSpawnTimerUnlessPaused } from './codeFlow';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
+import { MS_PER_GAME_DAY } from './gameTime';
 
 const rules: HireRules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
 const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): Engineer => ({
@@ -1777,6 +1786,163 @@ describe('formatSelectedEngineer / formatSalaryButton(#34)', () => {
   });
 });
 
+describe('愛着心の時間変化(#30): advanceEngineerAttachment', () => {
+  const THRESHOLD = ENGINEER_ATTACHMENT_CHANGE.highFatigueThreshold;
+  const GAIN = ENGINEER_ATTACHMENT_CHANGE.vacationAttachmentGainPerGameDay;
+  const LOSS = ENGINEER_ATTACHMENT_CHANGE.highFatigueAttachmentLossPerGameDay;
+  const START = 50;
+  const make = (
+    overrides: Partial<Pick<Engineer, 'fatigue' | 'attachment' | 'onVacation' | 'routeId'>> = {},
+  ): Engineer => ({ ...makeEngineer(0, 'junior', 0), attachment: START, ...overrides });
+
+  it('仮の設定値（閾値 70、上昇・低下ともに 1/日）', () => {
+    expect(ENGINEER_ATTACHMENT_CHANGE).toEqual({
+      highFatigueThreshold: 70,
+      vacationAttachmentGainPerGameDay: 1,
+      highFatigueAttachmentLossPerGameDay: 1,
+    });
+    expect(MS_PER_GAME_DAY).toBe(2000);
+  });
+
+  it.each<[string, number, number]>([
+    ['疲労度 0', 0, START],
+    ['疲労度 69', 69, START],
+    ['閾値 - 0.5', THRESHOLD - 0.5, START],
+    ['閾値ちょうど（70）', THRESHOLD, START - LOSS],
+    ['疲労度 71', 71, START - LOSS],
+    ['疲労度 100', 100, START - LOSS],
+  ])('配属済み・勤務中で %s なら 1 日後の愛着心は %s', (_label, fatigue, expected) => {
+    const result = advanceEngineerAttachment(make({ fatigue }), MS_PER_GAME_DAY);
+    expect(result.attachment).toBeCloseTo(expected, 10);
+  });
+
+  it.each([0, THRESHOLD - 1, THRESHOLD, 100])('休暇中は疲労度 %s でも上がる（休暇が優先）', (fatigue) => {
+    const result = advanceEngineerAttachment(make({ fatigue, onVacation: true }), MS_PER_GAME_DAY);
+    expect(result.attachment).toBeCloseTo(START + GAIN, 10);
+  });
+
+  it('未配属（routeId: null）なら高疲労・勤務中でも変わらない', () => {
+    const engineer = make({ routeId: null, fatigue: 100 });
+    expect(advanceEngineerAttachment(engineer, MS_PER_GAME_DAY)).toBe(engineer);
+  });
+
+  it('未配属でも休暇中なら上がる', () => {
+    const result = advanceEngineerAttachment(make({ routeId: null, fatigue: 100, onVacation: true }), MS_PER_GAME_DAY);
+    expect(result.attachment).toBeCloseTo(START + GAIN, 10);
+  });
+
+  it.each<[string, Partial<Pick<Engineer, 'fatigue' | 'attachment' | 'onVacation'>>, number]>([
+    ['上昇で 99 → 100', { attachment: ENGINEER_PARAMETER_MAX - 1, onVacation: true }, ENGINEER_PARAMETER_MAX],
+    ['上昇で 100 は超えない', { attachment: ENGINEER_PARAMETER_MAX, onVacation: true }, ENGINEER_PARAMETER_MAX],
+    ['低下で 1 → 0', { attachment: ENGINEER_PARAMETER_MIN + 1, fatigue: 100 }, ENGINEER_PARAMETER_MIN],
+    ['低下で 0 は負にならない', { attachment: ENGINEER_PARAMETER_MIN, fatigue: 100 }, ENGINEER_PARAMETER_MIN],
+  ])('%s', (_label, overrides, expected) => {
+    expect(advanceEngineerAttachment(make(overrides), MS_PER_GAME_DAY).attachment).toBe(expected);
+  });
+
+  it('愛着心 0 でも例外を出さずエンジニアを返す（退職は #32）', () => {
+    const engineer = make({ attachment: ENGINEER_PARAMETER_MIN, fatigue: 100 });
+    expect(() => advanceEngineerAttachment(engineer, MS_PER_GAME_DAY * 10)).not.toThrow();
+    const result = advanceEngineerAttachment(engineer, MS_PER_GAME_DAY * 10);
+    expect(result.id).toBe(engineer.id);
+    expect(result.attachment).toBe(ENGINEER_PARAMETER_MIN);
+  });
+
+  it.each([0, -1, -MS_PER_GAME_DAY, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    '経過時間 %s は変化なし（同じ engineer）',
+    (elapsedMs) => {
+      const vacation = make({ onVacation: true });
+      const tired = make({ fatigue: 100 });
+      expect(advanceEngineerAttachment(vacation, elapsedMs)).toBe(vacation);
+      expect(advanceEngineerAttachment(tired, elapsedMs)).toBe(tired);
+    },
+  );
+
+  it.each<[number, number]>([
+    [1, 1 / MS_PER_GAME_DAY],
+    [MS_PER_GAME_DAY / 2, 0.5],
+    [MS_PER_GAME_DAY, 1],
+  ])('%s ms は %s 日分の変化', (elapsedMs, days) => {
+    expect(advanceEngineerAttachment(make({ onVacation: true }), elapsedMs).attachment).toBeCloseTo(START + GAIN * days, 10);
+    expect(advanceEngineerAttachment(make({ fatigue: 100 }), elapsedMs).attachment).toBeCloseTo(START - LOSS * days, 10);
+  });
+
+  it.each([true, false])('2000 ms の 1 回更新と 1000 ms の 2 回更新は同じ結果（休暇中: %s）', (onVacation) => {
+    const engineer = make({ onVacation, fatigue: 100 });
+    const once = advanceEngineerAttachment(engineer, MS_PER_GAME_DAY);
+    const twice = advanceEngineerAttachment(advanceEngineerAttachment(engineer, MS_PER_GAME_DAY / 2), MS_PER_GAME_DAY / 2);
+    expect(twice.attachment).toBeCloseTo(once.attachment, 10);
+  });
+
+  it('愛着心以外のフィールドは変えず、入力も変更しない', () => {
+    const engineer = make({ fatigue: 100 });
+    const snapshot = { ...engineer };
+    const result = advanceEngineerAttachment(engineer, MS_PER_GAME_DAY);
+    expect(result).not.toBe(engineer);
+    expect(engineer).toEqual(snapshot);
+    const { attachment: _after, ...restAfter } = result;
+    const { attachment: _before, ...restBefore } = snapshot;
+    expect(restAfter).toEqual(restBefore);
+  });
+
+  it('注入した config で閾値と速度を変えられる', () => {
+    const config: EngineerAttachmentChangeConfig = {
+      highFatigueThreshold: 30,
+      vacationAttachmentGainPerGameDay: 5,
+      highFatigueAttachmentLossPerGameDay: 3,
+    };
+    expect(advanceEngineerAttachment(make({ fatigue: 30 }), MS_PER_GAME_DAY, config).attachment).toBeCloseTo(START - 3, 10);
+    const below = make({ fatigue: 29 });
+    expect(advanceEngineerAttachment(below, MS_PER_GAME_DAY, config)).toBe(below);
+    expect(advanceEngineerAttachment(make({ onVacation: true }), MS_PER_GAME_DAY, config).attachment).toBeCloseTo(START + 5, 10);
+  });
+});
+
+describe('愛着心の時間変化(#30): advanceEngineersAttachment', () => {
+  const GAIN = ENGINEER_ATTACHMENT_CHANGE.vacationAttachmentGainPerGameDay;
+  const LOSS = ENGINEER_ATTACHMENT_CHANGE.highFatigueAttachmentLossPerGameDay;
+
+  it('空配列は空の新しい配列', () => {
+    const engineers: Engineer[] = [];
+    const result = advanceEngineersAttachment(engineers, MS_PER_GAME_DAY);
+    expect(result).toEqual([]);
+    expect(result).not.toBe(engineers);
+  });
+
+  it('休暇中・高疲労の勤務中・低疲労の勤務中・未配属を独立に更新し、順序と長さを保つ', () => {
+    const engineers: Engineer[] = [
+      { ...makeEngineer(0, 'junior', 0), attachment: 50, onVacation: true },
+      { ...makeEngineer(1, 'middle', 1), attachment: 50, fatigue: 100 },
+      { ...makeEngineer(2, 'senior', 2), attachment: 50, fatigue: 0 },
+      { ...makeEngineer(3, 'junior', null), attachment: 50, fatigue: 100 },
+    ];
+    const snapshot = engineers.map((engineer) => ({ ...engineer }));
+    const result = advanceEngineersAttachment(engineers, MS_PER_GAME_DAY);
+    expect(result).not.toBe(engineers);
+    expect(result.map((engineer) => engineer.id)).toEqual([0, 1, 2, 3]);
+    expect(result[0].attachment).toBeCloseTo(50 + GAIN, 10);
+    expect(result[1].attachment).toBeCloseTo(50 - LOSS, 10);
+    expect(result[2]).toBe(engineers[2]);
+    expect(result[3]).toBe(engineers[3]);
+    expect(engineers).toEqual(snapshot);
+  });
+});
+
+describe('愛着心の時間変化(#30): 休暇の開始・終了との組み合わせ', () => {
+  const GAIN = ENGINEER_ATTACHMENT_CHANGE.vacationAttachmentGainPerGameDay;
+  const LOSS = ENGINEER_ATTACHMENT_CHANGE.highFatigueAttachmentLossPerGameDay;
+
+  it('休暇開始後は上がり、休暇終了後に高疲労なら下がる', () => {
+    const start: Engineer[] = [{ ...makeEngineer(0, 'junior', 0), attachment: 50, fatigue: 100 }];
+    const working = advanceEngineersAttachment(start, MS_PER_GAME_DAY);
+    expect(working[0].attachment).toBeCloseTo(50 - LOSS, 10);
+    const onVacation = advanceEngineersAttachment(setEngineerVacation(working, 0, true), MS_PER_GAME_DAY);
+    expect(onVacation[0].attachment).toBeCloseTo(50 - LOSS + GAIN, 10);
+    const back = advanceEngineersAttachment(setEngineerVacation(onVacation, 0, false), MS_PER_GAME_DAY);
+    expect(back[0].attachment).toBeCloseTo(50 - LOSS + GAIN - LOSS, 10);
+  });
+});
+
 describe('月給の初期額 initialSalary(#31)', () => {
   const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
   const ranks: EngineerRank[] = ['junior', 'middle', 'senior'];
@@ -1801,5 +1967,147 @@ describe('月給の初期額 initialSalary(#31)', () => {
     if (!result.ok) throw new Error(result.reason);
     expect(result.engineer.salary).not.toBe(engineer.salary);
     expect(result.engineer.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK.middle);
+  });
+});
+
+// 愛着心だけを差し替えたエンジニア（退職 #32 の判定用）。clamp を通さずに範囲外・NaN も作れる。
+const withAttachment = (engineer: Engineer, attachment: number): Engineer => ({ ...engineer, attachment });
+
+describe('自主退職(#32): shouldResign（境界値）', () => {
+  it.each([ENGINEER_PARAMETER_MIN, -0.0001, -1, -Infinity])('愛着心 %d なら退職する', (attachment) => {
+    expect(shouldResign(withAttachment(makeEngineer(0, 'junior', 0), attachment))).toBe(true);
+  });
+
+  it.each([Number.MIN_VALUE, 0.0001, 1, 50, ENGINEER_PARAMETER_MAX, NaN])('愛着心 %d なら退職しない', (attachment) => {
+    expect(shouldResign(withAttachment(makeEngineer(0, 'junior', 0), attachment))).toBe(false);
+  });
+
+  it('最低値は 0（新しいしきい値は作らず ENGINEER_PARAMETER_MIN を使う）', () => {
+    expect(ENGINEER_PARAMETER_MIN).toBe(0);
+  });
+
+  it('adjustEngineerParameter で正の値からちょうど 0 に下げると退職する', () => {
+    const engineer = adjustEngineerParameter(withAttachment(makeEngineer(0, 'junior', 0), 10), 'attachment', -10);
+    expect(engineer.attachment).toBe(ENGINEER_PARAMETER_MIN);
+    expect(shouldResign(engineer)).toBe(true);
+  });
+
+  it('adjustEngineerParameter で 0 未満まで下げても 0 に止まり、退職する', () => {
+    const engineer = adjustEngineerParameter(withAttachment(makeEngineer(0, 'junior', 0), 10), 'attachment', -11);
+    expect(engineer.attachment).toBe(ENGINEER_PARAMETER_MIN);
+    expect(shouldResign(engineer)).toBe(true);
+  });
+
+  it('adjustEngineerParameter で最低値の直前（0.0001）までなら退職しない', () => {
+    const engineer = adjustEngineerParameter(withAttachment(makeEngineer(0, 'junior', 0), 10), 'attachment', -9.9999);
+    expect(engineer.attachment).toBeGreaterThan(ENGINEER_PARAMETER_MIN);
+    expect(shouldResign(engineer)).toBe(false);
+  });
+
+  it('入力を変更しない', () => {
+    const engineer = withAttachment(makeEngineer(0, 'junior', 0), 0);
+    const snapshot = structuredClone(engineer);
+    shouldResign(engineer);
+    expect(engineer).toEqual(snapshot);
+  });
+});
+
+describe('自主退職(#32): partitionResignedEngineers', () => {
+  const resigning = (id: number, routeId: number | null = id): Engineer =>
+    withAttachment(makeEngineer(id, 'junior', routeId), ENGINEER_PARAMETER_MIN);
+
+  it('空配列なら両方とも空', () => {
+    expect(partitionResignedEngineers([])).toEqual({ remaining: [], resigned: [] });
+  });
+
+  it('退職者がいなければ全員が残り、参照と順序を保つ', () => {
+    const engineers = makeEngineers(3);
+    const result = partitionResignedEngineers(engineers);
+    expect(result.resigned).toEqual([]);
+    expect(result.remaining).toHaveLength(3);
+    result.remaining.forEach((engineer, i) => expect(engineer).toBe(engineers[i]));
+    expect(result.remaining).not.toBe(engineers);
+  });
+
+  it.each([
+    ['先頭', 0],
+    ['中間', 1],
+    ['末尾', 2],
+  ])('%sの1人だけ退職する', (_label, index) => {
+    const engineers = makeEngineers(3).map((engineer, i) => (i === index ? resigning(engineer.id) : engineer));
+    const result = partitionResignedEngineers(engineers);
+    expect(result.resigned).toEqual([engineers[index]]);
+    expect(result.resigned[0]).toBe(engineers[index]);
+    const expected = engineers.filter((_, i) => i !== index);
+    expect(result.remaining).toHaveLength(2);
+    result.remaining.forEach((engineer, i) => expect(engineer).toBe(expected[i]));
+  });
+
+  it('複数人が退職すると、どちらも元の順序を保つ', () => {
+    const engineers = [makeEngineer(0, 'junior', 0), resigning(1), makeEngineer(2, 'middle', 2), resigning(3), resigning(4)];
+    const result = partitionResignedEngineers(engineers);
+    expect(result.resigned.map((engineer) => engineer.id)).toEqual([1, 3, 4]);
+    expect(result.remaining.map((engineer) => engineer.id)).toEqual([0, 2]);
+  });
+
+  it('全員が退職すると残りは空', () => {
+    const engineers = [resigning(0), resigning(1), resigning(2)];
+    const result = partitionResignedEngineers(engineers);
+    expect(result.remaining).toEqual([]);
+    expect(result.resigned.map((engineer) => engineer.id)).toEqual([0, 1, 2]);
+  });
+
+  it('最後の1人が退職すると残りは空', () => {
+    const result = partitionResignedEngineers([resigning(5)]);
+    expect(result.remaining).toEqual([]);
+    expect(result.resigned.map((engineer) => engineer.id)).toEqual([5]);
+  });
+
+  it('ルートを持たない（routeId: null）エンジニアも退職し、routeId は null のまま', () => {
+    const result = partitionResignedEngineers([makeEngineer(0, 'junior', 0), resigning(1, null)]);
+    expect(result.resigned).toHaveLength(1);
+    expect(result.resigned[0]?.routeId).toBeNull();
+    expect(result.remaining.map((engineer) => engineer.id)).toEqual([0]);
+  });
+
+  it('入力の配列とエンジニアを変更しない', () => {
+    const engineers = [makeEngineer(0, 'junior', 0), resigning(1), makeEngineer(2, 'senior', 2)];
+    const snapshot = structuredClone(engineers);
+    const before = [...engineers];
+    partitionResignedEngineers(engineers);
+    expect(engineers).toEqual(snapshot);
+    engineers.forEach((engineer, i) => expect(engineer).toBe(before[i]));
+  });
+
+  it(`上限（${MAX_ENGINEERS}人）から1人退職すると、また雇える`, () => {
+    const engineers = makeEngineers(MAX_ENGINEERS).map((engineer, i) => (i === 0 ? resigning(engineer.id) : engineer));
+    expect(hireEngineer({ engineers, funds: RICH, nextId: MAX_ENGINEERS }, 'junior', rules)).toEqual({
+      ok: false,
+      reason: 'limit',
+    });
+    const { remaining } = partitionResignedEngineers(engineers);
+    expect(remaining).toHaveLength(MAX_ENGINEERS - 1);
+    const result = hireEngineer({ engineers: remaining, funds: RICH, nextId: MAX_ENGINEERS }, 'junior', rules);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.engineers).toHaveLength(MAX_ENGINEERS);
+      expect(result.engineer.id).toBe(MAX_ENGINEERS);
+    }
+  });
+
+  it('全員が退職して0人になっても雇える', () => {
+    const { remaining } = partitionResignedEngineers([resigning(0), resigning(1)]);
+    const result = hireEngineer({ engineers: remaining, funds: RICH, nextId: 2 }, 'senior', rules);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.engineers).toHaveLength(1);
+      expect(result.engineer.id).toBe(2);
+    }
+  });
+});
+
+describe('自主退職(#32): formatResignedMessage', () => {
+  it('id とランク名を出す', () => {
+    expect(formatResignedMessage(makeEngineer(3, 'senior', 3))).toBe(`#3 ${getRankLabel('senior')}が退職しました`);
   });
 });

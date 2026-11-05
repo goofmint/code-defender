@@ -162,21 +162,35 @@ export const drawReleasePoint = (scene: Phaser.Scene): void => {
 // 仮: フィールド(-1)より上、リリース地点(0)より下。
 const ROUTE_DEPTH = -0.5;
 
-export const drawRoutes = (scene: Phaser.Scene, routes: readonly Route[]): void => {
-  const g = scene.add.graphics();
-  g.setDepth(ROUTE_DEPTH);
-  for (const route of routes) {
+// ルート1本ぶんの描画（線と出現場所の円）(#32)。退職でルートが消えるときに destroy() する。
+export type RouteDrawing = {
+  readonly line: Phaser.GameObjects.Graphics;
+  readonly spawnMarker: Phaser.GameObjects.Arc;
+};
+
+// ルートごとに線の Graphics と出現場所の円を1個ずつ作り、routeId をキーにして返す。
+// 重なり順を変えないよう、先に全ルートの線を作ってから円を作る（線の上に円が来る）。
+export const drawRoutes = (scene: Phaser.Scene, routes: readonly Route[]): Map<number, RouteDrawing> => {
+  const lines = routes.map((route) => {
+    const g = scene.add.graphics();
+    g.setDepth(ROUTE_DEPTH);
     g.lineStyle(ROUTE_STYLE.width, ROUTE_STYLE.color, ROUTE_STYLE.alpha);
     const points = routePixelPoints(route);
     for (let i = 1; i < points.length; i++) {
       g.lineBetween(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y);
     }
-    const { x, y } = cellCenter(route.spawn);
-    scene.add
-      .circle(x, y, SPAWN_MARKER_STYLE.radius, SPAWN_MARKER_STYLE.fillColor)
-      .setStrokeStyle(SPAWN_MARKER_STYLE.strokeWidth, SPAWN_MARKER_STYLE.strokeColor)
-      .setDepth(ROUTE_DEPTH);
-  }
+    return g;
+  });
+  return new Map(
+    routes.map((route, index): [number, RouteDrawing] => {
+      const { x, y } = cellCenter(route.spawn);
+      const spawnMarker = scene.add
+        .circle(x, y, SPAWN_MARKER_STYLE.radius, SPAWN_MARKER_STYLE.fillColor)
+        .setStrokeStyle(SPAWN_MARKER_STYLE.strokeWidth, SPAWN_MARKER_STYLE.strokeColor)
+        .setDepth(ROUTE_DEPTH);
+      return [route.id, { line: lines[index], spawnMarker }];
+    }),
+  );
 };
 
 // 仮: ルート(-0.5)より上、リリース地点(0)より下。出現場所の円の上に重ねる。
