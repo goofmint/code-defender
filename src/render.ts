@@ -30,6 +30,11 @@ import type { CodeKind } from './code';
 import { getMaliciousCodeAppearance } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
 import {
+  AI_AGENT_BUTTON_FONT_SIZE,
+  AI_AGENT_BUTTON_ORDER,
+  AI_AGENT_BUTTON_SIZE,
+  AI_AGENT_BUY_KEYS,
+  AI_AGENT_UI_POSITION,
   ATTACK_EFFECT_COLOR,
   ATTACK_EFFECT_DURATION_MS,
   ATTACK_HIT_FLASH_DURATION_MS,
@@ -102,6 +107,8 @@ import { formatItemButton } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import type { ItemType } from './item';
 import type { RefactoringRatioDirection } from './refactoringRatioControl';
+import { formatAiAgentButton } from './aiAgent';
+import type { AiAgentType } from './aiAgent';
 
 // 後続オブジェクトより常に下に描画する。
 const FIELD_DEPTH = -1;
@@ -680,6 +687,39 @@ export const drawSalaryButtons = (
     return button;
   });
 };
+
+// AIエージェント(#53)のボタン。左から強い・普通・安い（AI_AGENT_BUTTON_ORDER）。クリックで onBuy(agentType) を呼ぶ（選択中のエンジニアに付ける）。
+// 見た目・当たり判定・深さは drawSalaryButtons と同じ。stopPropagation はしない（main.ts が currentlyOver で移動・攻撃を止める）。
+export const drawAiAgentButtons = (
+  scene: Phaser.Scene,
+  onBuy: (agentType: AiAgentType) => void,
+): Phaser.GameObjects.Container[] =>
+  AI_AGENT_BUTTON_ORDER.map((agentType, index) => {
+    const { width, height, gap } = AI_AGENT_BUTTON_SIZE;
+    const x = AI_AGENT_UI_POSITION.x + index * (width + gap);
+    const background = scene.add
+      .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+      .setOrigin(0)
+      .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
+    const label = scene.add
+      .text(width / 2, height / 2, formatAiAgentButton(AI_AGENT_BUY_KEYS[agentType], agentType), {
+        fontSize: AI_AGENT_BUTTON_FONT_SIZE,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: HIRE_BUTTON_COLORS.text,
+      })
+      .setOrigin(0.5);
+    const button = scene.add
+      .container(x, AI_AGENT_UI_POSITION.y, [background, label])
+      .setSize(width, height)
+      .setDepth(ELAPSED_DAYS_DEPTH);
+    // drawHireButtons と同じ。表示範囲と当たり判定を一致させるため矩形を半分ずらす。
+    button.setInteractive(
+      new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+      Phaser.Geom.Rectangle.Contains,
+    );
+    button.on('pointerdown', () => onBuy(agentType));
+    return button;
+  });
 
 // 置いたアイテム（セル内の色付き四角と短い文字）。主人公(1)より下、コード(0.5)と同じ深さ。
 const ITEM_DEPTH = 0.4;

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AI_AGENT_BUTTON_ORDER,
+  AI_AGENT_BUTTON_SIZE,
+  AI_AGENT_UI_POSITION,
   CUMULATIVE_SALES_POSITION,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
@@ -13,6 +16,7 @@ import {
   ENGINEER_SALARY_MAX,
   ITEM_BLOCKED_CELLS,
   ITEM_BUTTON_SIZE,
+  ITEM_BUY_KEY_LABELS,
   ITEM_BUY_KEYS,
   ITEM_MESSAGE_POSITION,
   ITEM_UI_POSITION,
@@ -307,6 +311,7 @@ const longestSelectedEngineer = formatSelectedEngineer({
   vacationRateReduction: 0,
   salary: ENGINEER_SALARY_MAX,
   initialSalary: getInitialSalary('junior'),
+  aiAgent: null,
   ...createEngineerParameters('junior'),
 });
 const selectedEngineerRect = textRect(
@@ -334,7 +339,7 @@ const itemMessageRect = textRect(ITEM_MESSAGE_POSITION, 'あ'.repeat(HIRE_TEXT_M
 
 describe('昇給・減給パネルのレイアウト(#34)', () => {
   it('最長想定の情報行の文字列', () => {
-    expect(longestSelectedEngineer).toBe('選択: #99 ジュニア 月給 1,000,000円');
+    expect(longestSelectedEngineer).toBe('選択: #99 ジュニア 月給 1,000,000円 AI: なし');
   });
 
   it('境界値: 情報行は技術的負債の行（HUD 4行目）の下、ボタンは情報行の下に並ぶ', () => {
@@ -411,6 +416,136 @@ describe('昇給・減給パネルのレイアウト(#34)', () => {
             expect(ITEM_BLOCKED_CELLS).toContainEqual({ col, row });
           }
         }
+      }
+    }
+  });
+});
+
+// AIエージェント(#53)のボタン。drawAiAgentButtons と同じ計算。
+const aiAgentButtonRects: readonly { readonly name: string; readonly rect: Rect }[] = AI_AGENT_BUTTON_ORDER.map(
+  (agentType, index) => ({
+    name: `AIボタン${agentType}`,
+    rect: {
+      x: AI_AGENT_UI_POSITION.x + index * (AI_AGENT_BUTTON_SIZE.width + AI_AGENT_BUTTON_SIZE.gap),
+      y: AI_AGENT_UI_POSITION.y,
+      width: AI_AGENT_BUTTON_SIZE.width,
+      height: AI_AGENT_BUTTON_SIZE.height,
+    },
+  }),
+);
+
+describe('AIエージェントのボタンのレイアウト(#53)', () => {
+  it('境界値: 昇給・減給ボタン（y=238〜266）の下 y=270〜298、x=72〜416', () => {
+    expect(aiAgentButtonRects[0]?.rect).toEqual({ x: 72, y: 270, width: 112, height: 28 });
+    const last = aiAgentButtonRects[aiAgentButtonRects.length - 1]?.rect;
+    if (!last) throw new Error('AIボタンがない');
+    expect(last.x + last.width).toBe(416);
+  });
+
+  it('ボタンどうしが交差しない', () => {
+    for (let i = 0; i < aiAgentButtonRects.length; i += 1) {
+      for (let j = i + 1; j < aiAgentButtonRects.length; j += 1) {
+        expect(intersects(aiAgentButtonRects[i].rect, aiAgentButtonRects[j].rect)).toBe(false);
+      }
+    }
+  });
+
+  it.each(aiAgentButtonRects)('$name は HUD の4行・選択中のエンジニア・昇給減給ボタンと交差しない', ({ rect }) => {
+    for (const other of [...hudRects, ...salaryRects]) {
+      expect(intersects(rect, other.rect)).toBe(false);
+    }
+  });
+
+  it.each(aiAgentButtonRects)('$name は雇用ボタン・エンジニア数・雇用メッセージと交差しない', ({ rect }) => {
+    for (const other of [...hireButtonRects, ...hireTextRects]) {
+      expect(intersects(rect, other)).toBe(false);
+    }
+  });
+
+  it.each(aiAgentButtonRects)('$name は購入ボタン・購入メッセージと交差しない', ({ rect }) => {
+    for (const other of [...itemButtonRects, itemMessageRect]) {
+      expect(intersects(rect, other)).toBe(false);
+    }
+  });
+
+  it.each(aiAgentButtonRects)('$name は出現列の全行のセル・休暇マーカーと交差しない', ({ rect }) => {
+    for (const row of spawnRows) {
+      expect(intersects(rect, cellRect(ENGINEER_SPAWN_COL, row))).toBe(false);
+      expect(intersects(rect, vacationMarkerRect(row))).toBe(false);
+    }
+  });
+
+  it.each(aiAgentButtonRects)('$name はリリース地点のセルと交差しない', ({ rect }) => {
+    expect(intersects(rect, cellRect(RELEASE_POINT_CELL.col, RELEASE_POINT_CELL.row))).toBe(false);
+  });
+
+  it.each(aiAgentButtonRects)('$name はフィールド内に収まる', ({ rect }) => {
+    expect(rect.x).toBeGreaterThanOrEqual(0);
+    expect(rect.y).toBeGreaterThanOrEqual(0);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
+  });
+
+  it('ボタンと重なるセル（出現列を除く）はすべてアイテムを置けないセル', () => {
+    for (const { rect } of aiAgentButtonRects) {
+      for (let col = ENGINEER_SPAWN_COL + 1; col < FIELD_COLS; col += 1) {
+        for (let row = 0; row < FIELD_ROWS; row += 1) {
+          if (intersects(rect, cellRect(col, row))) {
+            expect(ITEM_BLOCKED_CELLS).toContainEqual({ col, row });
+          }
+        }
+      }
+    }
+  });
+});
+
+describe('購入ボタン7個のレイアウト（猫 #57）', () => {
+  it('購入キー・キー表示・アイテムの数はすべて7で一致する', () => {
+    expect(ITEM_TYPES).toHaveLength(7);
+    expect(ITEM_BUY_KEYS).toHaveLength(ITEM_TYPES.length);
+    expect(ITEM_BUY_KEY_LABELS).toHaveLength(ITEM_TYPES.length);
+    expect(itemButtonRects).toHaveLength(ITEM_TYPES.length);
+  });
+
+  it('境界値: 先頭は x=60 から、7個目の右端は x=952 でフィールド幅以内', () => {
+    expect(itemButtonRects[0].x).toBe((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
+    const last = itemButtonRects[itemButtonRects.length - 1];
+    expect(last.x + last.width).toBe(952);
+    expect(last.x + last.width).toBeLessThanOrEqual(FIELD_WIDTH);
+  });
+
+  it.each(itemButtonRects.map((rect, index) => ({ index, rect })))('$index 番目のボタンはフィールド内に収まる', ({ rect }) => {
+    expect(rect.x).toBeGreaterThanOrEqual(0);
+    expect(rect.y).toBeGreaterThanOrEqual(0);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
+  });
+
+  it('ボタンどうしが交差しない', () => {
+    for (let i = 0; i < itemButtonRects.length; i += 1) {
+      for (let j = i + 1; j < itemButtonRects.length; j += 1) {
+        expect(intersects(itemButtonRects[i], itemButtonRects[j])).toBe(false);
+      }
+    }
+  });
+
+  it.each(spawnRows)('行%i の休暇マーカーと交差しない', (row) => {
+    for (const button of itemButtonRects) {
+      expect(intersects(vacationMarkerRect(row), button)).toBe(false);
+    }
+  });
+
+  it('HUD の4行（技術的負債を含む）・昇給減給パネル・雇用UI・購入メッセージと交差しない', () => {
+    const others = [
+      ...hudRects.map((entry) => entry.rect),
+      ...salaryRects.map((entry) => entry.rect),
+      ...hireButtonRects,
+      ...hireTextRects,
+      itemMessageRect,
+    ];
+    for (const button of itemButtonRects) {
+      for (const other of others) {
+        expect(intersects(button, other)).toBe(false);
       }
     }
   });

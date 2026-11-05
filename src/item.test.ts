@@ -7,15 +7,17 @@ import {
 } from './config';
 import {
   calculateItemDamage,
+  getItemActivation,
   getItemDamage,
   getItemRange,
   ITEM_DEFINITIONS,
   ITEM_TYPES,
   isItemSpecialty,
+  isRandomDeleteItem,
   isTargetInItemRange,
   isWithinRange,
 } from './item';
-import type { ItemPower, ItemRange, ItemType } from './item';
+import type { ItemActivation, ItemPower, ItemRange, ItemType } from './item';
 import { applyHit, getInitialHp } from './defeat';
 import { MALICIOUS_CODE_TYPES } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
@@ -23,7 +25,7 @@ import type { MaliciousCodeType } from './maliciousCode';
 const origin = { x: 100, y: 100 };
 
 describe('アイテムのデータ', () => {
-  it('6アイテムが企画書の順序で定義されている', () => {
+  it('7アイテムが企画書の順序で定義されている', () => {
     expect(ITEM_TYPES).toEqual([
       'codeRabbit',
       'linter',
@@ -31,6 +33,7 @@ describe('アイテムのデータ', () => {
       'ci',
       'securityScanner',
       'pairProgrammer',
+      'cat',
     ]);
   });
 
@@ -43,7 +46,7 @@ describe('アイテムのデータ', () => {
   it('strongAgainst の types は MALICIOUS_CODE_TYPES に含まれ、重複しない', () => {
     for (const itemType of ITEM_TYPES) {
       const { strongAgainst } = ITEM_DEFINITIONS[itemType];
-      if (strongAgainst.kind === 'all') continue;
+      if (strongAgainst.kind !== 'types') continue;
       expect(strongAgainst.types.length).toBeGreaterThan(0);
       expect(new Set(strongAgainst.types).size).toBe(strongAgainst.types.length);
       for (const t of strongAgainst.types) {
@@ -75,6 +78,46 @@ describe('アイテムのデータ', () => {
     } else {
       expect(def.strongAgainst).toEqual({ kind: 'types', types: strong });
     }
+    expect(def.effect).toBe('attack');
+  });
+
+  it('猫は1回払いで、得意・攻撃力なし、範囲 random、正常なコードも対象、ランダムに消す効果', () => {
+    expect(ITEM_DEFINITIONS.cat).toEqual({
+      label: '猫',
+      payment: 'oneTime',
+      strongAgainst: { kind: 'none' },
+      range: 'random',
+      power: 'none',
+      targetsNormalCode: true,
+      activation: 'nearestTarget',
+      effect: 'deleteRandomCode',
+    });
+  });
+
+  it.each<[ItemType, boolean]>([
+    ['codeRabbit', false],
+    ['linter', false],
+    ['testTool', false],
+    ['ci', false],
+    ['securityScanner', false],
+    ['pairProgrammer', false],
+    ['cat', true],
+  ])('isRandomDeleteItem(%s) は %s', (itemType, expected) => {
+    expect(isRandomDeleteItem(itemType)).toBe(expected);
+  });
+});
+
+describe('発動方式（CI #55）', () => {
+  it.each<[ItemType, ItemActivation]>([
+    ['codeRabbit', 'nearestTarget'],
+    ['linter', 'nearestTarget'],
+    ['testTool', 'nearestTarget'],
+    ['ci', 'releaseGate'],
+    ['securityScanner', 'nearestTarget'],
+    ['pairProgrammer', 'nearestTarget'],
+  ])('%s の発動方式は %s', (itemType, activation) => {
+    expect(getItemActivation(itemType)).toBe(activation);
+    expect(ITEM_DEFINITIONS[itemType].activation).toBe(activation);
   });
 });
 
@@ -84,7 +127,8 @@ describe('仮の数値の段階の順序', () => {
     expect(ITEM_RANGE_RATIOS.middle).toBeLessThan(ITEM_RANGE_RATIOS.long);
   });
 
-  it('攻撃力は weak < medium < strong', () => {
+  it('攻撃力は none < weak < medium < strong', () => {
+    expect(ITEM_POWER_DAMAGE.none).toBeLessThan(ITEM_POWER_DAMAGE.weak);
     expect(ITEM_POWER_DAMAGE.weak).toBeLessThan(ITEM_POWER_DAMAGE.medium);
     expect(ITEM_POWER_DAMAGE.medium).toBeLessThan(ITEM_POWER_DAMAGE.strong);
   });
@@ -98,8 +142,13 @@ describe('getItemRange', () => {
     ['ci', 90],
     ['securityScanner', 150],
     ['pairProgrammer', 90],
-  ])('%s の範囲は %i px', (itemType, px) => {
+    ['cat', Infinity],
+  ])('%s の範囲は %s px', (itemType, px) => {
     expect(getItemRange(itemType)).toBe(px);
+  });
+
+  it('猫(random)は段階の設定値に関係なく Infinity', () => {
+    expect(getItemRange('cat', { short: 2, middle: 3, long: 5 }, 10)).toBe(Infinity);
   });
 
   it('設定値を引数で差し替えられる', () => {
@@ -192,9 +241,10 @@ const SPECIALTY: Record<ItemType, readonly MaliciousCodeType[]> = {
   ci: ['bug', 'lowPerformance'],
   securityScanner: ['vulnerabilityCritical', 'vulnerabilityMajor'],
   pairProgrammer: ['spaghetti'],
+  cat: [],
 };
 
-describe('isItemSpecialty（6アイテム×9種類）', () => {
+describe('isItemSpecialty（7アイテム×9種類）', () => {
   const cases = ITEM_TYPES.flatMap((itemType) =>
     MALICIOUS_CODE_TYPES.map((t): [ItemType, MaliciousCodeType, boolean] => [
       itemType,
@@ -235,14 +285,26 @@ describe('getItemDamage', () => {
     );
   });
 
-  it('6アイテム×9種類すべてが正の整数', () => {
-    for (const itemType of ITEM_TYPES) {
+  it('攻撃するアイテム（effect: attack）× 9種類すべてが正の整数', () => {
+    const attackItems = ITEM_TYPES.filter((itemType) => ITEM_DEFINITIONS[itemType].effect === 'attack');
+    expect(attackItems).toHaveLength(6);
+    for (const itemType of attackItems) {
       for (const t of MALICIOUS_CODE_TYPES) {
         const damage = getItemDamage(itemType, t);
         expect(Number.isInteger(damage)).toBe(true);
         expect(damage).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe('猫(#57)のダメージ', () => {
+  it('攻撃力 none のダメージは 0', () => {
+    expect(ITEM_POWER_DAMAGE.none).toBe(0);
+  });
+
+  it.each([...MALICIOUS_CODE_TYPES, undefined])('猫は %s にも 0', (t) => {
+    expect(getItemDamage('cat', t)).toBe(0);
   });
 });
 

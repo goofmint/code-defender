@@ -75,6 +75,21 @@ export const advanceCode = (code: FlowingCode, distance: number): FlowingCode =>
   return { ...code, segmentIndex, position, released: true };
 };
 
+// リリース地点（経路の終点）までの経路に沿った残り距離。現在位置から path[segmentIndex + 1] までと、後続の区間の長さの合計（CI の効果範囲 #55）。
+// リリース済み・空の経路・1点の経路は 0。入力は変更しない。
+export const remainingPathDistance = (code: FlowingCode): number => {
+  const { path } = code;
+  if (code.released || path.length <= 1) return 0;
+  let total = 0;
+  let from = code.position;
+  for (let index = code.segmentIndex + 1; index < path.length; index++) {
+    const to = path[index];
+    total += Math.hypot(to.x - from.x, to.y - from.y);
+    from = to;
+  }
+  return total;
+};
+
 // 初期値を間隔と同じにすると、最初の更新ですぐ 1 個生成される。
 export const initialSpawnElapsed = (intervalMs: number): number => intervalMs;
 
