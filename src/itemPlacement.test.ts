@@ -1,23 +1,46 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINEER_SPAWN_CELLS, ITEM_ATTACK_COOLDOWN_MS, ITEM_RANGE_RATIOS, RELEASE_POINT_CELL } from './config';
+import {
+  ENGINEER_SPAWN_CELLS,
+  ITEM_ATTACK_COOLDOWN_MS,
+  ITEM_RANGE_RATIOS,
+  LINTER_ATTACK_COOLDOWN_MS,
+  LINTER_HESITATION_PROBABILITY,
+  PAIR_PROGRAMMER_FOLLOW_OFFSET,
+  RELEASE_POINT_CELL,
+} from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
-import { getItemRange, ITEM_DEFINITIONS, ITEM_TYPES, isTargetInItemRange, itemTargetsNormalCode } from './item';
+import {
+  getItemPlacement,
+  getItemRange,
+  ITEM_DEFINITIONS,
+  ITEM_TYPES,
+  isTargetInItemRange,
+  itemTargetsNormalCode,
+} from './item';
 import type { ItemType } from './item';
 import {
   canItemAttack,
+  countItemsCovering,
   createItemState,
   filterItemTargets,
+  findCodesToReveal,
   findItemTarget,
   findTargetFor,
   formatItemButton,
   formatItemMessage,
+  getItemAttackCooldownMs,
+  getItemOrigin,
   getItemPrice,
   getRouteCells,
+  isIncidentPreventedByNote,
   isPlaceableCell,
   pointToCell,
+  purchaseInstantItem,
   purchaseItem,
+  shouldItemHesitate,
 } from './itemPlacement';
-import type { PlacedItem, PurchaseState } from './itemPlacement';
+import type { InstantPurchaseState, PlacedItem, PurchaseState } from './itemPlacement';
+import { RELEASE_POINT_CENTER } from './releasePoint';
 import { cellCenter } from './route';
 import type { GridCell, Route } from './route';
 
@@ -43,6 +66,9 @@ const state = (overrides: Partial<PurchaseState> = {}): PurchaseState => ({
   gameOver: false,
   ...overrides,
 });
+// セルに置くアイテム（placement: cell）と、置かずに購入時に発動するアイテム（placement: none #58）。
+const CELL_ITEM_TYPES = ITEM_TYPES.filter((itemType) => getItemPlacement(itemType) === 'cell');
+const INSTANT_ITEM_TYPES = ITEM_TYPES.filter((itemType) => getItemPlacement(itemType) === 'none');
 const placed = (id: number, cell: GridCell, itemType: ItemType = 'linter'): PlacedItem => ({
   id,
   itemType,
@@ -50,7 +76,7 @@ const placed = (id: number, cell: GridCell, itemType: ItemType = 'linter'): Plac
   lastAttackTime: null,
 });
 
-describe('getItemPrice: 7アイテムの価格', () => {
+describe('getItemPrice: 18アイテムの価格', () => {
   it.each([
     ['codeRabbit', 100000],
     ['linter', 25000],
@@ -59,6 +85,17 @@ describe('getItemPrice: 7アイテムの価格', () => {
     ['securityScanner', 100000],
     ['pairProgrammer', 50000],
     ['cat', 25000],
+    ['rubberDuck', 25000],
+    ['codeFreeze', 50000],
+    ['specChangeStorm', 50000],
+    ['coffeeMachine', 25000],
+    ['energyDrink', 25000],
+    ['pizza', 25000],
+    ['documentation', 50000],
+    ['fridayDeploy', 25000],
+    ['rollbackButton', 100000],
+    ['worksFine', 25000],
+    ['seniorNote', 100000],
   ] as const)('%s は %i 円', (itemType, price) => {
     expect(getItemPrice(itemType)).toBe(price);
   });
@@ -95,7 +132,7 @@ describe('purchaseItem: 資金の境界値', () => {
     expect(result.ok && result.fundsAfter).toBe(1);
   });
 
-  it.each(ITEM_TYPES)('%s: 価格-1 は資金不足、ちょうどは成功', (itemType) => {
+  it.each(CELL_ITEM_TYPES)('%s: 価格-1 は資金不足、ちょうどは成功', (itemType) => {
     const p = getItemPrice(itemType);
     expect(purchaseItem(state({ funds: p - 1 }), itemType, free, options)).toEqual({
       ok: false,
@@ -349,27 +386,32 @@ describe('formatItemMessage / formatItemButton', () => {
     expect(formatItemMessage({ ok: false, reason: 'occupied' }, 'linter')).toBe('そこには置けません');
   });
 
-  it('ボタンは 4 番から始まる', () => {
+  it('ボタンはページ内の枠番号 + 4 を表示する（#58）', () => {
     expect(formatItemButton(1, 'linter')).toBe('[5] Linter 2.5万円');
     expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 10万/月');
     expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 10万/月');
-    expect(formatItemButton(6, 'cat')).toBe('[0] Cat 2.5万円');
+    expect(formatItemButton(0, 'cat')).toBe('[4] Cat 2.5万円');
+    expect(formatItemButton(5, 'seniorNote')).toBe('[9] Senior 10万円');
   });
 
-  it('7個のボタンのキー表示は 4〜9 と 0（猫 #57）', () => {
-    expect(ITEM_TYPES.map((itemType, index) => formatItemButton(index, itemType))).toEqual([
-      '[4] CodeRabbit 10万/月',
-      '[5] Linter 2.5万円',
-      '[6] Test 5万円',
-      '[7] CI 5万/月',
-      '[8] Scanner 10万/月',
-      '[9] Pair 5万/月',
-      '[0] Cat 2.5万円',
+  it('ページごとのボタンのキー表示は 4〜9（#58。6個ずつ3ページ）', () => {
+    const pages = [ITEM_TYPES.slice(0, 6), ITEM_TYPES.slice(6, 12), ITEM_TYPES.slice(12, 18)];
+    expect(pages.map((page) => page.map((itemType, slot) => formatItemButton(slot, itemType)))).toEqual([
+      [
+        '[4] CodeRabbit 10万/月',
+        '[5] Linter 2.5万円',
+        '[6] Test 5万円',
+        '[7] CI 5万/月',
+        '[8] Scanner 10万/月',
+        '[9] Pair 5万/月',
+      ],
+      ['[4] Cat 2.5万円', '[5] Duck 2.5万円', '[6] Freeze 5万円', '[7] SpecStorm 5万円', '[8] Coffee 2.5万円', '[9] Energy 2.5万円'],
+      ['[4] Pizza 2.5万円', '[5] Docs 5万円', '[6] FriDeploy 2.5万円', '[7] Rollback 10万円', '[8] Yoshi! 2.5万円', '[9] Senior 10万円'],
     ]);
   });
 
-  it('キー表示のない index は例外にする', () => {
-    expect(() => formatItemButton(ITEM_TYPES.length, 'cat')).toThrow();
+  it('キー表示のない枠番号（6）は例外にする', () => {
+    expect(() => formatItemButton(6, 'cat')).toThrow();
   });
 
   it('月額の表示は精算と同じ倍率を使う（1回払いは倍率に関係なく購入価格）', () => {
@@ -427,9 +469,9 @@ describe('アイテムごとの正常なコードの扱い（targetsNormalCode�
     position: { x: origin.x + dx, y: origin.y },
   });
 
-  it('猫以外の6アイテムはすべて false', () => {
+  it('猫以外の17アイテムはすべて false', () => {
     const others = ITEM_TYPES.filter((type) => type !== 'cat');
-    expect(others).toHaveLength(6);
+    expect(others).toHaveLength(17);
     for (const type of others) {
       expect(ITEM_DEFINITIONS[type].targetsNormalCode).toBe(false);
       expect(itemTargetsNormalCode(type)).toBe(false);
@@ -580,5 +622,248 @@ describe('CodeRabbit(#52): ルート脇に置いてルートを守る', () => {
     expect(isTargetInItemRange('codeRabbit', cellCenter(result.item.cell), cellCenter(routeCell))).toBe(true);
     const onRoute = { id: 1, kind: 'malicious' as const, position: cellCenter(routeCell) };
     expect(findItemTarget(result.item, [onRoute])?.id).toBe(1);
+  });
+});
+
+describe('purchaseItem: 置き方(#58)', () => {
+  it.each(INSTANT_ITEM_TYPES)('置かないアイテム %s は purchaseItem では notPlaceable', (itemType) => {
+    expect(purchaseItem(state(), itemType, free, options)).toEqual({ ok: false, reason: 'notPlaceable' });
+  });
+
+  it('ペアプロ相棒（主人公についてまわる）は既にアイテムがあるセル・ルート上でも買える', () => {
+    const onRoute: GridCell = { col: 3, row: 3 };
+    const occupiedState = state({ placedItems: [placed(0, free)], nextId: 1 });
+    const overItem = purchaseItem(occupiedState, 'pairProgrammer', free, options);
+    expect(overItem.ok).toBe(true);
+    expect(purchaseItem(state(), 'pairProgrammer', onRoute, options).ok).toBe(true);
+  });
+
+  it('ペアプロ相棒はセルを占有しない（同じセルに他のアイテムを置ける）', () => {
+    const pair = placed(0, free, 'pairProgrammer');
+    expect(isPlaceableCell(free, { routes, placedItems: [pair] })).toBe(true);
+    expect(purchaseItem(state({ placedItems: [pair], nextId: 1 }), 'linter', free, options).ok).toBe(true);
+  });
+
+  it('ペアプロ相棒でもゲームオーバー・資金不足は判定する', () => {
+    const price = getItemPrice('pairProgrammer');
+    expect(purchaseItem(state({ gameOver: true }), 'pairProgrammer', free, options)).toEqual({
+      ok: false,
+      reason: 'gameOver',
+    });
+    expect(purchaseItem(state({ funds: price - 1 }), 'pairProgrammer', free, options)).toEqual({
+      ok: false,
+      reason: 'insufficientFunds',
+    });
+  });
+
+  it('ラバーダック・コーヒーマシン・書き置きはセルに置く（置けない場所は notPlaceable）', () => {
+    for (const itemType of ['rubberDuck', 'coffeeMachine', 'seniorNote'] as const) {
+      expect(purchaseItem(state(), itemType, free, options).ok).toBe(true);
+      expect(purchaseItem(state(), itemType, { col: 3, row: 3 }, options)).toEqual({ ok: false, reason: 'notPlaceable' });
+    }
+  });
+});
+
+describe('purchaseInstantItem: 置かないアイテム(#58)の購入', () => {
+  const instantState = (overrides: Partial<InstantPurchaseState> = {}): InstantPurchaseState => ({
+    funds: 1000000,
+    gameOver: false,
+    hasRollbackTarget: true,
+    ...overrides,
+  });
+
+  it('置かないアイテムは8個', () => {
+    expect(INSTANT_ITEM_TYPES).toEqual([
+      'codeFreeze',
+      'specChangeStorm',
+      'energyDrink',
+      'pizza',
+      'documentation',
+      'fridayDeploy',
+      'rollbackButton',
+      'worksFine',
+    ]);
+  });
+
+  it.each(INSTANT_ITEM_TYPES)('%s: 価格-1 は資金不足、ちょうどは成功して資金 0', (itemType) => {
+    const price = getItemPrice(itemType);
+    expect(purchaseInstantItem(instantState({ funds: price - 1 }), itemType)).toEqual({
+      ok: false,
+      reason: 'insufficientFunds',
+    });
+    expect(purchaseInstantItem(instantState({ funds: price }), itemType)).toEqual({
+      ok: true,
+      itemType,
+      fundsAfter: 0,
+      price,
+    });
+  });
+
+  it.each(CELL_ITEM_TYPES)('置くアイテム %s は notPlaceable', (itemType) => {
+    expect(purchaseInstantItem(instantState(), itemType)).toEqual({ ok: false, reason: 'notPlaceable' });
+  });
+
+  it('ロールバックボタンは取り消せる障害がなければ noEligibleIncident、他のアイテムは障害の有無に関係ない', () => {
+    expect(purchaseInstantItem(instantState({ hasRollbackTarget: false }), 'rollbackButton')).toEqual({
+      ok: false,
+      reason: 'noEligibleIncident',
+    });
+    expect(purchaseInstantItem(instantState({ hasRollbackTarget: false }), 'codeFreeze').ok).toBe(true);
+  });
+
+  it.each([
+    ['ゲームオーバーかつ不明', instantState({ gameOver: true }), 'x', 'gameOver'],
+    ['ゲームオーバーかつ対象なし', instantState({ gameOver: true, hasRollbackTarget: false }), 'rollbackButton', 'gameOver'],
+    ['不明かつ資金不足', instantState({ funds: 0 }), 'x', 'unknownItem'],
+    ['対象なしかつ資金不足', instantState({ funds: 0, hasRollbackTarget: false }), 'rollbackButton', 'noEligibleIncident'],
+    ['資金不足', instantState({ funds: 0 }), 'pizza', 'insufficientFunds'],
+  ] as const)('判定順: %s → %s', (_name, input, itemType, reason) => {
+    expect(purchaseInstantItem(input, itemType)).toEqual({ ok: false, reason });
+  });
+
+  it('メッセージ: 成功は「〜を使いました」、対象なしは専用の文言', () => {
+    const ok = purchaseInstantItem(instantState(), 'pizza');
+    expect(formatItemMessage(ok, 'pizza')).toBe('Pizzaを使いました');
+    expect(formatItemMessage({ ok: false, reason: 'noEligibleIncident' }, 'rollbackButton')).toBe(
+      '取り消せる障害がありません',
+    );
+  });
+});
+
+describe('getItemAttackCooldownMs: アイテム別の攻撃間隔(#58)', () => {
+  it('Linter は専用の間隔、それ以外は共通の間隔', () => {
+    expect(getItemAttackCooldownMs('linter')).toBe(LINTER_ATTACK_COOLDOWN_MS);
+    expect(LINTER_ATTACK_COOLDOWN_MS).toBeLessThan(ITEM_ATTACK_COOLDOWN_MS);
+    expect(getItemAttackCooldownMs('codeRabbit')).toBe(ITEM_ATTACK_COOLDOWN_MS);
+    expect(getItemAttackCooldownMs('pairProgrammer')).toBe(ITEM_ATTACK_COOLDOWN_MS);
+  });
+});
+
+describe('findItemTarget: 攻撃の起点(#58)', () => {
+  it('起点を渡すと、置いたセルではなく起点から最も近いコードを選ぶ', () => {
+    const item = placed(0, { col: 2, row: 2 }, 'pairProgrammer');
+    const origin = { x: 600, y: 300 };
+    const near = { id: 1, kind: 'malicious' as const, position: { x: 610, y: 300 } };
+    const nearCell = { id: 2, kind: 'malicious' as const, position: cellCenter(item.cell) };
+    expect(findItemTarget(item, [nearCell, near], origin)?.id).toBe(1);
+    expect(findItemTarget(item, [nearCell, near])?.id).toBe(2);
+  });
+});
+
+describe('getItemOrigin: 攻撃・効果の起点(#58)', () => {
+  const player = { x: 400, y: 300 };
+
+  it('ペアプロ相棒は置いたセルではなく、主人公の位置 + ずれ', () => {
+    const item: PlacedItem = { id: 0, itemType: 'pairProgrammer', cell: { col: 1, row: 1 }, lastAttackTime: null };
+    expect(getItemOrigin(item, player)).toEqual({
+      x: player.x + PAIR_PROGRAMMER_FOLLOW_OFFSET.x,
+      y: player.y + PAIR_PROGRAMMER_FOLLOW_OFFSET.y,
+    });
+  });
+
+  it('ついてまわらないアイテムは主人公の位置に関係なく置いたセルの中心', () => {
+    const item: PlacedItem = { id: 0, itemType: 'linter', cell: { col: 1, row: 1 }, lastAttackTime: null };
+    expect(getItemOrigin(item, player)).toEqual(cellCenter({ col: 1, row: 1 }));
+  });
+});
+
+describe('countItemsCovering: 点を範囲に含む台数(#58)', () => {
+  const cell: GridCell = { col: 5, row: 5 };
+  const center = cellCenter(cell);
+  const coffeeRange = getItemRange('coffeeMachine');
+  const coffee = (id: number, at: GridCell = cell): PlacedItem => ({
+    id,
+    itemType: 'coffeeMachine',
+    cell: at,
+    lastAttackTime: null,
+  });
+
+  it('範囲の境界ちょうどは数え、1px 外は数えない', () => {
+    expect(countItemsCovering([coffee(0)], 'coffee', { x: center.x + coffeeRange, y: center.y })).toBe(1);
+    expect(countItemsCovering([coffee(0)], 'coffee', { x: center.x + coffeeRange + 1, y: center.y })).toBe(0);
+  });
+
+  it('効果が違うアイテムは数えない', () => {
+    const duck: PlacedItem = { id: 1, itemType: 'rubberDuck', cell, lastAttackTime: null };
+    expect(countItemsCovering([coffee(0), duck], 'coffee', center)).toBe(1);
+    expect(countItemsCovering([coffee(0), duck], 'reveal', center)).toBe(1);
+  });
+
+  it('複数台を数える', () => {
+    expect(countItemsCovering([coffee(0), coffee(1, { col: 6, row: 5 })], 'coffee', center)).toBe(2);
+  });
+});
+
+describe('shouldItemHesitate: Linter の見送り(#58)', () => {
+  const origin = { x: 300, y: 300 };
+  const range = getItemRange('linter');
+  const normalInRange = { kind: 'normal' as const, position: { x: origin.x + range, y: origin.y } };
+  const normalOutOfRange = { kind: 'normal' as const, position: { x: origin.x + range + 1, y: origin.y } };
+  const maliciousInRange = { kind: 'malicious' as const, position: origin };
+  const below = (): number => LINTER_HESITATION_PROBABILITY - 0.01;
+  const at = (): number => LINTER_HESITATION_PROBABILITY;
+
+  it('射程内に正常なコードがあり、乱数が確率未満なら見送る', () => {
+    expect(shouldItemHesitate('linter', origin, [maliciousInRange, normalInRange], below)).toBe(true);
+  });
+
+  it('乱数が確率ちょうどなら見送らない', () => {
+    expect(shouldItemHesitate('linter', origin, [maliciousInRange, normalInRange], at)).toBe(false);
+  });
+
+  it('射程内に正常なコードがなければ乱数を引かずに見送らない', () => {
+    const random = (): number => {
+      throw new Error('乱数を引いてはいけません');
+    };
+    expect(shouldItemHesitate('linter', origin, [maliciousInRange, normalOutOfRange], random)).toBe(false);
+  });
+
+  it('Linter 以外は見送らない', () => {
+    expect(shouldItemHesitate('testTool', origin, [normalInRange], below)).toBe(false);
+  });
+});
+
+describe('findCodesToReveal: ラバーダックで正体を暴く(#58)', () => {
+  const cell: GridCell = { col: 5, row: 5 };
+  const center = cellCenter(cell);
+  const duck: PlacedItem = { id: 0, itemType: 'rubberDuck', cell, lastAttackTime: null };
+  const range = getItemRange('rubberDuck');
+
+  it('範囲内でまだ暴いていない不正なコードだけを返す（正常・暴いた済み・範囲外は除く）。入力は変更しない', () => {
+    const codes = [
+      { id: 1, kind: 'malicious' as const, position: center },
+      { id: 2, kind: 'normal' as const, position: center },
+      { id: 3, kind: 'malicious' as const, position: center, revealed: true },
+      { id: 4, kind: 'malicious' as const, position: { x: center.x + range + 1, y: center.y } },
+      { id: 5, kind: 'malicious' as const, position: { x: center.x + range, y: center.y } },
+    ];
+    const snapshot = structuredClone(codes);
+    expect(findCodesToReveal([duck], codes).map((code) => code.id)).toEqual([1, 5]);
+    expect(codes).toEqual(snapshot);
+  });
+
+  it('ラバーダックがなければ何も暴かない', () => {
+    expect(findCodesToReveal([], [{ id: 1, kind: 'malicious' as const, position: center }])).toEqual([]);
+  });
+});
+
+describe('isIncidentPreventedByNote: 書き置きで障害を防ぐ(#58)', () => {
+  const range = getItemRange('seniorNote');
+
+  it('リリース地点が書き置きの範囲内なら防ぐ', () => {
+    const note: PlacedItem = { id: 0, itemType: 'seniorNote', cell: RELEASE_POINT_CELL, lastAttackTime: null };
+    expect(isIncidentPreventedByNote([note])).toBe(true);
+  });
+
+  it('リリース地点が範囲外・書き置き以外のアイテムなら防がない', () => {
+    const farCell: GridCell = { col: 0, row: 0 };
+    const far = cellCenter(farCell);
+    expect(Math.hypot(far.x - RELEASE_POINT_CENTER.x, far.y - RELEASE_POINT_CENTER.y)).toBeGreaterThan(range);
+    expect(isIncidentPreventedByNote([{ id: 0, itemType: 'seniorNote', cell: farCell, lastAttackTime: null }])).toBe(
+      false,
+    );
+    expect(isIncidentPreventedByNote([{ id: 0, itemType: 'rubberDuck', cell: RELEASE_POINT_CELL, lastAttackTime: null }])).toBe(
+      false,
+    );
   });
 });

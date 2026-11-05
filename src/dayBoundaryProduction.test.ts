@@ -25,6 +25,7 @@ import type { GameOverState } from './gameOver';
 import { MONTH_ELAPSED_EVENT, MS_PER_GAME_DAY } from './gameTime';
 import type { MonthElapsedEvent } from './gameTime';
 import type { ItemType } from './item';
+import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { getItemMonthlyFee, getItemPrice, isPlaceableCell } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
@@ -100,6 +101,13 @@ type SceneUnderTest = {
   nextCodeId: number;
   placedItems: readonly PlacedItem[];
   nextItemId: number;
+  phase: 'setup' | 'playing';
+  activeEffects: readonly ActiveEffect[];
+  codeHold: Map<number, number>;
+  scheduledIncidents: readonly ScheduledIncident[];
+  lastIncident: IncidentRecord | null;
+  documentationPurchasedAtMs: number | null;
+  followItemViews: Map<number, FakeGraphics>;
   player?: FakePlayer;
   vacationMarkers: Map<number, FakeVacationMarker>;
   input: { readonly activePointer: { readonly isDown: boolean } };
@@ -176,6 +184,14 @@ const createScene = (funds: number): SceneUnderTest => {
   scene.nextCodeId = 0;
   scene.placedItems = [];
   scene.nextItemId = 0;
+  // 初期配置(#47)を終えてプレイ中の状態から始める。
+  scene.phase = 'playing';
+  scene.activeEffects = [];
+  scene.codeHold = new Map();
+  scene.scheduledIncidents = [];
+  scene.lastIncident = null;
+  scene.documentationPurchasedAtMs = null;
+  scene.followItemViews = new Map();
   scene.vacationMarkers = new Map(
     fleet.routes.map((route) => [route.id, { setOnVacation: vi.fn<(onVacation: boolean) => void>() }]),
   );

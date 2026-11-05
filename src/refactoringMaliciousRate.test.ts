@@ -53,6 +53,7 @@ const makeEngineer = (rank: EngineerRank, vacationRateReduction: number): Engine
   vacationRateReduction,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
   initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK[rank],
+  aiAgent: null,
   ...createEngineerParameters(rank, 'meticulous'),
 });
 
