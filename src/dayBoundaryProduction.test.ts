@@ -65,6 +65,8 @@ vi.mock('./render', async (importOriginal) => ({
   drawGameOver: vi.fn(),
   drawPlacedItem: vi.fn(),
   drawItemMessage: vi.fn(() => ({ destroy: vi.fn() })),
+  // 正常なコードのリリース演出(#144)。
+  drawReleaseBurst: vi.fn(),
 }));
 
 // 生成するコードを決定的に正常なコードにする（不正コードの障害・損害で資金が動かないようにする）。

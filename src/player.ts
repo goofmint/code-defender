@@ -21,6 +21,16 @@ export const getPlayerStartPosition = (): { x: number; y: number } => ({
 
 export type Point = { x: number; y: number };
 
+// 主人公の向き（見た目の scaleX）。1 = 右向き（描画の既定）、-1 = 左向き(#144)。
+export type PlayerFacing = 1 | -1;
+
+// 水平方向の移動量の符号から向きを返す。水平に動かない（0）・数値でないときは null（向きを変えない）。
+export const facingFromHorizontal = (dx: number): PlayerFacing | null => {
+  if (dx > 0) return 1;
+  if (dx < 0) return -1;
+  return null;
+};
+
 // 方向入力の状態（キーボードなどから組み立てる）。
 export type MoveInput = {
   left: boolean;

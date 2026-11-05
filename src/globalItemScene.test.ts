@@ -67,6 +67,8 @@ vi.mock('./render', async (importOriginal) => ({
   drawDefeatEffect: vi.fn(),
   flashCode: vi.fn(),
   drawGameOver: vi.fn(),
+  // 主人公の向きの切り替え(#144)。
+  setPlayerFacing: vi.fn(),
 }));
 
 // テストで触る MainScene の private メンバーだけを表す型。キャストはこのテストファイルの中に閉じる。

@@ -172,12 +172,31 @@ export const cellCenter = (cell: GridCell): Point => ({
 export const routePixelPoints = (route: Route): Point[] =>
   route.waypoints.map(cellCenter);
 
-// 仮: 見た目の値。企画書には未記載。
-export const ROUTE_STYLE = {
-  color: 0x5b8def,
-  width: 4,
-  alpha: 0.6,
-} as const;
+// ルート上の進行方向の矢印（シェブロン）1個ぶん。angle は次のウェイポイントへの向き（ラジアン、x 軸正方向が 0、y 軸下向きが正）(#144)。
+export type RouteChevron = { readonly x: number; readonly y: number; readonly angle: number };
+
+// 折れ線の各区間に spacing 間隔で矢印を置く。区間の始点から spacing / 2 の位置を最初にし、区間の終点を超えない位置まで並べる。
+// 長さ 0 の区間（点が重なる）と、点が1つ以下の折れ線には矢印を置かない。spacing が正でなければエラーにする。
+export const routeChevrons = (points: readonly Point[], spacing: number): RouteChevron[] => {
+  if (!(spacing > 0)) {
+    throw new Error(`矢印の間隔は正の数にしてください: ${spacing}`);
+  }
+  return points.slice(1).flatMap((end, i) => {
+    const start = points[i];
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const length = Math.hypot(dx, dy);
+    if (length === 0) return [];
+    const angle = Math.atan2(dy, dx);
+    const count = Math.floor(length / spacing + 0.5);
+    return Array.from({ length: count }, (_, k): RouteChevron => {
+      const t = (spacing / 2 + k * spacing) / length;
+      return { x: start.x + dx * t, y: start.y + dy * t, angle };
+    });
+  });
+};
+
+// ルートの線の色・太さは config.ts の ROUTE_COLORS / ROUTE_LINE_STYLE(#144)。
 
 // 仮: 出現場所マーカーの見た目。大きさは CELL_SIZE に収める。
 export const SPAWN_MARKER_STYLE = {

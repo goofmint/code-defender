@@ -68,6 +68,8 @@ vi.mock('./render', async (importOriginal) => {
     ...original,
     drawCode: vi.fn(() => createFakeGraphics()),
     drawGameOver: vi.fn(),
+    // 正常なコードのリリース演出(#144)。
+    drawReleaseBurst: vi.fn(),
   };
 });
 

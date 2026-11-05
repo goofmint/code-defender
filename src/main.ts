@@ -53,6 +53,7 @@ import type { CodeHitEvent } from './attack';
 import { codeSpeedAt, effectiveMaliciousRate, vacationMaliciousRateModifiers } from './difficulty';
 import {
   clampToField,
+  facingFromHorizontal,
   getMoveDirection,
   getPointerDirection,
   movePlayer,
@@ -82,6 +83,7 @@ import {
   drawPenaltyText,
   drawPlayer,
   drawRefactoringRatioControl,
+  drawReleaseBurst,
   drawReleasePoint,
   drawRoutes,
   drawSalaryButtons,
@@ -89,6 +91,7 @@ import {
   drawTechDebt,
   drawVacationMarker,
   flashCode,
+  setPlayerFacing,
 } from './render';
 import type { ItemBar, RouteDrawing, VacationMarker } from './render';
 import {
@@ -679,6 +682,7 @@ class MainScene extends Phaser.Scene {
       if (keyDirection.x !== 0 || keyDirection.y !== 0) {
         const next = clampToField(movePlayer(position, keyDirection, delta, speed));
         player.setPosition(next.x, next.y);
+        this.updatePlayerFacing(player, keyDirection.x);
       }
       return;
     }
@@ -698,6 +702,15 @@ class MainScene extends Phaser.Scene {
     }
     const next = clampToField(movePlayerToward(position, target, direction, delta, speed));
     player.setPosition(next.x, next.y);
+    this.updatePlayerFacing(player, direction.x);
+  }
+
+  // 水平方向の移動の向きが変わったときだけ、主人公の見た目の向きを反転する(#144)。水平に動かないときは向きを保つ。位置には影響しない。
+  private updatePlayerFacing(player: Phaser.GameObjects.Graphics, dx: number): void {
+    const facing = facingFromHorizontal(dx);
+    if (facing !== null && player.scaleX !== facing) {
+      setPlayerFacing(player, facing);
+    }
   }
 
   // 経過時間を累積し、日数表示を更新して、越えた月ごとに MONTH_ELAPSED_EVENT を1回ずつ発行する。
@@ -1162,6 +1175,7 @@ class MainScene extends Phaser.Scene {
     if (drawing !== undefined) {
       drawing.line.destroy();
       drawing.spawnMarker.destroy();
+      drawing.spawnDecoration.destroy();
       this.routeDrawings.delete(routeId);
     }
     // マーカーを destroy() すると入力も外れ、toggleVacation のコールバックは呼ばれなくなる。
@@ -1233,6 +1247,8 @@ class MainScene extends Phaser.Scene {
     // 正常なコードのリリース1件を作業1単位として技術的負債を精算する（売上が 0 でも精算する）。ゲームオーバー中は精算しない。
     if (payload.kind === 'normal' && !this.gameOver.over) {
       this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
+      // 正常リリースの演出(#144)。ゲームオーバー中は Tween が止まり破棄されないため出さない。
+      drawReleaseBurst(this);
     }
     const incident = settleIncident(this.funds, payload, this.gameOver);
     if (incident === null) {

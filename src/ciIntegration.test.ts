@@ -67,6 +67,8 @@ vi.mock('./render', async (importOriginal) => ({
   drawDefeatEffect: vi.fn(),
   drawGameOver: vi.fn(),
   drawCode: vi.fn(() => ({ destroy: vi.fn(), setPosition: vi.fn() })),
+  // 正常なコードのリリース演出(#144)。
+  drawReleaseBurst: vi.fn(),
 }));
 
 // テストで触る MainScene の private メンバーだけを表す型。キャストはこのテストファイルの中に閉じる。

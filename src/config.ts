@@ -41,12 +41,22 @@ export const PLAYER_SIZE_RATIO = 0.7;
 export const PLAYER_START_COL = Math.floor(FIELD_COLS / 2);
 export const PLAYER_START_ROW = Math.floor(FIELD_ROWS / 2);
 // 仮: 主人公の配色（肌・髪・服・ノートPC）。
+// 仮(#144): 影・手足（ズボンと靴）・目・ヘッドセット・ノートPCの画面と画面の光を追加。
 export const PLAYER_COLORS = {
   skin: 0xf2c9a0,
   hair: 0x3b2a20,
   body: 0x3d7be0,
   laptop: 0xc8d0e0,
+  shadow: 0x000000,
+  limbs: 0x2b3550,
+  eyes: 0x1a1a2e,
+  headset: 0x263238,
+  screen: 0x7fe7ff,
+  screenGlow: 0x7fe7ff,
 } as const;
+// 仮(#144): 主人公の影と画面の光の不透明度。
+export const PLAYER_SHADOW_ALPHA = 0.35;
+export const PLAYER_SCREEN_GLOW_ALPHA = 0.3;
 
 // 仮: 主人公の移動速度（ピクセル/秒）。240 = 4セル/秒。後続のアイテム効果（速度倍率）の基準値。企画書には数値の記載なし。
 export const PLAYER_SPEED = 240;
@@ -73,6 +83,24 @@ export const CODE_MALICIOUS_COLORS = {
   fill: 0xe53935,
   stroke: 0x7f0000,
   pattern: 0xffffff,
+} as const;
+// 仮(#144): コードの影・ハイライトなどの装飾色。正常コードは水色系（ヘッダー・折れた角・シンタックスハイライト風の行）、
+// 不正コードは赤系（外側の淡い光・内側の暗い星）のまま、色と形で見分けられるようにする。
+export const CODE_DECOR_COLORS = {
+  shadow: 0x000000,
+  highlight: 0xffffff,
+  normalHeader: 0x29b6f6,
+  normalFold: 0xb3e5fc,
+  // 先頭は CODE_NORMAL_COLORS.pattern と同じ水色。
+  normalSyntax: [CODE_NORMAL_COLORS.pattern, 0x26a69a, 0x7e57c2],
+  maliciousGlow: 0xff5252,
+  maliciousInner: 0xb71c1c,
+} as const;
+// 仮(#144): コードの影・ハイライト・不正コードの光の不透明度。
+export const CODE_DECOR_ALPHA = {
+  shadow: 0.3,
+  highlight: 0.45,
+  maliciousGlow: 0.3,
 } as const;
 // 仮: 不正コード（星形）のトゲの数と、内径/外径の比。
 export const CODE_STAR_SPIKES = 8;
@@ -726,6 +754,86 @@ export const ITEM_MESSAGE_COLOR = '#b9f6ca';
 export const ITEM_MESSAGE_DURATION_MS = 2000;
 // 仮・要確認(#51): 月額 = Math.round(購入価格 × この倍率)。企画書の月額アイテムの「価格」を月額の価格と読み、購入時と同じ額（倍率 1）にした。数値の調整口。
 export const ITEM_MONTHLY_FEE_RATIO = 1;
+
+// 仮(#144): 床・ルート・出現場所の見た目。座標・セルサイズ・当たり判定は変えず、色と線だけを決める。
+// 床は濃紺2色の市松タイル（旧来の単色 0x16203a と同系色、背景色 #0b1020 と区別できる明るさ）。HUD の白文字と黒縁取りが読めるよう暗いままにする。
+export const FIELD_FLOOR_COLORS = {
+  tileLight: 0x182443,
+  tileDark: 0x131c35,
+  grid: 0x2a3a62,
+  frame: 0x5b8def,
+  vignette: 0x05070f,
+} as const;
+// 仮(#144): グリッド線の不透明度、外周の縁取りの太さ・不透明度、外周を暗くする帯（ビネット）の段数・1段の幅・最外段の不透明度。
+export const FIELD_FLOOR_STYLE = {
+  gridAlpha: 0.45,
+  frameWidth: 2,
+  frameAlpha: 0.6,
+  vignetteSteps: 4,
+  vignetteStepWidth: 4,
+  vignetteMaxAlpha: 0.35,
+} as const;
+// 仮(#144): ルートの色。暗く太い下地線に明るい本線を重ね、進行方向の矢印（シェブロン）を描く。
+export const ROUTE_COLORS = {
+  underlay: 0x0a1128,
+  main: 0x6c9cff,
+  chevron: 0xd6e4ff,
+} as const;
+// 仮(#144): ルートの線の太さ・不透明度と、矢印の間隔・大きさ（px）。間隔を CELL_SIZE にすると、矢印がセルの境目（折れ点の間）に並ぶ。
+export const ROUTE_LINE_STYLE = {
+  underlayWidth: 12,
+  underlayAlpha: 0.85,
+  mainWidth: 4,
+  mainAlpha: 0.9,
+  chevronSpacing: CELL_SIZE,
+  chevronSize: 8,
+  chevronWidth: 2,
+  chevronAlpha: 0.85,
+} as const;
+// 仮(#144): 出現場所の円（半径 SPAWN_MARKER_STYLE.radius）の外側の細いリングと、内側の小さな再生マーク（▶）の見た目。
+// リングはセル内（中心から CELL_SIZE / 2 未満）に収め、休暇マーカーの当たり判定（円の半径）は変えない。
+export const SPAWN_MARKER_DECOR_COLORS = {
+  ring: 0xffd180,
+  icon: 0xffffff,
+} as const;
+export const SPAWN_MARKER_DECOR_STYLE = {
+  ringGap: 3,
+  ringWidth: 1,
+  ringAlpha: 0.8,
+  iconSize: 10,
+} as const;
+
+// 仮(#144): リリース地点（半径 RELEASE_POINT_STYLE.radius の緑の円）の装飾。内側の同心円リング・中央の上向き矢印（デプロイ）のアイコン、
+// 外側に広がって消えるパルス（ループ）。パルスの外端（半径 + 線幅の半分）はセル内（中心から CELL_SIZE / 2 = 30px 以内）に収める。
+export const RELEASE_POINT_DECOR_COLORS = {
+  ring: 0x1b5e20,
+  icon: 0xffffff,
+  pulse: 0xb9f6ca,
+} as const;
+export const RELEASE_POINT_DECOR_STYLE = {
+  innerRingRadius: 17,
+  ringWidth: 2,
+  ringAlpha: 0.7,
+  iconSize: 14,
+  iconLineWidth: 3,
+} as const;
+export const RELEASE_POINT_PULSE = {
+  maxRadius: 28,
+  strokeWidth: 2,
+  startAlpha: 0.8,
+  durationMs: 1200,
+} as const;
+// 仮(#144): 正常なコードをリリースしたときの一時エフェクト。リリース地点から緑の輪が広がり、決まった数の粒が放射状に飛んで消える。
+export const RELEASE_BURST = {
+  ringColor: 0x69f0ae,
+  ringStrokeWidth: 3,
+  ringEndRadius: 44,
+  particleColor: 0xb9f6ca,
+  particleCount: 8,
+  particleRadius: 3,
+  particleDistance: 36,
+  durationMs: 450,
+} as const;
 
 // 仮・要確認(#47): 企画書(8)は「ステージポイントによる初期配置」とだけで、ポイントの初期値・コスト・返却・持ち越し・開始条件は未記載。以下はすべて仮の値（要調整。一次資料に定義なし）。
 // 仮の規則: ステージポイントは資金(funds)とは別の単位で、プレイ開始前（初期配置フェーズ）にだけ使う。資金は変えない。
