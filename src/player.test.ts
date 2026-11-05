@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
-import { PLAYER_POINTER_DEAD_ZONE, PLAYER_SPEED } from './config';
+import { PLAYER_POINTER_DEAD_ZONE, PLAYER_SCREEN_GLOW_ALPHA, PLAYER_SHADOW_ALPHA, PLAYER_SPEED } from './config';
 import {
   clampToField,
+  facingFromHorizontal,
   getMoveDirection,
   getPlayerStartPosition,
   getPointerDirection,
   movePlayer,
   movePlayerToward,
+  PLAYER_COLORS,
   PLAYER_SIZE,
   PLAYER_START_COL,
   PLAYER_START_ROW,
@@ -204,5 +206,38 @@ describe('movePlayerToward（行き過ぎ防止）', () => {
     const result = movePlayerToward(from, { x: 105, y: 105 }, d, 1000, 240);
     expect(result.x).toBeCloseTo(105);
     expect(result.y).toBeCloseTo(105);
+  });
+});
+
+describe('facingFromHorizontal(#144)', () => {
+  it('右へ動くと右向き(1)、左へ動くと左向き(-1)', () => {
+    expect(facingFromHorizontal(1)).toBe(1);
+    expect(facingFromHorizontal(-1)).toBe(-1);
+  });
+
+  it('ごく小さい移動量でも符号だけで決まる（境界値）', () => {
+    expect(facingFromHorizontal(Number.MIN_VALUE)).toBe(1);
+    expect(facingFromHorizontal(-Number.MIN_VALUE)).toBe(-1);
+  });
+
+  it('水平に動かない（0・-0）・数値でないときは null（向きを変えない）', () => {
+    expect(facingFromHorizontal(0)).toBeNull();
+    expect(facingFromHorizontal(-0)).toBeNull();
+    expect(facingFromHorizontal(Number.NaN)).toBeNull();
+  });
+});
+
+describe('主人公の配色(#144)', () => {
+  it('影・手足・目・ヘッドセット・画面・画面の光の色がある', () => {
+    for (const key of ['shadow', 'limbs', 'eyes', 'headset', 'screen', 'screenGlow'] as const) {
+      expect(Number.isInteger(PLAYER_COLORS[key])).toBe(true);
+    }
+  });
+
+  it('影と画面の光の不透明度は 0 より大きく 1 以下', () => {
+    for (const alpha of [PLAYER_SHADOW_ALPHA, PLAYER_SCREEN_GLOW_ALPHA]) {
+      expect(alpha).toBeGreaterThan(0);
+      expect(alpha).toBeLessThanOrEqual(1);
+    }
   });
 });

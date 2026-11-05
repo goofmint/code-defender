@@ -41,12 +41,22 @@ export const PLAYER_SIZE_RATIO = 0.7;
 export const PLAYER_START_COL = Math.floor(FIELD_COLS / 2);
 export const PLAYER_START_ROW = Math.floor(FIELD_ROWS / 2);
 // 仮: 主人公の配色（肌・髪・服・ノートPC）。
+// 仮(#144): 影・手足（ズボンと靴）・目・ヘッドセット・ノートPCの画面と画面の光を追加。
 export const PLAYER_COLORS = {
   skin: 0xf2c9a0,
   hair: 0x3b2a20,
   body: 0x3d7be0,
   laptop: 0xc8d0e0,
+  shadow: 0x000000,
+  limbs: 0x2b3550,
+  eyes: 0x1a1a2e,
+  headset: 0x263238,
+  screen: 0x7fe7ff,
+  screenGlow: 0x7fe7ff,
 } as const;
+// 仮(#144): 主人公の影と画面の光の不透明度。
+export const PLAYER_SHADOW_ALPHA = 0.35;
+export const PLAYER_SCREEN_GLOW_ALPHA = 0.3;
 
 // 仮: 主人公の移動速度（ピクセル/秒）。240 = 4セル/秒。後続のアイテム効果（速度倍率）の基準値。企画書には数値の記載なし。
 export const PLAYER_SPEED = 240;
@@ -73,6 +83,24 @@ export const CODE_MALICIOUS_COLORS = {
   fill: 0xe53935,
   stroke: 0x7f0000,
   pattern: 0xffffff,
+} as const;
+// 仮(#144): コードの影・ハイライトなどの装飾色。正常コードは水色系（ヘッダー・折れた角・シンタックスハイライト風の行）、
+// 不正コードは赤系（外側の淡い光・内側の暗い星）のまま、色と形で見分けられるようにする。
+export const CODE_DECOR_COLORS = {
+  shadow: 0x000000,
+  highlight: 0xffffff,
+  normalHeader: 0x29b6f6,
+  normalFold: 0xb3e5fc,
+  // 先頭は CODE_NORMAL_COLORS.pattern と同じ水色。
+  normalSyntax: [CODE_NORMAL_COLORS.pattern, 0x26a69a, 0x7e57c2],
+  maliciousGlow: 0xff5252,
+  maliciousInner: 0xb71c1c,
+} as const;
+// 仮(#144): コードの影・ハイライト・不正コードの光の不透明度。
+export const CODE_DECOR_ALPHA = {
+  shadow: 0.3,
+  highlight: 0.45,
+  maliciousGlow: 0.3,
 } as const;
 // 仮: 不正コード（星形）のトゲの数と、内径/外径の比。
 export const CODE_STAR_SPIKES = 8;

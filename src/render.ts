@@ -32,6 +32,8 @@ import {
   ATTACK_EFFECT_COLOR,
   ATTACK_EFFECT_DURATION_MS,
   ATTACK_HIT_FLASH_DURATION_MS,
+  CODE_DECOR_ALPHA,
+  CODE_DECOR_COLORS,
   DEFEAT_EFFECT_COLOR,
   DEFEAT_EFFECT_DURATION_MS,
   DEFEAT_EFFECT_END_RADIUS_RATIO,
@@ -54,6 +56,8 @@ import {
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
   PENALTY_TEXT_RISE_PX,
+  PLAYER_SCREEN_GLOW_ALPHA,
+  PLAYER_SHADOW_ALPHA,
   REFACTORING_RATIO_BUTTON_LABELS,
   REFACTORING_RATIO_BUTTON_SIZE,
   REFACTORING_RATIO_FONT_SIZE,
@@ -88,6 +92,7 @@ import { buildGameOverLines } from './gameOver';
 import { formatEngineerCount, formatHireButton, formatSalaryButton, formatSelectedEngineer } from './engineer';
 import type { Engineer, EngineerRank, EngineerSelectDirection, SalaryDirection } from './engineer';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
+import type { PlayerFacing } from './player';
 import {
   ITEM_ATTACK_LINE,
   ITEM_BOX_RATIO,
@@ -299,37 +304,138 @@ export const drawVacationMarker = (
   return { container, setOnVacation };
 };
 
-// 主人公（エンジニア）を描く。ローカル原点を中心に PLAYER_SIZE 内へ収める。
+// 仮(#144): 主人公の各部の位置・大きさ（PLAYER_SIZE に対する比率、ローカル原点が中心、+x が顔の向き）。
+// 上端はヘッドセットのバンド（約 -0.46）、下端は影（約 +0.46）で、PLAYER_SIZE（42px）の中に収める。
+const PLAYER_PARTS = {
+  shadow: { y: 0.4, width: 0.62, height: 0.12 },
+  leg: { offsetX: 0.09, top: 0.22, width: 0.12, height: 0.15, radius: 0.04 },
+  arm: { offsetX: 0.275, top: -0.02, width: 0.11, height: 0.24, radius: 0.05 },
+  body: { top: -0.06, width: 0.5, height: 0.34, radius: 0.08 },
+  hair: { y: -0.25, radius: 0.19 },
+  face: { y: -0.22, radius: 0.17 },
+  eye: { offsetX: 0.06, frontShift: 0.03, y: -0.21, radius: 0.025 },
+  headsetBand: { y: -0.24, radius: 0.205, width: 0.04 },
+  earCup: { offsetX: 0.2, y: -0.24, width: 0.07, height: 0.11, radius: 0.03 },
+  mic: { fromX: 0.2, fromY: -0.2, toX: 0.1, toY: -0.12, width: 0.025, tipRadius: 0.025 },
+  laptopLid: { top: 0.02, width: 0.4, height: 0.18, radius: 0.02 },
+  screenInset: 0.025,
+  screenGlow: 0.04,
+  laptopBase: { top: 0.2, width: 0.48, height: 0.05, radius: 0.02 },
+  hand: { offsetX: 0.22, y: 0.2, radius: 0.05 },
+} as const;
+
+// 主人公（エンジニア）を描く。ローカル原点を中心に PLAYER_SIZE 内へ収める(#144)。
+// 影・脚・腕・角丸の胴体・髪と顔・目・ヘッドセット・画面が光るノートPCの順に重ねる。既定は右向き（setPlayerFacing で反転）。
 export const drawPlayer = (scene: Phaser.Scene): Phaser.GameObjects.Graphics => {
   const g = scene.add.graphics();
   const u = PLAYER_SIZE;
-  const headR = u * 0.2;
-  const bodyW = u * 0.5;
-  const bodyH = u * 0.4;
-  // 図形全体（高さ 0.8u）が縦方向の中心に来るよう、上端を -0.4u にする。
-  const top = -u * 0.4;
-  const bodyTop = top + headR * 2;
-  // 胴体
+  const p = PLAYER_PARTS;
+  // 影
+  g.fillStyle(PLAYER_COLORS.shadow, PLAYER_SHADOW_ALPHA);
+  g.fillEllipse(0, p.shadow.y * u, p.shadow.width * u, p.shadow.height * u);
+  // 脚
+  g.fillStyle(PLAYER_COLORS.limbs, 1);
+  [-1, 1].forEach((side) => {
+    const x = side * p.leg.offsetX * u - (p.leg.width * u) / 2;
+    g.fillRoundedRect(x, p.leg.top * u, p.leg.width * u, p.leg.height * u, p.leg.radius * u);
+  });
+  // 腕（袖）
   g.fillStyle(PLAYER_COLORS.body, 1);
-  g.fillRect(-bodyW / 2, bodyTop, bodyW, bodyH);
-  // 頭と髪
-  g.fillStyle(PLAYER_COLORS.skin, 1);
-  g.fillCircle(0, top + headR, headR);
+  [-1, 1].forEach((side) => {
+    const x = side * p.arm.offsetX * u - (p.arm.width * u) / 2;
+    g.fillRoundedRect(x, p.arm.top * u, p.arm.width * u, p.arm.height * u, p.arm.radius * u);
+  });
+  // 胴体
+  g.fillRoundedRect((-p.body.width * u) / 2, p.body.top * u, p.body.width * u, p.body.height * u, p.body.radius * u);
+  // 髪（後ろの円）と顔（少し下にずらした円）で、頭の上に髪が見えるようにする。
   g.fillStyle(PLAYER_COLORS.hair, 1);
-  g.fillRect(-headR, top, headR * 2, headR * 0.6);
-  // 胴体前のノートPC
+  g.fillCircle(0, p.hair.y * u, p.hair.radius * u);
+  g.fillStyle(PLAYER_COLORS.skin, 1);
+  g.fillCircle(0, p.face.y * u, p.face.radius * u);
+  // 目（顔の向きへ少し寄せる）
+  g.fillStyle(PLAYER_COLORS.eyes, 1);
+  [-1, 1].forEach((side) => {
+    g.fillCircle((side * p.eye.offsetX + p.eye.frontShift) * u, p.eye.y * u, p.eye.radius * u);
+  });
+  // ヘッドセット（頭の上のバンド・両耳のカップ・顔の向きのマイク）
+  g.lineStyle(p.headsetBand.width * u, PLAYER_COLORS.headset, 1);
+  g.beginPath();
+  g.arc(0, p.headsetBand.y * u, p.headsetBand.radius * u, Math.PI, Math.PI * 2);
+  g.strokePath();
+  g.fillStyle(PLAYER_COLORS.headset, 1);
+  [-1, 1].forEach((side) => {
+    const x = side * p.earCup.offsetX * u - (p.earCup.width * u) / 2;
+    const y = p.earCup.y * u - (p.earCup.height * u) / 2;
+    g.fillRoundedRect(x, y, p.earCup.width * u, p.earCup.height * u, p.earCup.radius * u);
+  });
+  g.lineStyle(p.mic.width * u, PLAYER_COLORS.headset, 1);
+  g.lineBetween(p.mic.fromX * u, p.mic.fromY * u, p.mic.toX * u, p.mic.toY * u);
+  g.fillCircle(p.mic.toX * u, p.mic.toY * u, p.mic.tipRadius * u);
+  // ノートPC（画面の光・ふた・画面・本体）
+  const lidX = (-p.laptopLid.width * u) / 2;
+  const lidY = p.laptopLid.top * u;
+  const lidW = p.laptopLid.width * u;
+  const lidH = p.laptopLid.height * u;
+  const glow = p.screenGlow * u;
+  g.fillStyle(PLAYER_COLORS.screenGlow, PLAYER_SCREEN_GLOW_ALPHA);
+  g.fillRoundedRect(lidX - glow, lidY - glow, lidW + glow * 2, lidH + glow * 2, p.laptopLid.radius * u + glow);
   g.fillStyle(PLAYER_COLORS.laptop, 1);
-  g.fillRect(-u * 0.25, bodyTop + bodyH * 0.5, u * 0.5, u * 0.2);
+  g.fillRoundedRect(lidX, lidY, lidW, lidH, p.laptopLid.radius * u);
+  const inset = p.screenInset * u;
+  g.fillStyle(PLAYER_COLORS.screen, 1);
+  g.fillRect(lidX + inset, lidY + inset, lidW - inset * 2, lidH - inset * 2);
+  g.fillStyle(PLAYER_COLORS.laptop, 1);
+  g.fillRoundedRect(
+    (-p.laptopBase.width * u) / 2,
+    p.laptopBase.top * u,
+    p.laptopBase.width * u,
+    p.laptopBase.height * u,
+    p.laptopBase.radius * u,
+  );
+  // 手（ノートPCの本体に添える）
+  g.fillStyle(PLAYER_COLORS.skin, 1);
+  [-1, 1].forEach((side) => g.fillCircle(side * p.hand.offsetX * u, p.hand.y * u, p.hand.radius * u));
   const start = getPlayerStartPosition();
   g.setPosition(start.x, start.y);
   g.setDepth(PLAYER_DEPTH);
   return g;
 };
 
+// 主人公の向きを見た目だけ変える（scaleX を ±1 にする）(#144)。位置（x/y）と当たり判定・境界の計算には影響しない。
+export const setPlayerFacing = (player: Phaser.GameObjects.Graphics, facing: PlayerFacing): void => {
+  player.setScale(facing, 1);
+};
+
 // 仮: リリース地点(0)とプレイヤー(1)の間。
 const CODE_DEPTH = 0.5;
 
+// 仮(#144): コードの装飾の位置・大きさ（CODE_SIZE に対する比率、ローカル原点が中心）。影の下端は公称サイズから少しだけはみ出す。
+const CODE_PARTS = {
+  shadow: { y: 0.46, width: 0.75, height: 0.12 },
+  // 正常コード: 上のヘッダー帯、右上の折れた角、シンタックスハイライト風の行（行ごとに [左端, 長さ, 色の番号] の区切り）。
+  headerHeight: 0.22,
+  fold: 0.28,
+  syntaxLineHeight: 0.08,
+  syntaxRows: [
+    { y: -0.12, segments: [[-0.32, 0.16, 0], [-0.1, 0.3, 1]] },
+    { y: 0.06, segments: [[-0.22, 0.2, 2], [0.04, 0.2, 0]] },
+    { y: 0.24, segments: [[-0.32, 0.38, 1]] },
+  ],
+  // 不正コード: 外側の淡い光（大きい星）・内側の暗い星・左上のハイライト。
+  glowSize: 1.15,
+  innerStarSize: 0.6,
+  highlight: { x: -0.14, y: -0.2, width: 0.16, height: 0.09 },
+} as const;
+
+const fillPolygon = (g: Phaser.GameObjects.Graphics, points: readonly Point[]): void => {
+  g.beginPath();
+  points.forEach((p, i) => (i === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y)));
+  g.closePath();
+  g.fillPath();
+};
+
 // コードを描く。ローカル原点を中心に CODE_SIZE 内へ収め、position に置く。
+// 1つの Graphics に描く（命中時のアルファ点滅 flashCode がそのまま効く）。ループする Tween は付けない(#144)。
 export const drawCode = (
   scene: Phaser.Scene,
   kind: CodeKind,
@@ -340,22 +446,44 @@ export const drawCode = (
   const style = CODE_STYLES[kind];
   const s = CODE_SIZE;
   const { shape, pattern } = style;
-  g.fillStyle(style.fillColor, 1);
-  g.lineStyle(CODE_STROKE_WIDTH, style.strokeColor, 1);
+  // 影（両種類共通）
+  g.fillStyle(CODE_DECOR_COLORS.shadow, CODE_DECOR_ALPHA.shadow);
+  g.fillEllipse(0, CODE_PARTS.shadow.y * s, CODE_PARTS.shadow.width * s, CODE_PARTS.shadow.height * s);
   switch (shape) {
     case 'roundedRect': {
       const r = s * CODE_CORNER_RADIUS_RATIO;
+      const fold = s * CODE_PARTS.fold;
+      g.fillStyle(style.fillColor, 1);
       g.fillRoundedRect(-s / 2, -s / 2, s, s, r);
+      // ヘッダー帯（折れた角の手前まで）
+      g.fillStyle(CODE_DECOR_COLORS.normalHeader, 1);
+      g.fillRoundedRect(-s / 2, -s / 2, s - fold, s * CODE_PARTS.headerHeight, { tl: r, tr: 0, bl: 0, br: 0 });
+      // 右上の折れた角（めくれた三角）
+      const foldLeft = s / 2 - fold;
+      const foldBottom = -s / 2 + fold;
+      g.fillStyle(CODE_DECOR_COLORS.normalFold, 1);
+      g.fillTriangle(foldLeft, -s / 2, s / 2, foldBottom, foldLeft, foldBottom);
+      g.lineStyle(CODE_STROKE_WIDTH, style.strokeColor, 1);
       g.strokeRoundedRect(-s / 2, -s / 2, s, s, r);
+      g.lineBetween(foldLeft, -s / 2, s / 2, foldBottom);
       break;
     }
     case 'star': {
+      g.fillStyle(CODE_DECOR_COLORS.maliciousGlow, CODE_DECOR_ALPHA.maliciousGlow);
+      fillPolygon(g, starPoints(s * CODE_PARTS.glowSize, CODE_STAR_SPIKES, CODE_STAR_INNER_RATIO));
       const points = starPoints(s, CODE_STAR_SPIKES, CODE_STAR_INNER_RATIO);
+      g.fillStyle(style.fillColor, 1);
+      g.lineStyle(CODE_STROKE_WIDTH, style.strokeColor, 1);
       g.beginPath();
       points.forEach((p, i) => (i === 0 ? g.moveTo(p.x, p.y) : g.lineTo(p.x, p.y)));
       g.closePath();
       g.fillPath();
       g.strokePath();
+      g.fillStyle(CODE_DECOR_COLORS.maliciousInner, 1);
+      fillPolygon(g, starPoints(s * CODE_PARTS.innerStarSize, CODE_STAR_SPIKES, CODE_STAR_INNER_RATIO));
+      const { highlight } = CODE_PARTS;
+      g.fillStyle(CODE_DECOR_COLORS.highlight, CODE_DECOR_ALPHA.highlight);
+      g.fillEllipse(highlight.x * s, highlight.y * s, highlight.width * s, highlight.height * s);
       break;
     }
     default: {
@@ -363,19 +491,21 @@ export const drawCode = (
       throw new Error(`未対応の形: ${String(unreachable)}`);
     }
   }
-  g.fillStyle(style.patternColor, 1);
   switch (pattern) {
     case 'lines': {
-      // コードの行を表す短い横線 3 本（長さを変えて行らしくする）。
-      const h = s * 0.08;
-      const lengths = [0.5, 0.35, 0.45];
-      lengths.forEach((ratio, i) => {
-        g.fillRect(-s * 0.25, -s * 0.2 + i * s * 0.2, s * ratio, h);
+      // シンタックスハイライト風のコード行（区切りごとに色を変える）。先頭の色は patternColor と同じ水色。
+      const h = s * CODE_PARTS.syntaxLineHeight;
+      CODE_PARTS.syntaxRows.forEach((row) => {
+        row.segments.forEach(([x, width, colorIndex]) => {
+          g.fillStyle(CODE_DECOR_COLORS.normalSyntax[colorIndex], 1);
+          g.fillRect(x * s, row.y * s, width * s, h);
+        });
       });
       break;
     }
     case 'exclamation': {
       // 「!」: 縦棒 + 点。
+      g.fillStyle(style.patternColor, 1);
       const barW = s * 0.1;
       g.fillRect(-barW / 2, -s * 0.22, barW, s * 0.26);
       g.fillCircle(0, s * 0.16, s * 0.07);
