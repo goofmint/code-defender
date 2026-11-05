@@ -251,7 +251,9 @@ export const MALICIOUS_CODE_PARAMS = {
   typo: { badgeColor: 0xec407a, badgeRadiusRatio: 0.18, hp: 1, damage: 3 },
 } as const;
 
-// 仮: 種類（#10）が未割り当ての不正なコードの hp。種類のランダム割り当ては未決定のため、当面は全員これを使う。企画書には未記載。
+// 仮・要確認(#56): 通常生成の不正なコードには、上の9種類から一様抽選で種類を割り当てる（maliciousCode.ts の pickMaliciousType）。
+// 種類ごとの出現割合と導入順（ゲーム序盤から全種類を出すか）は企画書で未決定。決まったら抽選を差し替える。
+// 仮: 種類（#10）が未割り当ての不正なコードの hp。通常生成では種類を割り当てるため、種類なしで生成したときだけ使う。企画書には未記載。
 export const DEFAULT_MALICIOUS_CODE_HP = 3;
 // 仮: 攻撃1回（1ヒット）あたりのダメージ。企画書には未記載。
 export const ATTACK_DAMAGE = 1;

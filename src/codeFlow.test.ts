@@ -32,6 +32,47 @@ describe('spawnCode', () => {
   });
 });
 
+describe('spawnCode の不正コード種別（#56）', () => {
+  it('不正なコードは渡した種別を持つ', () => {
+    const code = spawnCode(1, 'malicious', topRoute, 'vulnerabilityCritical');
+    expect(code.maliciousType).toBe('vulnerabilityCritical');
+  });
+
+  it('正常なコードは種別を渡しても持たない', () => {
+    const code = spawnCode(1, 'normal', topRoute, 'vulnerabilityCritical');
+    expect(code.maliciousType).toBeUndefined();
+    expect('maliciousType' in code).toBe(false);
+  });
+
+  it.each(['normal', 'malicious'] as const)('種別を省略した %s のコードは種別を持たず、既存の初期状態と同じ', (kind) => {
+    const path = routePixelPoints(topRoute);
+    expect(spawnCode(1, kind, topRoute)).toEqual({
+      id: 1,
+      kind,
+      routeId: topRoute.id,
+      path,
+      segmentIndex: 0,
+      position: path[0],
+      released: false,
+    });
+  });
+
+  it('種別以外の初期状態は、種別を省略したときと同じ', () => {
+    const { maliciousType, ...rest } = spawnCode(1, 'malicious', topRoute, 'bug');
+    expect(maliciousType).toBe('bug');
+    expect(rest).toEqual(spawnCode(1, 'malicious', topRoute));
+  });
+
+  it('advanceCode で進めても、リリース地点に着いても種別を保つ', () => {
+    const code = spawnCode(1, 'malicious', topRoute, 'vulnerabilityMajor');
+    const moved = advanceCode(code, 30);
+    const released = advanceCode(code, pathLength(code.path));
+    expect(moved.maliciousType).toBe('vulnerabilityMajor');
+    expect(released.released).toBe(true);
+    expect(released.maliciousType).toBe('vulnerabilityMajor');
+  });
+});
+
 describe('advanceCode の移動', () => {
   it('最初の区間（水平）は直線で進む', () => {
     const code = spawnCode(1, 'normal', middleRoute);

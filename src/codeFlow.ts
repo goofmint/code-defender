@@ -13,7 +13,7 @@ export type FlowingCode = {
   readonly segmentIndex: number;
   readonly position: Point;
   readonly released: boolean;
-  // 不正コードの種別。種別の抽選が入るまでは持たない。
+  // 不正コードの種別（#56）。不正なコードで、生成時に種別を渡したときだけ持つ。正常なコードは持たない。
   readonly maliciousType?: MaliciousCodeType;
 };
 
@@ -27,9 +27,15 @@ export type CodeReleasedPayload = {
   readonly maliciousType?: MaliciousCodeType;
 };
 
-export const spawnCode = (id: number, kind: CodeKind, route: Route): FlowingCode => {
+// maliciousType は不正なコードのときだけ設定する。省略時（または正常なコード）は種別を持たない。
+export const spawnCode = (
+  id: number,
+  kind: CodeKind,
+  route: Route,
+  maliciousType?: MaliciousCodeType,
+): FlowingCode => {
   const path = routePixelPoints(route);
-  return {
+  const code: FlowingCode = {
     id,
     kind,
     routeId: route.id,
@@ -38,6 +44,7 @@ export const spawnCode = (id: number, kind: CodeKind, route: Route): FlowingCode
     position: path[0],
     released: false,
   };
+  return kind === 'malicious' && maliciousType !== undefined ? { ...code, maliciousType } : code;
 };
 
 // 距離ぶん進める。残距離は次の区間へ持ち越し、終点を越えない。入力は変更しない。

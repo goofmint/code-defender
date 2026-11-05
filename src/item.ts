@@ -101,6 +101,8 @@ export const ITEM_DEFINITIONS = {
     activation: 'releaseGate',
     effect: 'attack',
   },
+  // 企画書 8（docs/game_plan.md の表）: 得意は脆弱性クリティカル・メジャー、中距離、強、月額。
+  // 「クリティカル・メジャーは、セキュリティスキャナーがないと苦戦する」（同ファイル）。ダメージ・範囲の数値は config.ts の仮の値（仮・要確認）。
   securityScanner: {
     label: 'セキュリティスキャナー',
     payment: 'monthly',

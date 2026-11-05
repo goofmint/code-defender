@@ -174,6 +174,7 @@ import type { CodeDeletedByCatPayload } from './cat';
 import { getItemActivation, getItemDamage, getItemRange, isRandomDeleteItem, ITEM_TYPES } from './item';
 import { advanceHold, applyHold, getItemHoldMs } from './itemHold';
 import { ciSlowedDistance, hasActiveCi, rollCiInterception } from './ci';
+import { pickMaliciousType } from './maliciousCode';
 import type { ItemType } from './item';
 import {
   canItemAttack,
@@ -947,11 +948,14 @@ class MainScene extends Phaser.Scene {
         // 担当エンジニアのランクに応じた割合(#12)に補正(#13)を加える。担当者がいないルートは既定の割合を使う。
         const rank = engineer?.rank;
         const rate = effectiveMaliciousRate(rank, this.elapsedMs, this.maliciousRateModifiersFor(engineer));
-        const code = spawnCode(this.nextCodeId++, pickCodeKind(Math.random, rate), route);
+        // 不正なコードには種別を抽選して付ける(#56)。HP初期化・描画・アイテムの得意判定で同じ種別を使う。
+        const kind = pickCodeKind(Math.random, rate);
+        const maliciousType = kind === 'malicious' ? pickMaliciousType(Math.random) : undefined;
+        const code = spawnCode(this.nextCodeId++, kind, route, maliciousType);
         if (code.kind === 'malicious') {
-          this.codeHp.set(code.id, getInitialHp());
+          this.codeHp.set(code.id, getInitialHp(code.maliciousType));
         }
-        this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position) });
+        this.codes.push({ ...code, graphics: drawCode(this, code.kind, code.position, code.maliciousType) });
       }
     }
 
