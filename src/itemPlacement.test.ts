@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ENGINEER_SPAWN_CELLS,
   ITEM_ATTACK_COOLDOWN_MS,
+  ITEM_BLOCKED_RECTS,
+  ITEM_BOX_SIZE,
+  ITEM_HUD_BOUNDS,
   ITEM_RANGE_RATIOS,
+  ITEM_ROUTE_CLEARANCE,
   LINTER_ATTACK_COOLDOWN_MS,
   LINTER_HESITATION_PROBABILITY,
   PAIR_PROGRAMMER_FOLLOW_OFFSET,
-  RELEASE_POINT_CELL,
+  PLACEMENT_CELL_SIZE,
+  PLACEMENT_COLS,
+  PLACEMENT_ROWS,
 } from './config';
-import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
+import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import {
   getItemPlacement,
   getItemRange,
@@ -34,17 +39,24 @@ import {
   getRouteCells,
   isIncidentPreventedByNote,
   isPlaceableCell,
+  isPointInField,
+  itemFootprint,
+  placementCellCenter,
   pointToCell,
+  pointToPlacementCell,
   purchaseInstantItem,
   purchaseItem,
+  RELEASE_CLEARANCE_RADIUS,
   shouldItemHesitate,
+  SPAWN_CLEARANCE_RADIUS,
 } from './itemPlacement';
 import type { InstantPurchaseState, PlacedItem, PurchaseState } from './itemPlacement';
-import { RELEASE_POINT_CENTER } from './releasePoint';
+import { RELEASE_POINT_CENTER, RELEASE_POINT_LABEL_BOUNDS } from './releasePoint';
 import { cellCenter } from './route';
 import type { GridCell, Route } from './route';
 
-// 上端(0)・下端(最終行)は UI の行で置けない。ルートは行 3 を水平に通る単純なもの。
+// 上帯(y<60)・下帯(y≧480)は UI で置けない。ルートは行 3（y=210）を水平に通り、col 5（x=330）で行 5（y=330）へ曲がる単純なもの。
+// アイテムのセルは配置グリッド（16px #151）の座標で書く。
 const route: Route = {
   id: 0,
   spawn: { col: 0, row: 3 },
@@ -58,7 +70,31 @@ const route: Route = {
 };
 const routes = [route];
 const options = { routes };
-const free: GridCell = { col: 8, row: 2 };
+// 置けるセル。中心 (488, 136)・フットプリント x=470〜506 / y=118〜154 で、HUD（x≦416）・ルート（y≧202）・上帯（y<60）に重ならない。
+const free: GridCell = { col: 30, row: 8 };
+// ルートの線上（行3の線 y=210 の上。中心 y=216）・出現場所・リリース地点を含む配置グリッドのセル。
+const onRoute: GridCell = { col: 20, row: 13 };
+const spawnCell = pointToPlacementCell(cellCenter(route.spawn));
+const releaseCell = pointToPlacementCell(RELEASE_POINT_CENTER);
+// 行 R を水平に通るだけのルートと、col C に縦区間（行1〜7）を持つルート（境界値のテスト用）。
+const rowRoute = (row: number): Route => ({
+  id: 10 + row,
+  spawn: { col: 0, row },
+  waypoints: [
+    { col: 0, row },
+    { col: FIELD_COLS - 1, row },
+  ],
+});
+const colRoute = (col: number): Route => ({
+  id: 20 + col,
+  spawn: { col: 0, row: 1 },
+  waypoints: [
+    { col: 0, row: 1 },
+    { col, row: 1 },
+    { col, row: 7 },
+    { col: FIELD_COLS - 1, row: 7 },
+  ],
+});
 const state = (overrides: Partial<PurchaseState> = {}): PurchaseState => ({
   funds: 1000000,
   placedItems: [],
@@ -175,100 +211,185 @@ describe('getRouteCells', () => {
   });
 });
 
-describe('isPlaceableCell: 置ける場所', () => {
-  const ctx = { routes, placedItems: [] as PlacedItem[] };
-  const lastCol = FIELD_COLS - 1;
-  const lastRow = FIELD_ROWS - 1;
+describe('配置グリッド(#151): pointToPlacementCell / placementCellCenter / itemFootprint / isPointInField', () => {
+  it('16px のグリッドで、列数 60・行数 34（最終行は 12px の端数の行）', () => {
+    expect(PLACEMENT_CELL_SIZE).toBe(16);
+    expect(PLACEMENT_COLS).toBe(60);
+    expect(PLACEMENT_ROWS).toBe(34);
+    expect(PLACEMENT_COLS * PLACEMENT_CELL_SIZE).toBe(FIELD_WIDTH);
+    expect((PLACEMENT_ROWS - 1) * PLACEMENT_CELL_SIZE).toBeLessThan(FIELD_HEIGHT);
+    expect(PLACEMENT_ROWS * PLACEMENT_CELL_SIZE).toBeGreaterThanOrEqual(FIELD_HEIGHT);
+  });
 
   it.each([
-    [{ col: 0, row: 2 }, true], // 左端の列（ルートでない）
-    [{ col: lastCol, row: 1 }, true], // 右端の列
-    [{ col: 8, row: 2 }, true],
-    [{ col: 6, row: 1 }, false], // HUD と重なるセルの右端（行1）
-    [{ col: 7, row: 1 }, true], // HUD の右隣（行1）
-    [{ col: 6, row: 2 }, false], // HUD と重なるセルの右端（行2）
-    [{ col: 7, row: 2 }, true], // HUD の右隣（行2）
-    [{ col: 1, row: 3 }, false], // HUD の最下行（行3、技術的負債）の左端
-    [{ col: 6, row: 3 }, false], // HUD と重なるセルの右端（行3）
-    [{ col: 7, row: 3 }, true], // HUD の右隣（行3）
-    [{ col: 1, row: 4 }, false], // 昇給・減給ボタン(#34)の左端（行4）
-    [{ col: 6, row: 4 }, false], // 昇給・減給ボタン(#34)と重なるセルの右端（行4）
-    [{ col: 7, row: 4 }, true], // 昇給・減給ボタン(#34)の右隣（行4）
-    [{ col: 1, row: 1 }, false], // HUD の左端
-    [{ col: 0, row: 1 }, true], // 出現列（ルートが無ければ置ける）
-    [{ col: 3, row: lastRow - 1 }, true], // UI の行の1つ内側
-    [{ col: 3, row: 0 }, false], // 上端 UI 行
-    [{ col: 3, row: lastRow }, false], // 下端 UI 行
-    [{ col: -1, row: 1 }, false],
-    [{ col: FIELD_COLS, row: 1 }, false],
-    [{ col: 3, row: -1 }, false],
-    [{ col: 3, row: FIELD_ROWS }, false],
-    [{ col: 1.5, row: 1 }, false],
+    [{ x: 0, y: 0 }, { col: 0, row: 0 }],
+    [{ x: 15, y: 15 }, { col: 0, row: 0 }],
+    [{ x: 15.99, y: 0 }, { col: 0, row: 0 }],
+    [{ x: 16, y: 0 }, { col: 1, row: 0 }],
+    [{ x: 0, y: 16 }, { col: 0, row: 1 }],
+    [{ x: 959, y: 539 }, { col: 59, row: 33 }],
+    [{ x: FIELD_WIDTH - 0.01, y: FIELD_HEIGHT - 0.01 }, { col: PLACEMENT_COLS - 1, row: PLACEMENT_ROWS - 1 }],
+  ])('pointToPlacementCell: %j → %j', (point, cell) => {
+    expect(pointToPlacementCell(point)).toEqual(cell);
+  });
+
+  it.each([
+    [{ x: -0.01, y: 0 }, { col: -1, row: 0 }],
+    [{ x: FIELD_WIDTH, y: 0 }, { col: PLACEMENT_COLS, row: 0 }],
+    // y=540 は最終行（528〜544）に入るが、フィールド外なので isPointInField で先に弾く。
+    [{ x: 0, y: FIELD_HEIGHT }, { col: 0, row: PLACEMENT_ROWS - 1 }],
+  ])('フィールド外 %j は %j', (point, cell) => {
+    expect(pointToPlacementCell(point)).toEqual(cell);
+  });
+
+  it('isPointInField: 0 ≤ x < 960 かつ 0 ≤ y < 540', () => {
+    expect(isPointInField({ x: 0, y: 0 })).toBe(true);
+    expect(isPointInField({ x: FIELD_WIDTH - 0.01, y: FIELD_HEIGHT - 0.01 })).toBe(true);
+    expect(isPointInField({ x: -0.01, y: 0 })).toBe(false);
+    expect(isPointInField({ x: 0, y: -0.01 })).toBe(false);
+    expect(isPointInField({ x: FIELD_WIDTH, y: 0 })).toBe(false);
+    expect(isPointInField({ x: 0, y: FIELD_HEIGHT })).toBe(false);
+  });
+
+  it('placementCellCenter はセルの中心 (col + 0.5) × 16', () => {
+    expect(placementCellCenter({ col: 0, row: 0 })).toEqual({ x: 8, y: 8 });
+    expect(placementCellCenter({ col: 28, row: 16 })).toEqual({ x: 456, y: 264 });
+    expect(placementCellCenter({ col: PLACEMENT_COLS - 1, row: PLACEMENT_ROWS - 1 })).toEqual({ x: 952, y: 536 });
+  });
+
+  it('itemFootprint は中心を中心とする一辺 ITEM_BOX_SIZE（36px）の正方形', () => {
+    expect(ITEM_BOX_SIZE).toBe(36);
+    expect(itemFootprint({ col: 28, row: 16 })).toEqual({ x: 438, y: 246, width: 36, height: 36 });
+    expect(itemFootprint({ col: 0, row: 0 })).toEqual({ x: -10, y: -10, width: 36, height: 36 });
+  });
+});
+
+describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => {
+  const ctx = { routes, placedItems: [] as PlacedItem[] };
+  const noRoutes = { routes: [], placedItems: [] as PlacedItem[] };
+  const lastCol = PLACEMENT_COLS - 1;
+  const lastRow = PLACEMENT_ROWS - 1;
+
+  it.each([
+    [free, true],
+    [{ col: 1, row: 20 }, true], // 左端（x=6〜42。出現列でもルート・出現場所から離れていれば置ける）
+    [{ col: 0, row: 20 }, false], // 左へはみ出す（x=-2〜34）
+    [{ col: 58, row: 8 }, true], // 右端（x=910〜946）
+    [{ col: lastCol, row: 8 }, false], // 右へはみ出す（x=926〜962）
+    [{ col: 27, row: 5 }, true], // 上帯（y<60）の直下（y=70〜106）
+    [{ col: 27, row: 4 }, false], // 上帯に重なる（y=54〜90）
+    [{ col: 27, row: 28 }, true], // 下帯（y≧480）の直上（y=438〜474）
+    [{ col: 27, row: 29 }, false], // 下帯に重なる（y=454〜490）
+    [{ col: 27, row: lastRow }, false], // 下へはみ出す（y=518〜554）
+    [{ col: 27, row: 10 }, true], // HUD（x≦416）の右（x=422〜458）
+    [{ col: 26, row: 10 }, false], // HUD に重なる（x=406〜442）
+    [{ col: 10, row: 20 }, true], // HUD（y≦298）の下（y=310〜346）
+    [{ col: 10, row: 19 }, false], // HUD に重なる（y=294〜330）
+    [{ col: 2, row: 10 }, true], // HUD（x≧72）の左（x=22〜58）
+    [{ col: 3, row: 10 }, false], // HUD に重なる（x=38〜74）
+    [{ col: -1, row: 10 }, false],
+    [{ col: PLACEMENT_COLS, row: 10 }, false],
+    [{ col: 30, row: -1 }, false],
+    [{ col: 30, row: PLACEMENT_ROWS }, false],
+    [{ col: 30.5, row: 8 }, false],
+    [{ col: 30, row: 8.5 }, false],
   ])('%j → %s', (cell, expected) => {
     expect(isPlaceableCell(cell, ctx)).toBe(expected);
   });
 
-  it('ルート上のセルは不可、その隣は可', () => {
-    expect(isPlaceableCell({ col: 3, row: 3 }, ctx)).toBe(false);
-    expect(isPlaceableCell({ col: 3, row: 2 }, ctx)).toBe(false); // 隣だが HUD と重なる
-    expect(isPlaceableCell({ col: 3, row: 4 }, ctx)).toBe(false); // 隣だが昇給・減給ボタン(#34)と重なる
-    expect(isPlaceableCell({ col: 5, row: 4 }, ctx)).toBe(false);
-    expect(isPlaceableCell({ col: 6, row: 4 }, ctx)).toBe(false); // 隣だが昇給・減給ボタン(#34)と重なる
-    expect(isPlaceableCell({ col: 5, row: 6 }, ctx)).toBe(true);
-    expect(isPlaceableCell({ col: 7, row: 4 }, ctx)).toBe(true);
+  it('ルートの線: 中心線から ITEM_ROUTE_CLEARANCE（8px）未満は不可、ちょうど離れれば可（水平の区間）', () => {
+    expect(ITEM_ROUTE_CLEARANCE).toBe(8);
+    // 行3の線（y=210）。帯は y=202〜218。
+    const above = { routes: [rowRoute(3)], placedItems: [], blockedRects: [] };
+    expect(isPlaceableCell({ col: 20, row: 11 }, above)).toBe(true); // 下端 y=202 で接する
+    expect(isPlaceableCell({ col: 20, row: 12 }, above)).toBe(false); // 下端 y=218
+    expect(isPlaceableCell({ col: 20, row: 13 }, above)).toBe(false); // 線上
+    // 行4の線（y=270）。帯の下端は y=278。
+    const below = { routes: [rowRoute(4)], placedItems: [], blockedRects: [] };
+    expect(isPlaceableCell({ col: 20, row: 18 }, below)).toBe(true); // 上端 y=278 で接する
+    expect(isPlaceableCell({ col: 20, row: 17 }, below)).toBe(false); // 上端 y=262
   });
 
-  it('出現セルは不可、その隣は可', () => {
-    expect(isPlaceableCell(route.spawn, ctx)).toBe(false);
-    expect(isPlaceableCell({ col: 0, row: 2 }, ctx)).toBe(true);
-    // 他の初期出現セルもルートが無ければ置けるが、ルートがあれば不可
-    const spawn = ENGINEER_SPAWN_CELLS[0];
-    const spawnRoute: Route = { id: 1, spawn, waypoints: [spawn] };
-    expect(isPlaceableCell(spawn, { routes: [spawnRoute], placedItems: [] })).toBe(false);
+  it('ルートの線: 縦の区間も同じ', () => {
+    // col 7 の縦区間（x=450、行1〜7）。帯は x=442〜458。
+    const left = { routes: [colRoute(7)], placedItems: [], blockedRects: [] };
+    expect(isPlaceableCell({ col: 26, row: 20 }, left)).toBe(true); // 右端 x=442 で接する
+    expect(isPlaceableCell({ col: 27, row: 20 }, left)).toBe(false); // 右端 x=458
+    // col 8 の縦区間（x=510）。帯の右端は x=518。
+    const right = { routes: [colRoute(8)], placedItems: [], blockedRects: [] };
+    expect(isPlaceableCell({ col: 33, row: 20 }, right)).toBe(true); // 左端 x=518 で接する
+    expect(isPlaceableCell({ col: 32, row: 20 }, right)).toBe(false); // 左端 x=502
   });
 
-  it('リリース地点は不可（ルートが無くても）、その隣は可', () => {
-    expect(isPlaceableCell(RELEASE_POINT_CELL, { routes: [], placedItems: [] })).toBe(false);
-    expect(
-      isPlaceableCell({ col: RELEASE_POINT_CELL.col - 1, row: RELEASE_POINT_CELL.row - 1 }, ctx),
-    ).toBe(true);
+  it('ルートの線上・その脇（既定のルート。行3の線の上側は HUD と重なるので行5の線で見る）', () => {
+    expect(isPlaceableCell(onRoute, ctx)).toBe(false);
+    expect(isPlaceableCell({ col: 20, row: 11 }, ctx)).toBe(false); // 行3の線のクリアランスには接するだけだが HUD（y≦298）に重なる
+    expect(isPlaceableCell({ col: 28, row: 20 }, ctx)).toBe(false); // 行5の線（y=330）の上
+    expect(isPlaceableCell({ col: 28, row: 18 }, ctx)).toBe(true); // 行5の線の上側（下端 y=314 < 322）
+    expect(isPlaceableCell({ col: 28, row: 22 }, ctx)).toBe(true); // 行5の線の下側（上端 y=342 > 338）
+    expect(isPlaceableCell({ col: 28, row: 21 }, ctx)).toBe(false); // 上端 y=326
   });
 
-  it('既にアイテムがあるセルは不可、隣は可', () => {
+  it('出現場所の円（半径 SPAWN_CLEARANCE_RADIUS）に重なると不可、離れれば可。ルートが無ければ出現セルの位置にも置ける', () => {
+    expect(SPAWN_CLEARANCE_RADIUS).toBe(19.5);
+    const spawn: GridCell = { col: 0, row: 4 }; // 中心 (30, 270)
+    const spawnOnly = { routes: [{ id: 1, spawn, waypoints: [spawn] }], placedItems: [], blockedRects: [] };
+    expect(isPlaceableCell({ col: 3, row: 16 }, spawnOnly)).toBe(false); // 左端 x=38（距離 8）
+    expect(isPlaceableCell({ col: 4, row: 16 }, spawnOnly)).toBe(true); // 左端 x=54（距離 24）
+    expect(isPlaceableCell({ col: 1, row: 15 }, spawnOnly)).toBe(false); // 下端 y=266（距離 4）
+    expect(isPlaceableCell({ col: 1, row: 14 }, spawnOnly)).toBe(true); // 下端 y=250（距離 20）
+    const atSpawn = pointToPlacementCell(cellCenter(spawn));
+    expect(isPlaceableCell(atSpawn, spawnOnly)).toBe(false);
+    expect(isPlaceableCell(atSpawn, { ...noRoutes, blockedRects: [] })).toBe(true);
+    expect(isPlaceableCell(spawnCell, ctx)).toBe(false);
+  });
+
+  it('リリース地点の円（半径 RELEASE_CLEARANCE_RADIUS）に重なると不可（ルートが無くても）、離れれば可', () => {
+    expect(RELEASE_CLEARANCE_RADIUS).toBe(28);
+    expect(isPlaceableCell(releaseCell, noRoutes)).toBe(false);
+    expect(isPlaceableCell({ col: 55, row: 16 }, noRoutes)).toBe(false); // 右端 x=906（距離 24）
+    expect(isPlaceableCell({ col: 54, row: 16 }, noRoutes)).toBe(true); // 右端 x=890（距離 40）
+    expect(isPlaceableCell({ col: 58, row: 19 }, noRoutes)).toBe(false); // 上端 y=294（距離 24）
+    expect(isPlaceableCell({ col: 58, row: 20 }, noRoutes)).toBe(true); // 上端 y=310（距離 40）
+  });
+
+  it('「リリース」のラベル（RELEASE_POINT_LABEL_BOUNDS）に重なると不可', () => {
+    expect(RELEASE_POINT_LABEL_BOUNDS).toEqual({ x: 902, y: 224.5, width: 56, height: 17.5 });
+    expect(isPlaceableCell({ col: 58, row: 12 }, noRoutes)).toBe(true); // 下端 y=218（ラベルの上）
+    expect(isPlaceableCell({ col: 58, row: 13 }, noRoutes)).toBe(false); // 下端 y=234（ラベルに重なる。円からは 36 離れている）
+  });
+
+  it('既存アイテムのフットプリントと重なると不可。2セル隣（4px 重なる）は不可、3セル隣（12px 空く）は可', () => {
     const withItem = { routes, placedItems: [placed(0, free)] };
     expect(isPlaceableCell(free, withItem)).toBe(false);
-    expect(isPlaceableCell({ col: free.col + 1, row: free.row }, withItem)).toBe(true);
+    expect(isPlaceableCell({ col: free.col + 1, row: free.row }, withItem)).toBe(false);
+    expect(isPlaceableCell({ col: free.col + 2, row: free.row }, withItem)).toBe(false);
+    expect(isPlaceableCell({ col: free.col + 3, row: free.row }, withItem)).toBe(true);
+    expect(isPlaceableCell({ col: free.col, row: free.row + 2 }, withItem)).toBe(false);
+    expect(isPlaceableCell({ col: free.col, row: free.row + 3 }, withItem)).toBe(true);
   });
 
-  it('blockedRows / blockedCells を引数で差し替えられる', () => {
-    expect(isPlaceableCell({ col: 8, row: 1 }, { ...ctx, blockedRows: [1] })).toBe(false);
-    expect(isPlaceableCell({ col: 3, row: 0 }, { ...ctx, blockedRows: [] })).toBe(true);
-    expect(isPlaceableCell({ col: 3, row: 1 }, { ...ctx, blockedCells: [] })).toBe(true);
-    expect(isPlaceableCell({ col: 8, row: 1 }, { ...ctx, blockedCells: [{ col: 8, row: 1 }] })).toBe(false);
-  });
-});
-
-describe('isPlaceableCell: HUD の下', () => {
-  it('行3 col1 は HUD（技術的負債の行）と重なるため置けない', () => {
-    expect(isPlaceableCell({ col: 1, row: 3 }, { routes: [], placedItems: [] })).toBe(false);
-  });
-
-  // 行3〜4 は昇給・減給の情報行・ボタン(#34)と重なるため置けない。その下の行5から置ける。
-  it.each([3, 4])('行%i col1〜6 は置けず、col7 は置ける（ルートが無いとき）', (row) => {
-    for (let col = 1; col <= 6; col += 1) {
-      expect(isPlaceableCell({ col, row }, { routes: [], placedItems: [] })).toBe(false);
-    }
-    expect(isPlaceableCell({ col: 7, row }, { routes: [], placedItems: [] })).toBe(true);
+  it('blockedRects を差し替えられる。辺が接するだけの矩形は置け、1px 重なると置けない', () => {
+    const footprint = itemFootprint(free); // x=470〜506、y=118〜154
+    const leftOf = (right: number) => [{ x: 0, y: 0, width: right, height: FIELD_HEIGHT }];
+    const rightOf = (left: number) => [{ x: left, y: 0, width: FIELD_WIDTH - left, height: FIELD_HEIGHT }];
+    expect(isPlaceableCell(free, { ...ctx, blockedRects: leftOf(footprint.x) })).toBe(true);
+    expect(isPlaceableCell(free, { ...ctx, blockedRects: leftOf(footprint.x + 1) })).toBe(false);
+    expect(isPlaceableCell(free, { ...ctx, blockedRects: rightOf(footprint.x + footprint.width) })).toBe(true);
+    expect(isPlaceableCell(free, { ...ctx, blockedRects: rightOf(footprint.x + footprint.width - 1) })).toBe(false);
+    // 既定の置けない矩形を外すと上帯にも置けるが、フィールドの外へはみ出すセルは置けない。
+    expect(isPlaceableCell({ col: 27, row: 1 }, { ...ctx, blockedRects: [] })).toBe(true);
+    expect(isPlaceableCell({ col: 27, row: 0 }, { ...ctx, blockedRects: [] })).toBe(false);
+    expect(isPlaceableCell({ col: 27, row: 4 }, ctx)).toBe(false);
   });
 
-  it('行4 col1 は昇給・減給ボタン(#34)と重なるため置けない', () => {
-    expect(isPlaceableCell({ col: 1, row: 4 }, { routes: [], placedItems: [] })).toBe(false);
-  });
-
-  it('行5 col1〜6 は（ルートが無ければ）置ける', () => {
-    for (let col = 1; col <= 6; col += 1) {
-      expect(isPlaceableCell({ col, row: 5 }, { routes: [], placedItems: [] })).toBe(true);
-    }
+  it('既定の置けない矩形は上帯・下帯・HUD の外接矩形（x=72〜416、y=80〜298）', () => {
+    expect(ITEM_HUD_BOUNDS).toEqual({ x: 72, y: 80, width: 344, height: 218 });
+    expect(ITEM_BLOCKED_RECTS).toEqual([
+      { x: 0, y: 0, width: FIELD_WIDTH, height: CELL_SIZE },
+      { x: 0, y: FIELD_HEIGHT - CELL_SIZE, width: FIELD_WIDTH, height: CELL_SIZE },
+      ITEM_HUD_BOUNDS,
+    ]);
   });
 });
 
@@ -285,25 +406,23 @@ describe('purchaseItem: 置く場所と重複', () => {
     expect(second).toEqual({ ok: false, reason: 'occupied' });
   });
 
-  it('隣のセルには置ける', () => {
-    const placedFirst = placed(0, free);
-    const result = purchaseItem(
-      state({ placedItems: [placedFirst], nextId: 1 }),
-      'ci',
-      { col: free.col + 1, row: free.row },
-      options,
-    );
-    expect(result.ok).toBe(true);
+  it('フットプリントが重なる 2 セル隣は occupied、重ならない 3 セル隣には置ける', () => {
+    const withFirst = state({ placedItems: [placed(0, free)], nextId: 1 });
+    expect(purchaseItem(withFirst, 'ci', { col: free.col + 2, row: free.row }, options)).toEqual({
+      ok: false,
+      reason: 'occupied',
+    });
+    expect(purchaseItem(withFirst, 'ci', { col: free.col + 3, row: free.row }, options).ok).toBe(true);
   });
 
   it.each([
-    ['ルート上', { col: 3, row: 3 }],
-    ['出現セル', route.spawn],
-    ['リリース地点', RELEASE_POINT_CELL],
-    ['UI 行（上）', { col: 3, row: 0 }],
-    ['HUD と重なるセル', { col: 3, row: 1 }],
-    ['UI 行（下）', { col: 3, row: FIELD_ROWS - 1 }],
-    ['範囲外', { col: -1, row: 1 }],
+    ['ルートの線上', onRoute],
+    ['出現場所', spawnCell],
+    ['リリース地点', releaseCell],
+    ['上帯', { col: 20, row: 1 }],
+    ['HUD と重なる位置', { col: 10, row: 10 }],
+    ['下帯', { col: 20, row: 32 }],
+    ['範囲外', { col: -1, row: 10 }],
   ])('%s は notPlaceable で資金・配列は変わらない', (_name, cell) => {
     const input = state();
     expect(purchaseItem(input, 'linter', cell, options)).toEqual({ ok: false, reason: 'notPlaceable' });
@@ -357,8 +476,9 @@ describe('purchaseItem: 成功時の結果', () => {
   it('id は nextId から連番になる', () => {
     let current = state();
     const ids: number[] = [];
-    for (let col = 1; col <= 3; col++) {
-      const result = purchaseItem(current, 'linter', { col, row: 6 }, options);
+    // 行 24（y=374〜410）に 3 セル（48px）間隔で並べる。
+    for (const col of [1, 4, 7]) {
+      const result = purchaseItem(current, 'linter', { col, row: 24 }, options);
       if (!result.ok) throw new Error('purchase failed');
       ids.push(result.item.id);
       current = { ...current, placedItems: result.placedItems, nextId: result.item.id + 1, funds: result.fundsAfter };
@@ -423,7 +543,7 @@ describe('formatItemMessage / formatItemButton', () => {
 
 describe('findItemTarget: 範囲内で最も近い不正なコード', () => {
   const item = placed(0, { col: 5, row: 2 }, 'linter');
-  const center = cellCenter(item.cell);
+  const center = placementCellCenter(item.cell);
   const range = getItemRange('linter');
   const code = (id: number, dx: number, kind: 'malicious' | 'normal' = 'malicious', dy = 0) => ({
     id,
@@ -556,7 +676,7 @@ describe('canItemAttack: クールダウン', () => {
 
 describe('CodeRabbit(#52): 長距離の射程と標的の選び方', () => {
   const item = placed(0, { col: 8, row: 2 }, 'codeRabbit');
-  const center = cellCenter(item.cell);
+  const center = placementCellCenter(item.cell);
   const range = ITEM_RANGE_RATIOS.long * CELL_SIZE;
   const code = (id: number, dx: number, kind: 'malicious' | 'normal' = 'malicious', dy = 0) => ({
     id,
@@ -602,24 +722,26 @@ describe('CodeRabbit(#52): 長距離の射程と標的の選び方', () => {
 
 describe('CodeRabbit(#52): ルート脇に置いてルートを守る', () => {
   const price = getItemPrice('codeRabbit');
-  // ルートは行 5 を通る（col 5〜最終列）。col 7・行 4 は HUD・昇給減給ボタンと重ならないルート隣接セル。
-  const beside: GridCell = { col: 7, row: 4 };
+  // ルートは行 5（y=330）を通る（col 5〜最終列）。配置グリッドの col 28・行 18（中心 456,296、フットプリント y=278〜314）は
+  // HUD（x≦416）とルートの線のクリアランス（y≧322）に重ならないルート脇の位置。routeCell はそのすぐ下のルートのセル（60px）。
+  const beside: GridCell = { col: 28, row: 18 };
   const routeCell: GridCell = { col: 7, row: 5 };
+  const onRouteCell = pointToPlacementCell(cellCenter(routeCell));
 
-  it('ルート上のセルは notPlaceable で、資金と配置配列は変わらない', () => {
+  it('ルートの線上のセルは notPlaceable で、資金と配置配列は変わらない', () => {
     const input = state({ funds: price });
     expect(getRouteCells(route)).toContainEqual(routeCell);
-    expect(purchaseItem(input, 'codeRabbit', routeCell, options)).toEqual({ ok: false, reason: 'notPlaceable' });
+    expect(purchaseItem(input, 'codeRabbit', onRouteCell, options)).toEqual({ ok: false, reason: 'notPlaceable' });
     expect(input.funds).toBe(price);
     expect(input.placedItems).toEqual([]);
   });
 
-  it('HUD と重ならないルート隣接セルには置け、隣のルートのセル中心が射程内に入る', () => {
+  it('HUD と重ならないルート脇のセルには置け、隣のルートのセル中心が射程内に入る', () => {
     const result = purchaseItem(state({ funds: price }), 'codeRabbit', beside, options);
     if (!result.ok) throw new Error(`購入に失敗しました: ${result.reason}`);
     expect(result.item).toEqual({ id: 0, itemType: 'codeRabbit', cell: beside, lastAttackTime: null });
     expect(result.fundsAfter).toBe(0);
-    expect(isTargetInItemRange('codeRabbit', cellCenter(result.item.cell), cellCenter(routeCell))).toBe(true);
+    expect(isTargetInItemRange('codeRabbit', placementCellCenter(result.item.cell), cellCenter(routeCell))).toBe(true);
     const onRoute = { id: 1, kind: 'malicious' as const, position: cellCenter(routeCell) };
     expect(findItemTarget(result.item, [onRoute])?.id).toBe(1);
   });
@@ -631,7 +753,6 @@ describe('purchaseItem: 置き方(#58)', () => {
   });
 
   it('ペアプロ相棒（主人公についてまわる）は既にアイテムがあるセル・ルート上でも買える', () => {
-    const onRoute: GridCell = { col: 3, row: 3 };
     const occupiedState = state({ placedItems: [placed(0, free)], nextId: 1 });
     const overItem = purchaseItem(occupiedState, 'pairProgrammer', free, options);
     expect(overItem.ok).toBe(true);
@@ -659,7 +780,7 @@ describe('purchaseItem: 置き方(#58)', () => {
   it('ラバーダック・コーヒーマシン・書き置きはセルに置く（置けない場所は notPlaceable）', () => {
     for (const itemType of ['rubberDuck', 'coffeeMachine', 'seniorNote'] as const) {
       expect(purchaseItem(state(), itemType, free, options).ok).toBe(true);
-      expect(purchaseItem(state(), itemType, { col: 3, row: 3 }, options)).toEqual({ ok: false, reason: 'notPlaceable' });
+      expect(purchaseItem(state(), itemType, onRoute, options)).toEqual({ ok: false, reason: 'notPlaceable' });
     }
   });
 });
@@ -744,7 +865,7 @@ describe('findItemTarget: 攻撃の起点(#58)', () => {
     const item = placed(0, { col: 2, row: 2 }, 'pairProgrammer');
     const origin = { x: 600, y: 300 };
     const near = { id: 1, kind: 'malicious' as const, position: { x: 610, y: 300 } };
-    const nearCell = { id: 2, kind: 'malicious' as const, position: cellCenter(item.cell) };
+    const nearCell = { id: 2, kind: 'malicious' as const, position: placementCellCenter(item.cell) };
     expect(findItemTarget(item, [nearCell, near], origin)?.id).toBe(1);
     expect(findItemTarget(item, [nearCell, near])?.id).toBe(2);
   });
@@ -761,15 +882,16 @@ describe('getItemOrigin: 攻撃・効果の起点(#58)', () => {
     });
   });
 
-  it('ついてまわらないアイテムは主人公の位置に関係なく置いたセルの中心', () => {
+  it('ついてまわらないアイテムは主人公の位置に関係なく置いたセル（配置グリッド #151）の中心', () => {
     const item: PlacedItem = { id: 0, itemType: 'linter', cell: { col: 1, row: 1 }, lastAttackTime: null };
-    expect(getItemOrigin(item, player)).toEqual(cellCenter({ col: 1, row: 1 }));
+    expect(getItemOrigin(item, player)).toEqual(placementCellCenter({ col: 1, row: 1 }));
+    expect(getItemOrigin(item, player)).toEqual({ x: 24, y: 24 });
   });
 });
 
 describe('countItemsCovering: 点を範囲に含む台数(#58)', () => {
   const cell: GridCell = { col: 5, row: 5 };
-  const center = cellCenter(cell);
+  const center = placementCellCenter(cell);
   const coffeeRange = getItemRange('coffeeMachine');
   const coffee = (id: number, at: GridCell = cell): PlacedItem => ({
     id,
@@ -825,7 +947,7 @@ describe('shouldItemHesitate: Linter の見送り(#58)', () => {
 
 describe('findCodesToReveal: ラバーダックで正体を暴く(#58)', () => {
   const cell: GridCell = { col: 5, row: 5 };
-  const center = cellCenter(cell);
+  const center = placementCellCenter(cell);
   const duck: PlacedItem = { id: 0, itemType: 'rubberDuck', cell, lastAttackTime: null };
   const range = getItemRange('rubberDuck');
 
@@ -851,18 +973,18 @@ describe('isIncidentPreventedByNote: 書き置きで障害を防ぐ(#58)', () =>
   const range = getItemRange('seniorNote');
 
   it('リリース地点が書き置きの範囲内なら防ぐ', () => {
-    const note: PlacedItem = { id: 0, itemType: 'seniorNote', cell: RELEASE_POINT_CELL, lastAttackTime: null };
+    const note: PlacedItem = { id: 0, itemType: 'seniorNote', cell: releaseCell, lastAttackTime: null };
     expect(isIncidentPreventedByNote([note])).toBe(true);
   });
 
   it('リリース地点が範囲外・書き置き以外のアイテムなら防がない', () => {
     const farCell: GridCell = { col: 0, row: 0 };
-    const far = cellCenter(farCell);
+    const far = placementCellCenter(farCell);
     expect(Math.hypot(far.x - RELEASE_POINT_CENTER.x, far.y - RELEASE_POINT_CENTER.y)).toBeGreaterThan(range);
     expect(isIncidentPreventedByNote([{ id: 0, itemType: 'seniorNote', cell: farCell, lastAttackTime: null }])).toBe(
       false,
     );
-    expect(isIncidentPreventedByNote([{ id: 0, itemType: 'rubberDuck', cell: RELEASE_POINT_CELL, lastAttackTime: null }])).toBe(
+    expect(isIncidentPreventedByNote([{ id: 0, itemType: 'rubberDuck', cell: releaseCell, lastAttackTime: null }])).toBe(
       false,
     );
   });

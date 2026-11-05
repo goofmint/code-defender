@@ -1,9 +1,17 @@
 // ゲーム設定の仮の値を一か所に集める。後続のゲームバランス用の値もここに追加する。
 
 // 仮: セルサイズ・列数・行数は CodeRabbit 実装計画(#2)の値。企画書には未記載。
+// CELL_SIZE はルートグリッド（出現セル・折れ点・リリースセル）と射程（ITEM_RANGE_RATIOS × CELL_SIZE）の基準。
+// フィールドの大きさは CELL_SIZE × FIELD_COLS/ROWS（960×540）。アイテムの配置は別の 16px グリッド（PLACEMENT_CELL_SIZE #151）で行う。
 export const CELL_SIZE = 60;
 export const FIELD_COLS = 16;
 export const FIELD_ROWS = 9;
+// 仮・要確認(#151): アイテムの配置グリッド。「タイルをもっと細かく（16×16）」より、配置の単位を 16px にする（ルートグリッドと世界の大きさは変えない）。
+// 列数はフィールド幅から 60、行数はフィールド高さから 34（最終行 y=528〜540 は 12px の端数の行。アイテムがフィールドに収まるかは
+// フットプリント（ITEM_BOX_SIZE）で別に判定する）。
+export const PLACEMENT_CELL_SIZE = 16;
+export const PLACEMENT_COLS = Math.ceil((CELL_SIZE * FIELD_COLS) / PLACEMENT_CELL_SIZE);
+export const PLACEMENT_ROWS = Math.ceil((CELL_SIZE * FIELD_ROWS) / PLACEMENT_CELL_SIZE);
 
 // 仮・要確認: リリース地点のセル位置。右端の列・縦中央の行。企画書には位置の記載なし。
 export const RELEASE_POINT_CELL = {
@@ -532,7 +540,7 @@ export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as con
 // 仮・要確認(#53): AIエージェントのボタンの並び順（左から）。
 export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
 // 仮・要確認(#53): AIエージェントのボタンの配置。昇給・減給ボタン（y=238〜266）の下に間隔 4px をあけて並べる（y=270〜298、x=72〜416）。
-// 右端は昇給・減給ボタンと同じ 416 で、アイテムを置けないセル（行1〜4 × col 1〜6）に収まる。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+// 右端は昇給・減給ボタンと同じ 416 で、アイテムを置けない HUD の矩形（ITEM_HUD_BOUNDS #151）の右端・下端になる。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
 const AI_AGENT_UI_GAP_Y = 4;
 export const AI_AGENT_UI_POSITION = {
   x: SALARY_UI_POSITION.x,
@@ -607,43 +615,40 @@ export const ITEM_PRICE_TIER_BY_TYPE = {
   worksFine: 'cheap',
   seniorNote: 'expensive',
 } as const;
-// 仮・要確認(#48): アイテムを置けない行（UI と重なる行）。上端=雇うボタン・HUD、下端=アイテム購入ボタン。
-export const ITEM_BLOCKED_ROWS = [0, FIELD_ROWS - 1] as const;
 // 仮・要確認(#48, #43): HUD（経過日数・資金・累計売上・技術的負債の4行）が占める範囲。幅は「資金: 1,000,000円」で約300px、
 // 高さは最下行（技術的負債）の上端から文字の行高さ約30px（ELAPSED_DAYS_STYLE 24px）まで。
 const ITEM_HUD_WIDTH = 300;
 const ITEM_HUD_LINE_HEIGHT = 30;
-// 仮・要確認(#48, #43): アイテムを置けないセル。HUD は x=ELAPSED_DAYS_POSITION.x（72）〜372、y=80〜約206 で、行1〜3 × col 1〜6 と重なる。
-// 仮・要確認(#34): 昇給・減給の情報行・ボタン（y=208〜266、ボタンは x=72〜416）も含め、行1〜4 × col 1〜6 にする。
-// 範囲は ELAPSED_DAYS_POSITION / TECH_DEBT_POSITION / SALARY_UI_POSITION / CELL_SIZE から計算する（右端・下端ちょうどがセル境界なら次のセルは含めない）。
-// col 0 は出現列（ルートがあれば元々置けない）なので含めない。
+// 仮・要確認(#48, #43, #34, #53): HUD は x=ELAPSED_DAYS_POSITION.x（72）〜372、y=80〜約206。昇給・減給の情報行・ボタン（y=208〜266、
+// ボタンは x=72〜416）と AIエージェントのボタン（y=270〜298、x=72〜416）も含める。
 const salaryUiRight =
   SALARY_UI_POSITION.x +
   SALARY_BUTTON_ORDER.length * SALARY_BUTTON_SIZE.width +
   (SALARY_BUTTON_ORDER.length - 1) * SALARY_BUTTON_SIZE.gap;
-// 仮・要確認(#53): AIエージェントのボタン（y=270〜298、x=72〜416）も範囲の計算に含める（今の値では行1〜4 × col 1〜6 のまま）。
 const aiAgentUiRight =
   AI_AGENT_UI_POSITION.x +
   AI_AGENT_BUTTON_ORDER.length * AI_AGENT_BUTTON_SIZE.width +
   (AI_AGENT_BUTTON_ORDER.length - 1) * AI_AGENT_BUTTON_SIZE.gap;
-const itemHudMinCol = Math.floor(ELAPSED_DAYS_POSITION.x / CELL_SIZE);
-const itemHudMaxCol =
-  Math.ceil(Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight, aiAgentUiRight) / CELL_SIZE) - 1;
-const itemHudMinRow = Math.floor(ELAPSED_DAYS_POSITION.y / CELL_SIZE);
-const itemHudMaxRow =
-  Math.ceil(
+// 仮・要確認(#151): HUD・昇給減給UI・AIエージェントのボタンの外接矩形（ピクセル。x=72〜416、y=80〜298）。
+// #151 までは 60px セルに切り上げて「行1〜4 × col 1〜6」を置けないセルにしていたが、画素の矩形をそのまま置けない範囲にする。
+export const ITEM_HUD_BOUNDS = {
+  x: ELAPSED_DAYS_POSITION.x,
+  y: ELAPSED_DAYS_POSITION.y,
+  width: Math.max(ELAPSED_DAYS_POSITION.x + ITEM_HUD_WIDTH, salaryUiRight, aiAgentUiRight) - ELAPSED_DAYS_POSITION.x,
+  height:
     Math.max(
       TECH_DEBT_POSITION.y + ITEM_HUD_LINE_HEIGHT,
       SALARY_UI_POSITION.y + SALARY_BUTTON_SIZE.height,
       AI_AGENT_UI_POSITION.y + AI_AGENT_BUTTON_SIZE.height,
-    ) / CELL_SIZE,
-  ) - 1;
-export const ITEM_BLOCKED_CELLS = Array.from(
-  { length: itemHudMaxRow - itemHudMinRow + 1 },
-  (_, r) => itemHudMinRow + r,
-).flatMap((row) =>
-  Array.from({ length: itemHudMaxCol - itemHudMinCol + 1 }, (_, c) => ({ col: itemHudMinCol + c, row })),
-);
+    ) - ELAPSED_DAYS_POSITION.y,
+} as const;
+// 仮・要確認(#48, #151): アイテムを置けない範囲（ピクセル矩形）。アイテムのフットプリント（ITEM_BOX_SIZE の正方形）が 1px でも重なると置けない
+// （辺や角が接するだけなら置ける）。上帯（行0: 雇うボタン・割合UI・エンジニア数）と下帯（最終行: アイテム購入ボタン）はルートグリッドの行の高さ（CELL_SIZE）のまま。
+export const ITEM_BLOCKED_RECTS = [
+  { x: 0, y: 0, width: CELL_SIZE * FIELD_COLS, height: CELL_SIZE },
+  { x: 0, y: CELL_SIZE * (FIELD_ROWS - 1), width: CELL_SIZE * FIELD_COLS, height: CELL_SIZE },
+  ITEM_HUD_BOUNDS,
+] as const;
 // 仮・要確認(#48): アイテム購入キー（購入バーの現在ページの枠の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・昇給・減給(Q/E/R/F)・リスタートと重ならない。Phaser の KeyCodes のキー名。
 // 仮・要確認(#58): アイテムが 18 個になったため、購入バーをページ切替式にした。キー 4〜9 は現在ページの 1〜6 枠目を買う（#57 の猫のキー 0 は廃止）。
 export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
@@ -707,8 +712,10 @@ export const TEST_TOOL_HOLD_MS = 500;
 // 仮・要確認(#57): 猫がコードを1つ消す間隔（ミリ秒）。企画書は「ランダムで消す」だけで間隔は未記載。
 // 正常なコードも消して売上を減らすため、攻撃間隔(ITEM_ATTACK_COOLDOWN_MS)より長くする。置いた直後は待たずに消せる。
 export const CAT_DELETE_INTERVAL_MS = 5000;
-// 仮・要確認(#48): アイテムの見た目。セル内の色付き四角（セルに対する比率）と文字。色は種類ごと。
+// 仮・要確認(#48): アイテムの見た目。色付き四角（ルートグリッドのセル CELL_SIZE に対する比率）と文字。色は種類ごと。
 export const ITEM_BOX_RATIO = 0.6;
+// 仮・要確認(#151): アイテムの四角の一辺（36px）。描画と、配置判定のフットプリント（置けるか・重なるかを判定する正方形）で共有する。
+export const ITEM_BOX_SIZE = CELL_SIZE * ITEM_BOX_RATIO;
 export const ITEM_COLORS = {
   codeRabbit: 0xff8a3d,
   linter: 0x4db6ac,
@@ -790,6 +797,9 @@ export const ROUTE_LINE_STYLE = {
   chevronWidth: 2,
   chevronAlpha: 0.85,
 } as const;
+// 仮・要確認(#151): ルートの中心線からアイテムのフットプリントを離す距離（px）。下地線の幅の半分（6px）と矢印の大きさ（8px）を覆う値。
+// フットプリントとルートの中心線の距離がこの値未満なら置けない（ちょうどは置ける）。
+export const ITEM_ROUTE_CLEARANCE = Math.max(ROUTE_LINE_STYLE.underlayWidth / 2, ROUTE_LINE_STYLE.chevronSize);
 // 仮(#144): 出現場所の円（半径 SPAWN_MARKER_STYLE.radius）の外側の細いリングと、内側の小さな再生マーク（▶）の見た目。
 // リングはセル内（中心から CELL_SIZE / 2 未満）に収め、休暇マーカーの当たり判定（円の半径）は変えない。
 export const SPAWN_MARKER_DECOR_COLORS = {
@@ -849,7 +859,8 @@ export const STAGE_POINT_COST_BY_TIER = { cheap: 1, normal: 2, expensive: 3 } as
 export const INITIAL_PLACEMENT_START_KEYS = ['ENTER'] as const;
 // 仮・要確認(#47): 初期配置UI（残ポイント・選択中のアイテム・操作説明のパネル、開始ボタン、メッセージ）の配置。
 // 右上の行1〜3（col 11〜15、x=660〜960・y=60〜240）に置く。行0の雇用UI（人数・メッセージは y≦約67）の下、
-// HUD（x≦約576）・昇給減給パネル（x≦416）の右、選択中のエンジニアの情報行（y≧208。AIエージェントの表示 #53 で右へ伸びる）の上、リリース地点（行4）の上。重なるセルは初期配置フェーズの間だけ置けない（INITIAL_PLACEMENT_BLOCKED_CELLS）。
+// HUD（x≦約576）・昇給減給パネル（x≦416）の右、選択中のエンジニアの情報行（y≧208。AIエージェントの表示 #53 で右へ伸びる）の上、リリース地点（行4）の上。
+// この範囲（INITIAL_PLACEMENT_UI_BOUNDS）に重なる位置は初期配置フェーズの間だけ置けない（#151 で矩形のまま判定する）。
 const INITIAL_PLACEMENT_UI_LEFT_COL = 11;
 const INITIAL_PLACEMENT_UI_MARGIN = 8;
 export const INITIAL_PLACEMENT_PANEL_POSITION = {
@@ -891,7 +902,7 @@ export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
 export const INITIAL_PLACEMENT_MESSAGE_COLOR = ITEM_MESSAGE_COLOR;
 export const INITIAL_PLACEMENT_MESSAGE_DURATION_MS = ITEM_MESSAGE_DURATION_MS;
 // 仮・要確認(#47): 初期配置UIが占める範囲の右端・下端（ピクセル）。右端はフィールド右端から余白を引いた位置、
-// 下端はメッセージ（1行）の下端。
+// 下端はメッセージ（1行）の下端。この矩形に重なる位置は初期配置の間だけ置けない（プレイ開始で UI を消すので、プレイ中の購入では置ける #151）。
 const INITIAL_PLACEMENT_UI_RIGHT = FIELD_COLS * CELL_SIZE - INITIAL_PLACEMENT_UI_MARGIN;
 const INITIAL_PLACEMENT_UI_BOTTOM = INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT;
 export const INITIAL_PLACEMENT_UI_BOUNDS = {
@@ -900,21 +911,6 @@ export const INITIAL_PLACEMENT_UI_BOUNDS = {
   width: INITIAL_PLACEMENT_UI_RIGHT - INITIAL_PLACEMENT_PANEL_POSITION.x,
   height: INITIAL_PLACEMENT_UI_BOTTOM - INITIAL_PLACEMENT_PANEL_POSITION.y,
 } as const;
-// 仮・要確認(#47): 初期配置フェーズの間だけ置けないセル（初期配置UIと重なるセル）。ITEM_BLOCKED_CELLS と同じ計算方法
-// （右端・下端ちょうどがセル境界なら次のセルは含めない）。プレイ開始で UI を消すので、プレイ中の購入では置ける。
-const initialPlacementMinCol = Math.floor(INITIAL_PLACEMENT_UI_BOUNDS.x / CELL_SIZE);
-const initialPlacementMaxCol = Math.ceil(INITIAL_PLACEMENT_UI_RIGHT / CELL_SIZE) - 1;
-const initialPlacementMinRow = Math.floor(INITIAL_PLACEMENT_UI_BOUNDS.y / CELL_SIZE);
-const initialPlacementMaxRow = Math.ceil(INITIAL_PLACEMENT_UI_BOTTOM / CELL_SIZE) - 1;
-export const INITIAL_PLACEMENT_BLOCKED_CELLS = Array.from(
-  { length: initialPlacementMaxRow - initialPlacementMinRow + 1 },
-  (_, r) => initialPlacementMinRow + r,
-).flatMap((row) =>
-  Array.from({ length: initialPlacementMaxCol - initialPlacementMinCol + 1 }, (_, c) => ({
-    col: initialPlacementMinCol + c,
-    row,
-  })),
-);
 
 // 仮・要確認(#58): 企画書(8)の「その他のアイテム」の効果の数値は未定。以下はすべて仮の値（試作で調整する）。
 // 時限効果の時刻はゲーム内の経過ミリ秒（elapsedMs）で測る。同じ効果を重ねて買っても効果量は足さず、残り時間だけ延ばす（買い直した時点から数え直す）。

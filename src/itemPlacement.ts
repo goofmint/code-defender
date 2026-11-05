@@ -4,18 +4,25 @@ import { canAttack, findAttackTarget } from './attack';
 import type { AttackTarget } from './attack';
 import {
   ITEM_ATTACK_COOLDOWN_MS,
-  ITEM_BLOCKED_CELLS,
-  ITEM_BLOCKED_ROWS,
+  ITEM_BLOCKED_RECTS,
+  ITEM_BOX_SIZE,
   ITEM_BUY_KEY_LABELS,
   ITEM_MONTHLY_FEE_RATIO,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_PRICE_TIERS,
+  ITEM_ROUTE_CLEARANCE,
   ITEM_SHORT_NAMES,
   LINTER_HESITATION_PROBABILITY,
   PAIR_PROGRAMMER_FOLLOW_OFFSET,
-  RELEASE_POINT_CELL,
+  PLACEMENT_CELL_SIZE,
+  PLACEMENT_COLS,
+  PLACEMENT_ROWS,
+  RELEASE_POINT_PULSE,
+  SPAWN_MARKER_DECOR_STYLE,
 } from './config';
-import { CELL_SIZE, FIELD_COLS, FIELD_ROWS } from './field';
+import { CELL_SIZE, FIELD_HEIGHT, FIELD_WIDTH } from './field';
+import { pointInRect, rectIntersectsCircle, rectIntersectsThickSegment, rectsOverlap, rectWithin } from './geometry';
+import type { Rect } from './geometry';
 import {
   getItemPlacement,
   getItemRange,
@@ -27,8 +34,8 @@ import {
   itemTargetsNormalCode,
 } from './item';
 import type { ItemEffect, ItemPayment, ItemType } from './item';
-import { RELEASE_POINT_CENTER } from './releasePoint';
-import { cellCenter } from './route';
+import { RELEASE_POINT_CENTER, RELEASE_POINT_LABEL_BOUNDS } from './releasePoint';
+import { cellCenter, routePixelPoints, SPAWN_MARKER_STYLE } from './route';
 import type { GridCell, Point, Route } from './route';
 
 export type ItemPriceTier = keyof typeof ITEM_PRICE_TIERS;
@@ -38,10 +45,14 @@ export const ITEM_PLACED_EVENT = 'item-placed';
 // 置かないアイテム（購入時に発動 #58）を使ったときに scene.events で発行するイベント名。
 export const ITEM_USED_EVENT = 'item-used';
 
+// 配置グリッド(#151)のセル座標。GridCell と同じ形だが単位は PLACEMENT_CELL_SIZE（16px）。ルートの GridCell（CELL_SIZE=60px）とは混ぜない。
+export type PlacementCell = GridCell;
+
 export type PlacedItem = {
   readonly id: number;
   readonly itemType: ItemType;
-  readonly cell: GridCell;
+  // 置いた配置グリッド（16px #151）のセル。ルートの 60px セルではない。中心は placementCellCenter、見た目の範囲は itemFootprint。
+  readonly cell: PlacementCell;
   // 最後に攻撃した時刻（ミリ秒）。まだ攻撃していなければ null（置いた直後からクールダウンなしで攻撃できる）。
   readonly lastAttackTime: number | null;
 };
@@ -64,8 +75,6 @@ export type ItemState = {
 
 export const createItemState = (): ItemState => ({ placedItems: [], nextId: 0 });
 
-const isSameCell = (a: GridCell, b: GridCell): boolean => a.col === b.col && a.row === b.row;
-
 // アイテムの価格（円）。段階表と種類ごとの段階は引数で差し替えられる（既定値は config.ts）。
 export const getItemPrice = (
   itemType: ItemType,
@@ -73,12 +82,45 @@ export const getItemPrice = (
   tierByType: Readonly<Record<ItemType, ItemPriceTier>> = ITEM_PRICE_TIER_BY_TYPE,
 ): number => tiers[tierByType[itemType]];
 
-// ピクセル座標を含むセル。セル境界ちょうどは次のセル（x=60 → col 1、x=59.99 → col 0）。
-// フィールド外は範囲外のセル（負や FIELD_COLS 以上）をそのまま返す。置けるかは isPlaceableCell が判定する。
+// ピクセル座標を含むセル（汎用。既定はルートグリッドの CELL_SIZE）。セル境界ちょうどは次のセル（x=60 → col 1、x=59.99 → col 0）。
+// フィールド外は範囲外のセル（負や FIELD_COLS 以上）をそのまま返す。
 export const pointToCell = (point: Point, cellSize: number = CELL_SIZE): GridCell => ({
   col: Math.floor(point.x / cellSize),
   row: Math.floor(point.y / cellSize),
 });
+
+// ピクセル座標を含む配置グリッド(#151)のセル。セル境界ちょうどは次のセル（x=16 → col 1、x=15.99 → col 0）。
+// フィールド外は範囲外のセルをそのまま返す。置けるかは isPlaceableCell が判定する。
+export const pointToPlacementCell = (point: Point): PlacementCell => pointToCell(point, PLACEMENT_CELL_SIZE);
+
+// 配置グリッド(#151)のセルの中心（ピクセル）。アイテムの描画位置と、攻撃・効果の起点。
+export const placementCellCenter = (cell: PlacementCell): Point => ({
+  x: (cell.col + 0.5) * PLACEMENT_CELL_SIZE,
+  y: (cell.row + 0.5) * PLACEMENT_CELL_SIZE,
+});
+
+// アイテムのフットプリント(#151)。セルの中心を中心とする一辺 ITEM_BOX_SIZE の正方形で、描画する四角と同じ範囲。
+export const itemFootprint = (cell: PlacementCell): Rect => {
+  const center = placementCellCenter(cell);
+  return {
+    x: center.x - ITEM_BOX_SIZE / 2,
+    y: center.y - ITEM_BOX_SIZE / 2,
+    width: ITEM_BOX_SIZE,
+    height: ITEM_BOX_SIZE,
+  };
+};
+
+// フィールド全体の矩形。
+const FIELD_RECT: Rect = { x: 0, y: 0, width: FIELD_WIDTH, height: FIELD_HEIGHT };
+
+// 点がフィールドの内側か（0 ≤ x < FIELD_WIDTH かつ 0 ≤ y < FIELD_HEIGHT）。初期配置(#47)の押下をセルに変換する前に確かめる。
+export const isPointInField = (point: Point): boolean => pointInRect(point, FIELD_RECT);
+
+// 出現場所の円の外側リング（#144）の外周までの半径。フットプリントがこの円に重なると置けない(#151)。
+export const SPAWN_CLEARANCE_RADIUS =
+  SPAWN_MARKER_STYLE.radius + SPAWN_MARKER_DECOR_STYLE.ringGap + SPAWN_MARKER_DECOR_STYLE.ringWidth / 2;
+// リリース地点のパルス（#144）の最大半径。フットプリントがこの円に重なると置けない(#151)。
+export const RELEASE_CLEARANCE_RADIUS = RELEASE_POINT_PULSE.maxRadius;
 
 // ルートが通るセル（折れ点の間のセルも含む）。出現セルとリリースセルも含まれる。
 export const getRouteCells = (route: Route): GridCell[] => {
@@ -98,28 +140,42 @@ export const getRouteCells = (route: Route): GridCell[] => {
 export type PlacementContext = {
   readonly routes: readonly Route[];
   readonly placedItems: readonly PlacedItem[];
-  // UI と重なる行。既定は config の ITEM_BLOCKED_ROWS。
-  readonly blockedRows?: readonly number[];
-  // HUD と重なるセル。既定は config の ITEM_BLOCKED_CELLS。
-  readonly blockedCells?: readonly GridCell[];
+  // UI と重なる矩形（ピクセル）。既定は config の ITEM_BLOCKED_RECTS。初期配置(#47)では INITIAL_PLACEMENT_UI_BOUNDS を足す。
+  readonly blockedRects?: readonly Rect[];
 };
 
-// 置ける地形か（フィールド内・ルート/出現/リリース地点・置けない行/セルでない）。既存アイテムは見ない。
-const isOpenTerrain = (cell: GridCell, context: PlacementContext): boolean => {
+// フットプリントがルートの線（中心線から ITEM_ROUTE_CLEARANCE 未満）に重なるか。区間ごとに判定する。
+const intersectsRoute = (footprint: Rect, route: Route): boolean => {
+  const points = routePixelPoints(route);
+  return points.slice(1).some((to, i) => rectIntersectsThickSegment(footprint, points[i], to, ITEM_ROUTE_CLEARANCE));
+};
+
+// 置ける地形か(#151)。既存アイテムは見ない。判定順: 整数かつ配置グリッドの範囲内 → フットプリントがフィールドに収まる →
+// 置けない矩形（UI） → ルートの線のクリアランス → 出現場所の円 → リリース地点の円と「リリース」のラベル。
+// セル単位の予約はせず、見た目（描いている物）に重なるかだけで判定する。
+const isOpenTerrain = (cell: PlacementCell, context: PlacementContext): boolean => {
   if (!Number.isInteger(cell.col) || !Number.isInteger(cell.row)) return false;
-  if (cell.col < 0 || cell.col >= FIELD_COLS || cell.row < 0 || cell.row >= FIELD_ROWS) return false;
-  if ((context.blockedRows ?? ITEM_BLOCKED_ROWS).includes(cell.row)) return false;
-  if ((context.blockedCells ?? ITEM_BLOCKED_CELLS).some((blocked) => isSameCell(blocked, cell))) return false;
-  if (isSameCell(cell, RELEASE_POINT_CELL)) return false;
-  return !context.routes.some((route) => getRouteCells(route).some((c) => isSameCell(c, cell)));
+  if (cell.col < 0 || cell.col >= PLACEMENT_COLS || cell.row < 0 || cell.row >= PLACEMENT_ROWS) return false;
+  const footprint = itemFootprint(cell);
+  if (!rectWithin(footprint, FIELD_RECT)) return false;
+  if ((context.blockedRects ?? ITEM_BLOCKED_RECTS).some((rect) => rectsOverlap(footprint, rect))) return false;
+  if (context.routes.some((route) => intersectsRoute(footprint, route))) return false;
+  if (context.routes.some((route) => rectIntersectsCircle(footprint, cellCenter(route.spawn), SPAWN_CLEARANCE_RADIUS))) {
+    return false;
+  }
+  if (rectIntersectsCircle(footprint, RELEASE_POINT_CENTER, RELEASE_CLEARANCE_RADIUS)) return false;
+  return !rectsOverlap(footprint, RELEASE_POINT_LABEL_BOUNDS);
 };
 
-// セルを占有しているアイテムがあるか。主人公についてまわるアイテム（ペアプロ相棒 #58）はセルにとどまらないので数えない。
-const isOccupied = (cell: GridCell, placedItems: readonly PlacedItem[]): boolean =>
-  placedItems.some((item) => !isFollowItem(item.itemType) && isSameCell(item.cell, cell));
+// フットプリントが既存アイテムのフットプリントと重なるか（辺の接触は重なりとしない）。
+// 主人公についてまわるアイテム（ペアプロ相棒 #58）はセルにとどまらないので数えない。
+const isOccupied = (cell: PlacementCell, placedItems: readonly PlacedItem[]): boolean => {
+  const footprint = itemFootprint(cell);
+  return placedItems.some((item) => !isFollowItem(item.itemType) && rectsOverlap(itemFootprint(item.cell), footprint));
+};
 
-// アイテムを置けるセルか。既にアイテムがあるセルは不可。
-export const isPlaceableCell = (cell: GridCell, context: PlacementContext): boolean =>
+// アイテムを置けるセルか。既存アイテムのフットプリントと重なるセルは不可。
+export const isPlaceableCell = (cell: PlacementCell, context: PlacementContext): boolean =>
   isOpenTerrain(cell, context) && !isOccupied(cell, context.placedItems);
 
 // noEligibleIncident はロールバックボタン(#58)専用。取り消せる直前の障害がない。
@@ -163,7 +219,7 @@ const isItemType = (value: string): value is ItemType =>
 export const purchaseItem = (
   state: PurchaseState,
   itemType: string,
-  cell: GridCell,
+  cell: PlacementCell,
   options: PurchaseOptions,
 ): PurchaseResult => {
   if (state.gameOver) return { ok: false, reason: 'gameOver' };
@@ -296,11 +352,11 @@ export const findTargetFor = <T extends AttackTarget>(
   findAttackTarget(query.position, filterItemTargets(codes, query.targetsNormalCode), query.range);
 
 // アイテムの範囲内で最も近い攻撃対象。アイテムの targetsNormalCode が false なら正常なコードは近くても除く。
-// origin は攻撃の起点。既定は置いたセルの中心。主人公についてまわるアイテム（ペアプロ相棒 #58）は主人公の位置からのずれを渡す。
+// origin は攻撃の起点。既定は置いたセル（配置グリッド #151）の中心。主人公についてまわるアイテム（ペアプロ相棒 #58）は主人公の位置からのずれを渡す。
 export const findItemTarget = <T extends AttackTarget>(
   item: PlacedItem,
   codes: readonly T[],
-  origin: Point = cellCenter(item.cell),
+  origin: Point = placementCellCenter(item.cell),
 ): T | null =>
   findTargetFor(
     {
@@ -330,7 +386,7 @@ export const getItemOrigin = (
 ): Point =>
   isFollowItem(item.itemType)
     ? { x: playerPosition.x + followOffset.x, y: playerPosition.y + followOffset.y }
-    : cellCenter(item.cell);
+    : placementCellCenter(item.cell);
 
 // 効果 effect のアイテムのうち、point を範囲に含む（置いたセルの中心から範囲以内の）台数(#58)。境界ちょうども範囲内。
 // コーヒーマシン（担当ルートの出現場所）・ラバーダック（コードの位置）・書き置き（リリース地点）で使う。入力は変更しない。
@@ -342,7 +398,7 @@ export const countItemsCovering = (
   placedItems.filter(
     (item) =>
       ITEM_DEFINITIONS[item.itemType].effect === effect &&
-      isTargetInItemRange(item.itemType, cellCenter(item.cell), point),
+      isTargetInItemRange(item.itemType, placementCellCenter(item.cell), point),
   ).length;
 
 // Linter(#58) が発射を見送るか（企画書「怪しい見た目の正常コードに反応しかけて、ときどき止まる」）。

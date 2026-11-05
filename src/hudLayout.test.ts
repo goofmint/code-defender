@@ -15,7 +15,6 @@ import {
   HIRE_MESSAGE_POSITION,
   HIRE_UI_POSITION,
   ENGINEER_SALARY_MAX,
-  INITIAL_PLACEMENT_BLOCKED_CELLS,
   INITIAL_PLACEMENT_FONT_SIZE,
   INITIAL_PLACEMENT_LINE_HEIGHT,
   INITIAL_PLACEMENT_MESSAGE_POSITION,
@@ -25,10 +24,10 @@ import {
   INITIAL_PLACEMENT_START_BUTTON_SIZE,
   INITIAL_PLACEMENT_TEXT,
   INITIAL_PLACEMENT_UI_BOUNDS,
-  ITEM_BLOCKED_ROWS,
+  ITEM_BLOCKED_RECTS,
+  ITEM_HUD_BOUNDS,
   ITEM_SHORT_NAMES,
   STAGE_POINTS_INITIAL,
-  ITEM_BLOCKED_CELLS,
   ATTACK_KEYS,
   GAME_OVER_RESTART_KEYS,
   ITEM_BUY_KEY_LABELS,
@@ -57,7 +56,7 @@ import {
   TECH_DEBT_POSITION,
 } from './config';
 import { createEngineerParameters, formatSelectedEngineer, getInitialSalary } from './engineer';
-import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
+import { CELL_SIZE, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import { ITEM_TYPES } from './item';
 import { formatInitialPlacementPanel } from './initialPlacement';
 import { getItemPageCount, getItemsOnPage, itemButtonRect, itemPageControlRects } from './itemBar';
@@ -71,6 +70,13 @@ type Rect = { readonly x: number; readonly y: number; readonly width: number; re
 // 辺が接するだけ（共有する面積が 0）なら交差しない。1px でも面積が重なれば交差する。
 const intersects = (a: Rect, b: Rect): boolean =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+
+// inner が outer に完全に含まれる（辺が一致してもよい）。
+const within = (inner: Rect, outer: Rect): boolean =>
+  inner.x >= outer.x &&
+  inner.y >= outer.y &&
+  inner.x + inner.width <= outer.x + outer.width &&
+  inner.y + inner.height <= outer.y + outer.height;
 
 const LINE_HEIGHT_RATIO = 1.25;
 
@@ -179,18 +185,26 @@ describe('HUD のレイアウト', () => {
     }
   });
 
-  it('技術的負債の表示と重なるセルはすべてアイテムを置けない（ITEM_BLOCKED_CELLS）', () => {
+  it('技術的負債の表示はアイテムを置けない HUD の矩形（ITEM_HUD_BOUNDS）に収まる(#151)', () => {
     const rect = hudRects.find((entry) => entry.name === '技術的負債')?.rect;
     if (!rect) throw new Error('技術的負債の矩形がない');
-    const overlapped = Array.from({ length: FIELD_ROWS }, (_, row) => row).flatMap((row) =>
-      Array.from({ length: FIELD_COLS }, (_, col) => ({ col, row })).filter(
-        ({ col }) => col !== ENGINEER_SPAWN_COL && intersects(rect, cellRect(col, row)),
-      ),
-    );
-    expect(overlapped.length).toBeGreaterThan(0);
-    for (const cell of overlapped) {
-      expect(ITEM_BLOCKED_CELLS).toContainEqual(cell);
+    expect(within(rect, ITEM_HUD_BOUNDS)).toBe(true);
+  });
+
+  it('境界値: アイテムを置けない矩形（ITEM_BLOCKED_RECTS）は上帯（行0）・下帯（最終行）・HUD の矩形（x=72〜416、y=80〜298）の3つ(#151)', () => {
+    expect(ITEM_HUD_BOUNDS).toEqual({ x: 72, y: 80, width: 344, height: 218 });
+    expect(ITEM_BLOCKED_RECTS).toEqual([
+      { x: 0, y: 0, width: FIELD_WIDTH, height: CELL_SIZE },
+      { x: 0, y: FIELD_HEIGHT - CELL_SIZE, width: FIELD_WIDTH, height: CELL_SIZE },
+      ITEM_HUD_BOUNDS,
+    ]);
+    // HUD の矩形は出現列（col 0）とリリース地点のセルに交差せず、上帯・下帯とも交差しない。
+    for (let row = 0; row < FIELD_ROWS; row += 1) {
+      expect(intersects(ITEM_HUD_BOUNDS, cellRect(ENGINEER_SPAWN_COL, row))).toBe(false);
     }
+    expect(intersects(ITEM_HUD_BOUNDS, cellRect(RELEASE_POINT_CELL.col, RELEASE_POINT_CELL.row))).toBe(false);
+    expect(intersects(ITEM_HUD_BOUNDS, ITEM_BLOCKED_RECTS[0])).toBe(false);
+    expect(intersects(ITEM_HUD_BOUNDS, ITEM_BLOCKED_RECTS[1])).toBe(false);
   });
 });
 
@@ -429,15 +443,9 @@ describe('昇給・減給パネルのレイアウト(#34)', () => {
     }
   });
 
-  it('ボタンと重なるセル（出現列を除く）はすべてアイテムを置けないセル', () => {
+  it('ボタンはすべてアイテムを置けない HUD の矩形（ITEM_HUD_BOUNDS）に収まる(#151)', () => {
     for (const rect of salaryButtonRects) {
-      for (let col = ENGINEER_SPAWN_COL + 1; col < FIELD_COLS; col += 1) {
-        for (let row = 0; row < FIELD_ROWS; row += 1) {
-          if (intersects(rect, cellRect(col, row))) {
-            expect(ITEM_BLOCKED_CELLS).toContainEqual({ col, row });
-          }
-        }
-      }
+      expect(within(rect, ITEM_HUD_BOUNDS)).toBe(true);
     }
   });
 });
@@ -507,16 +515,14 @@ describe('AIエージェントのボタンのレイアウト(#53)', () => {
     expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
   });
 
-  it('ボタンと重なるセル（出現列を除く）はすべてアイテムを置けないセル', () => {
+  it('ボタンはすべてアイテムを置けない HUD の矩形（ITEM_HUD_BOUNDS）に収まり、右端・下端は矩形の右端・下端と一致する(#151)', () => {
     for (const { rect } of aiAgentButtonRects) {
-      for (let col = ENGINEER_SPAWN_COL + 1; col < FIELD_COLS; col += 1) {
-        for (let row = 0; row < FIELD_ROWS; row += 1) {
-          if (intersects(rect, cellRect(col, row))) {
-            expect(ITEM_BLOCKED_CELLS).toContainEqual({ col, row });
-          }
-        }
-      }
+      expect(within(rect, ITEM_HUD_BOUNDS)).toBe(true);
     }
+    const last = aiAgentButtonRects[aiAgentButtonRects.length - 1]?.rect;
+    if (!last) throw new Error('AIエージェントのボタンの矩形がない');
+    expect(last.x + last.width).toBe(ITEM_HUD_BOUNDS.x + ITEM_HUD_BOUNDS.width);
+    expect(last.y + last.height).toBe(ITEM_HUD_BOUNDS.y + ITEM_HUD_BOUNDS.height);
   });
 });
 
@@ -642,12 +648,6 @@ describe('初期配置UIのレイアウト(#47)', () => {
       REFACTORING_RATIO_BUTTON_SIZE.width * 2 + REFACTORING_RATIO_LABEL_WIDTH + REFACTORING_RATIO_UI_GAP * 2 + ratioStroke * 2,
     height: REFACTORING_RATIO_BUTTON_SIZE.height + ratioStroke * 2,
   };
-  const within = (inner: Rect, outer: Rect): boolean =>
-    inner.x >= outer.x &&
-    inner.y >= outer.y &&
-    inner.x + inner.width <= outer.x + outer.width &&
-    inner.y + inner.height <= outer.y + outer.height;
-
   it('境界値: パネル・開始ボタン・メッセージは上から順に重ならず並び、開始ボタンの文字はボタン幅に収まる', () => {
     expect(panelRect.y + panelRect.height).toBeLessThanOrEqual(startButtonRect.y);
     expect(startButtonRect.y + startButtonRect.height).toBeLessThanOrEqual(messageRect.y);
@@ -690,21 +690,17 @@ describe('初期配置UIのレイアウト(#47)', () => {
     }
   });
 
-  it('初期配置UIの範囲と重なるセル（置けない行を除く）は、すべて初期配置の間は置けないセル', () => {
-    for (let col = 0; col < FIELD_COLS; col += 1) {
-      for (let row = 0; row < FIELD_ROWS; row += 1) {
-        const blockedRow = (ITEM_BLOCKED_ROWS as readonly number[]).includes(row);
-        if (!blockedRow && intersects(INITIAL_PLACEMENT_UI_BOUNDS, cellRect(col, row))) {
-          expect(INITIAL_PLACEMENT_BLOCKED_CELLS).toContainEqual({ col, row });
-        }
-      }
-    }
-  });
-
-  it('境界値: 初期配置の間に置けないセルは行1〜3 × col 11〜15 で、範囲と重ならないセルを含まない', () => {
-    expect(INITIAL_PLACEMENT_BLOCKED_CELLS).toHaveLength(15);
-    for (const cell of INITIAL_PLACEMENT_BLOCKED_CELLS) {
-      expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, cellRect(cell.col, cell.row))).toBe(true);
+  it('境界値: 初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS）は行1〜3 × col 11〜15 に収まり、置けない矩形（ITEM_BLOCKED_RECTS）と交差しない(#151)', () => {
+    const rows1to3cols11to15: Rect = {
+      x: cellRect(11, 1).x,
+      y: cellRect(11, 1).y,
+      width: cellRect(15, 3).x + CELL_SIZE - cellRect(11, 1).x,
+      height: cellRect(15, 3).y + CELL_SIZE - cellRect(11, 1).y,
+    };
+    expect(within(INITIAL_PLACEMENT_UI_BOUNDS, rows1to3cols11to15)).toBe(true);
+    expect(INITIAL_PLACEMENT_UI_BOUNDS).toEqual({ x: 668, y: 68, width: 284, height: 140 });
+    for (const rect of ITEM_BLOCKED_RECTS) {
+      expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, rect)).toBe(false);
     }
   });
 });
