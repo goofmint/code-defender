@@ -8,7 +8,6 @@ import {
   LINTER_ATTACK_COOLDOWN_MS,
   LINTER_HESITATION_PROBABILITY,
   PAIR_PROGRAMMER_FOLLOW_OFFSET,
-  SENIOR_NOTE_PREVENTED_MESSAGE,
   TECH_DEBT_INITIAL,
 } from './config';
 import type { CodeReleasedPayload } from './codeFlow';
@@ -321,7 +320,7 @@ describe('伝説のシニアの書き置き(#58): リリース地点の周辺で
       maliciousType: undefined,
       damage: incidentDamage(undefined),
     });
-    expect(vi.mocked(drawItemMessage)).toHaveBeenCalledWith(scene, SENIOR_NOTE_PREVENTED_MESSAGE);
+    expect(vi.mocked(drawItemMessage)).toHaveBeenCalledWith(scene, '書き置きのおかげで障害を防いだ（中身は誰も読めない）');
   });
 
   it('書き置きの範囲外なら障害が起き、直前の障害として記録する', () => {

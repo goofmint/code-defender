@@ -4,9 +4,7 @@ import {
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
-  INITIAL_PLACEMENT_MESSAGES,
   INITIAL_PLACEMENT_REMOVE_BUTTON,
-  INITIAL_PLACEMENT_TEXT,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_SHORT_NAMES,
   RELEASE_POINT_CELL,
@@ -16,6 +14,7 @@ import {
 import { assignEngineerRoute } from './engineer';
 import type { Engineer } from './engineer';
 import { pointInRect, rectIntersectsCircle, rectsOverlap } from './geometry';
+import { getMessages, interpolate } from './i18n';
 import { getItemPlacement, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { createItemState, isPlaceableCell, itemFootprint, SPAWN_CLEARANCE_RADIUS } from './itemPlacement';
@@ -132,19 +131,20 @@ export const formatInitialPlacementMessage = (
   result: InitialPlacementResult | InitialRemovalResult,
   itemType: string,
 ): string => {
+  const { initialPlacement: text, common } = getMessages();
   if (result.ok) {
     const name = ITEM_SHORT_NAMES[result.item.itemType];
-    return 'refund' in result ? `${name}を撤去しました` : `${name}を置きました`;
+    return interpolate('refund' in result ? text.removed : text.placed, { name });
   }
   switch (result.reason) {
     case 'unknownItem':
-      return `不明なアイテムです: ${itemType}`;
+      return interpolate(common.unknownItem, { item: itemType });
     case 'insufficientPoints':
-      return 'ステージポイントが足りません';
+      return text.insufficientPoints;
     case 'notFound':
-      return 'そこにはアイテムがありません';
+      return text.noItemThere;
     default:
-      return 'そこには置けません';
+      return common.notPlaceable;
   }
 };
 
@@ -157,27 +157,27 @@ export type InitialPlacementSelection =
 // 初期配置パネルの3行（残ポイント・選択中のもの・マウス操作の説明）(#157)。行数は config の INITIAL_PLACEMENT_PANEL_LINES と同じ。
 // 例: 「初期配置 残りポイント: 6pt」「選択: Linter 1pt」「選択: エンジニア」「選択: なし」。キーボード操作の説明は出さない。
 export const formatInitialPlacementPanel = (points: number, selection: InitialPlacementSelection): readonly string[] => {
-  const text = INITIAL_PLACEMENT_TEXT;
+  const text = getMessages().initialPlacement;
   const selected = ((): string => {
     switch (selection.kind) {
       case 'item':
-        return `${ITEM_SHORT_NAMES[selection.itemType]} ${getStagePointCost(selection.itemType)}${text.pointUnit}`;
+        return formatInitialPlacementItemButton(selection.itemType);
       case 'engineer':
-        return text.selectedEngineer;
+        return text.selectionEngineer;
       case 'none':
-        return text.selectedNone;
+        return text.selectionNone;
     }
   })();
-  return [`${text.title} ${text.points}${points}${text.pointUnit}`, `${text.selected}${selected}`, text.instruction];
+  return [interpolate(text.header, { points }), interpolate(text.selected, { selection: selected }), text.instruction];
 };
 
 // 初期配置の間のアイテムのメニュー(#156)の枠の文言(#157)。「Linter 1pt」。金額の代わりにステージポイントのコストを出し、キーの表示は省く。
 export const formatInitialPlacementItemButton = (itemType: ItemType): string =>
-  `${ITEM_SHORT_NAMES[itemType]} ${getStagePointCost(itemType)}${INITIAL_PLACEMENT_TEXT.pointUnit}`;
+  interpolate(getMessages().initialPlacement.itemCost, { name: ITEM_SHORT_NAMES[itemType], cost: getStagePointCost(itemType) });
 
 // エンジニアの選択ボタンの文言(#157)。「エンジニア 残り3人」（残りは未配置の初期エンジニアの人数）。
 export const formatInitialPlacementEngineerButton = (unplaced: number): string =>
-  `${INITIAL_PLACEMENT_TEXT.engineerButton}${unplaced}${INITIAL_PLACEMENT_TEXT.engineerButtonUnit}`;
+  interpolate(getMessages().initialPlacement.engineerButton, { count: unplaced });
 
 // 未配置（routeId が null）のエンジニアの人数(#157)。初期配置の間は雇えないので、名簿は初期エンジニアだけ。
 export const countUnplacedEngineers = (engineers: readonly Engineer[]): number =>
@@ -283,14 +283,15 @@ export const removeInitialEngineer = (
 
 // エンジニアの配置の結果メッセージ(#157)。
 export const formatEngineerPlacementMessage = (result: EngineerPlacementResult): string => {
-  if (result.ok) return INITIAL_PLACEMENT_MESSAGES.engineerPlaced;
+  const text = getMessages().initialPlacement;
+  if (result.ok) return text.engineerPlaced;
   switch (result.reason) {
     case 'notCandidate':
-      return INITIAL_PLACEMENT_MESSAGES.engineerNotCandidate;
+      return text.engineerNotCandidate;
     case 'noUnplacedEngineer':
-      return INITIAL_PLACEMENT_MESSAGES.noUnplacedEngineer;
+      return text.noUnplacedEngineer;
     case 'overlapsItem':
-      return INITIAL_PLACEMENT_MESSAGES.engineerOverlapsItem;
+      return text.engineerOverlapsItem;
   }
 };
 

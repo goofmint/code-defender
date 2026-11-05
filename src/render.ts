@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CELL_SIZE, FIELD_HEIGHT, FIELD_WIDTH, GRID_LINE_WIDTH } from './field';
-import { burstParticleOffsets, RELEASE_POINT_CENTER, RELEASE_POINT_STYLE } from './releasePoint';
+import { burstParticleOffsets, getReleasePointLabel, RELEASE_POINT_CENTER, RELEASE_POINT_STYLE } from './releasePoint';
 import {
   cellCenter,
   routeChevrons,
@@ -48,7 +48,6 @@ import {
   MENU_LINE_SPACING,
   MENU_PANEL_COLORS,
   MENU_PANEL_DEPTH,
-  MENU_TEXT,
   PENALTY_TEXT_COLOR,
   PENALTY_TEXT_DURATION_MS,
   PENALTY_TEXT_FONT_SIZE,
@@ -61,7 +60,6 @@ import {
   RELEASE_POINT_PULSE,
   ROUTE_COLORS,
   ROUTE_LINE_STYLE,
-  SALARY_BUTTON_LABELS,
   SPAWN_MARKER_DECOR_COLORS,
   SPAWN_MARKER_DECOR_STYLE,
   STATUS_PANEL_COLORS,
@@ -72,9 +70,7 @@ import {
   STATUS_PANEL_LINE_SPACING,
   STATUS_PANEL_PADDING,
   STATUS_PANEL_RECT,
-  STATUS_PANEL_TECH_DEBT_LABEL,
   TECH_DEBT_LEVELS,
-  TECH_DEBT_OUTAGE_TEXT,
   TECH_DEBT_OUTAGE_TEXT_COLOR,
   TECH_DEBT_OUTAGE_TEXT_DURATION_MS,
   TECH_DEBT_OUTAGE_TEXT_FONT_SIZE,
@@ -83,7 +79,9 @@ import { formatPenalty } from './penalty';
 import { formatElapsedDays } from './gameTime';
 import { formatFunds } from './funds';
 import { formatCumulativeSales } from './score';
+import { formatTechDebtLevel } from './techDebt';
 import type { TechDebtLevel } from './techDebt';
+import { getMessages } from './i18n';
 import { buildGameOverLines } from './gameOver';
 import {
   formatEngineerCount,
@@ -120,7 +118,6 @@ import {
   INITIAL_PLACEMENT_SELECTED_COLORS,
   INITIAL_PLACEMENT_START_BUTTON_POSITION,
   INITIAL_PLACEMENT_START_BUTTON_SIZE,
-  INITIAL_PLACEMENT_TEXT,
   ITEM_PAGE_BUTTON_LABELS,
   PLACEMENT_CELL_SIZE,
   PLACEMENT_COLS,
@@ -192,12 +189,13 @@ export const drawReleasePoint = (scene: Phaser.Scene): void => {
     fillColor,
     strokeColor,
     strokeWidth,
-    label,
     labelFontSize,
     labelFontFamily,
     labelColor,
     labelGap,
   } = RELEASE_POINT_STYLE;
+  // 配置判定（getReleasePointLabelBounds）と同じ現在の言語のラベル(#158)。
+  const label = getReleasePointLabel();
   // パルスは円より先に作って円の後ろに重ねる。半径 radius から maxRadius まで広げながら消す。
   const pulse = scene.add
     .circle(x, y, radius)
@@ -716,7 +714,7 @@ const OUTAGE_TEXT_DEPTH = 2.5;
 // 大障害の通知（フィールド中央の文字）。フェードアウトして自身を破棄する（drawPenaltyText と同じ形）。
 export const drawOutageText = (scene: Phaser.Scene): void => {
   const text = scene.add
-    .text(FIELD_WIDTH / 2, FIELD_HEIGHT / 2, TECH_DEBT_OUTAGE_TEXT, {
+    .text(FIELD_WIDTH / 2, FIELD_HEIGHT / 2, getMessages().outage.major, {
       fontSize: TECH_DEBT_OUTAGE_TEXT_FONT_SIZE,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: TECH_DEBT_OUTAGE_TEXT_COLOR,
@@ -849,7 +847,7 @@ export const drawInitialPlacementStartButton = (
     .setOrigin(0)
     .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
   const label = scene.add
-    .text(width / 2, height / 2, INITIAL_PLACEMENT_TEXT.startButton, {
+    .text(width / 2, height / 2, getMessages().initialPlacement.startButton, {
       fontSize: INITIAL_PLACEMENT_FONT_SIZE,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: HIRE_BUTTON_COLORS.text,
@@ -1170,8 +1168,9 @@ export const drawEngineerMenu = (
   scene: Phaser.Scene,
   view: EngineerMenuView,
   callbacks: EngineerMenuCallbacks,
-): FloatingPanel =>
-  drawFloatingPanel(scene, menuPanelLayout('engineer'), [
+): FloatingPanel => {
+  const salaryButtons = getMessages().engineer.salaryButtons;
+  return drawFloatingPanel(scene, menuPanelLayout('engineer'), [
     { kind: 'text', lines: [formatEngineerCount(view.count, view.max)] },
     ...view.hireOptions.map(
       (option): PanelEntry => ({
@@ -1183,18 +1182,19 @@ export const drawEngineerMenu = (
     {
       kind: 'buttons',
       buttons: [
-        { label: SALARY_BUTTON_LABELS.previous, onPress: () => callbacks.onSelect('previous'), selected: false },
-        { label: SALARY_BUTTON_LABELS.next, onPress: () => callbacks.onSelect('next'), selected: false },
+        { label: salaryButtons.previous, onPress: () => callbacks.onSelect('previous'), selected: false },
+        { label: salaryButtons.next, onPress: () => callbacks.onSelect('next'), selected: false },
       ],
     },
     {
       kind: 'buttons',
       buttons: [
-        { label: SALARY_BUTTON_LABELS.raise, onPress: () => callbacks.onAdjust('raise'), selected: false },
-        { label: SALARY_BUTTON_LABELS.cut, onPress: () => callbacks.onAdjust('cut'), selected: false },
+        { label: salaryButtons.raise, onPress: () => callbacks.onAdjust('raise'), selected: false },
+        { label: salaryButtons.cut, onPress: () => callbacks.onAdjust('cut'), selected: false },
       ],
     },
   ]);
+};
 
 // アイテムのメニュー(#156)の中身。ページ内の枠の文言（ITEM_PAGE_SIZE 個。最後のページの空きは null で、ボタンを出さない）、ページ表示、
 // 強調する枠（初期配置で選んでいるアイテム #157。強調しないなら null）。
@@ -1241,7 +1241,7 @@ export const drawBalanceMenu = (
   onSelect: (ratio: number) => void,
 ): FloatingPanel =>
   drawFloatingPanel(scene, menuPanelLayout('balance'), [
-    { kind: 'text', lines: [MENU_TEXT.balanceTitle] },
+    { kind: 'text', lines: [getMessages().balance.title] },
     ...view.options.map(
       (ratio): PanelEntry => ({
         kind: 'buttons',
@@ -1337,7 +1337,7 @@ export const drawStatusPanel = (scene: Phaser.Scene, initial: StatusPanelValues)
   };
   const showLevel = (): void => {
     circle.setFillStyle(TECH_DEBT_LEVELS[values.techDebtLevel].color);
-    levelText.setText(`${STATUS_PANEL_TECH_DEBT_LABEL}${TECH_DEBT_LEVELS[values.techDebtLevel].label}`);
+    levelText.setText(formatTechDebtLevel(values.techDebtLevel));
   };
   showLines();
   showLevel();

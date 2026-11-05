@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getMessages, setLocale } from './i18n';
 import {
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
   INITIAL_PLACEMENT_PANEL_LINES,
   INITIAL_PLACEMENT_REMOVE_BUTTON,
-  INITIAL_PLACEMENT_TEXT,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
   ITEM_PRICE_TIER_BY_TYPE,
@@ -450,7 +450,8 @@ describe('formatInitialPlacementMessage / formatInitialPlacementPanel', () => {
     expect(lines).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
     expect(lines[0]).toContain(`${STAGE_POINTS_INITIAL}pt`);
     expect(lines[1]).toBe(`選択: ${ITEM_SHORT_NAMES.linter} ${linterCost}pt`);
-    expect(lines[2]).toBe(INITIAL_PLACEMENT_TEXT.instruction);
+    expect(lines[2]).toBe('右上のアイテムアイコンから選択し、床をクリック／×で取消');
+    expect(lines[0]).toBe(`初期配置 残りポイント: ${STAGE_POINTS_INITIAL}pt`);
     expect(formatInitialPlacementPanel(0, { kind: 'item', itemType: 'cat' })[0]).toContain('0pt');
     expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'engineer' })[1]).toBe('選択: エンジニア');
     expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'none' })[1]).toBe('選択: なし');
@@ -467,7 +468,7 @@ describe('formatInitialPlacementMessage / formatInitialPlacementPanel', () => {
         expect(line).not.toMatch(/ENTER|\[|4〜9/);
       }
     }
-    expect(INITIAL_PLACEMENT_TEXT.startButton).not.toContain('ENTER');
+    expect(getMessages().initialPlacement.startButton).not.toContain('ENTER');
   });
 });
 
@@ -746,5 +747,45 @@ describe('初期配置の文言と×ボタンの位置(#157)', () => {
       expect(rect.y).toBeGreaterThanOrEqual(cellTop);
       expect(rect.x + rect.width).toBeLessThanOrEqual(cellLeft + CELL_SIZE);
     }
+  });
+});
+
+describe('初期配置の文言（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('パネルの3行（残ポイント・選択中のもの・操作説明）', () => {
+    const lines = formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'item', itemType: 'linter' });
+    expect(lines).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
+    expect(lines[0]).toBe(`Setup - Points left: ${STAGE_POINTS_INITIAL}pt`);
+    expect(lines[1]).toBe(`Selected: Linter ${linterCost}pt`);
+    expect(lines[2]).toBe('Pick from the item icon, click floor; × undo');
+    expect(formatInitialPlacementPanel(0, { kind: 'engineer' })).toEqual([
+      'Setup - Points left: 0pt',
+      'Selected: Engineer',
+      'Pick from the item icon, click floor; × undo',
+    ]);
+    expect(formatInitialPlacementPanel(0, { kind: 'none' })[1]).toBe('Selected: None');
+  });
+
+  it('アイテムの枠・エンジニアの選択ボタン', () => {
+    expect(formatInitialPlacementItemButton('linter')).toBe(`Linter ${linterCost}pt`);
+    expect(formatInitialPlacementEngineerButton(0)).toBe('Engineers left: 0');
+    expect(formatInitialPlacementEngineerButton(3)).toBe('Engineers left: 3');
+  });
+
+  it('結果メッセージ', () => {
+    expect(formatInitialPlacementMessage({ ok: false, reason: 'insufficientPoints' }, 'linter')).toBe('Not enough stage points');
+    expect(formatInitialPlacementMessage({ ok: false, reason: 'notPlaceable' }, 'linter')).toBe("Can't place it there");
+    expect(formatInitialPlacementMessage({ ok: false, reason: 'notFound' }, 'linter')).toBe('No item there');
+    expect(formatInitialPlacementMessage({ ok: false, reason: 'unknownItem' }, 'foo')).toBe('Unknown item: foo');
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'notCandidate' })).toBe("Engineers can't go here");
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('No engineer left to place');
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'overlapsItem' })).toBe("Can't place: overlaps an item");
+    expect(getMessages().initialPlacement.startButton).toBe('Start');
   });
 });

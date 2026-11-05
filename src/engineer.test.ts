@@ -48,6 +48,7 @@ import {
   formatHireOption,
   formatSelectedEngineerLines,
   formatVacationButton,
+  formatVacationHint,
   formatSalaryMessage,
   getInitialSalary,
   hireEngineer,
@@ -2143,5 +2144,68 @@ describe('ランク・性格の表示名（英語 #158）', () => {
     const labels = ENGINEER_PERSONALITIES.map((p) => getPersonalityLabel(p.id));
     expect(labels).toEqual(['Meticulous', 'Passive', 'Careless', 'Slacker', 'Earnest', 'Composed', 'Cheerful', 'Gloomy']);
     expect(new Set(labels).size).toBe(ENGINEER_PERSONALITIES.length);
+  });
+});
+
+describe('エンジニアの文言（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('人数・雇うボタン・雇用メッセージ', () => {
+    expect(formatEngineerCount(3, 9)).toBe('Engineers: 3/9');
+    expect(formatHireOption('junior', 100000)).toBe('Hire Junior ¥100K');
+    expect(formatHireOption('senior', 300000)).toBe('Hire Senior ¥300K');
+    const state = { engineers: makeEngineers(3), funds: RICH, nextId: 3 };
+    expect(formatHireMessage(hireEngineer(state, 'junior', rules), 'junior')).toBe('Hired a Junior');
+    expect(formatHireMessage(hireEngineer({ ...state, engineers: makeEngineers(9) }, 'junior', rules), 'junior')).toBe(
+      "Can't hire any more",
+    );
+    expect(formatHireMessage(hireEngineer({ ...state, funds: 0 }, 'junior', rules), 'junior')).toBe('Not enough funds');
+    expect(formatHireMessage(hireEngineer(state, 'lead', rules), 'lead')).toBe('Unknown rank: lead');
+  });
+
+  it('退職のメッセージ', () => {
+    expect(formatResignedMessage(makeEngineer(3, 'senior', 3))).toBe('#3 Senior resigned');
+  });
+
+  it.each<[string, SalaryAdjustResult, string]>([
+    ['昇給', adjustEngineerSalary([makeEngineer(3, 'junior', 0)], 3, 'raise'), '#3 Raise: ¥300,000→¥350,000'],
+    ['減給', adjustEngineerSalary([makeEngineer(3, 'junior', 0)], 3, 'cut'), '#3 Cut: ¥300,000→¥250,000'],
+    ['上限', { ok: false, direction: 'raise', engineerId: 3, reason: 'at-max' }, "Can't raise any further (max ¥1,000,000)"],
+    ['下限', { ok: false, direction: 'cut', engineerId: 3, reason: 'at-min' }, "Can't cut any further (min ¥100,000)"],
+    ['不正な月給', { ok: false, direction: 'raise', engineerId: 3, reason: 'invalid-salary' }, "#3's salary is invalid"],
+    ['対象なし', { ok: false, direction: 'raise', engineerId: null, reason: 'not-found' }, 'No engineer selected'],
+  ])('昇給・減給の結果: %s', (_name, result, expected) => {
+    expect(formatSalaryMessage(result)).toBe(expected);
+  });
+
+  it('選択中のエンジニアの2行と、対象なしの1行', () => {
+    expect(formatSelectedEngineerLines(makeEngineer(3, 'junior', 0))).toEqual(['Selected: #3 Junior', 'Salary ¥300,000 AI: None']);
+    expect(formatSelectedEngineerLines({ ...makeEngineer(3, 'junior', 0), aiAgent: 'strong' })[1]).toBe(
+      'Salary ¥300,000 AI: Strong',
+    );
+    expect(formatSelectedEngineerLines(null)).toEqual(['Selected: none']);
+  });
+
+  it('ポップオーバーの見出し・状態・休暇ボタン', () => {
+    expect(formatEngineerPopoverLines(makeEngineer(5, 'middle', 0))).toEqual(['#5 Mid AI: None', 'Status: Working']);
+    const resting: Engineer = { ...makeEngineer(5, 'middle', 0), aiAgent: 'cheap', onVacation: true };
+    expect(formatEngineerPopoverLines(resting)).toEqual(['#5 Mid AI: Budget', 'Status: On vacation']);
+    expect(formatVacationButton(makeEngineer(0, 'junior', 0))).toBe('Send on vacation');
+    expect(formatVacationButton(resting)).toBe('Back to work');
+  });
+
+  it('休暇の案内文は3行で、数値は四捨五入した整数（0.004 → 0、0.005 → 1）', () => {
+    expect(formatVacationHint()).toEqual([
+      'Vacation button: leave/return (paid)',
+      'Bad code -10pts each, max -20, min 5%',
+      'Effect stays; no code while on leave',
+    ]);
+    expect(formatVacationHint(0.004, 0.004, 0.004)[1]).toBe('Bad code -0pts each, max -0, min 0%');
+    expect(formatVacationHint(0.005, 0.005, 0.005)[1]).toBe('Bad code -1pts each, max -1, min 1%');
   });
 });

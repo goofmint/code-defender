@@ -1,4 +1,5 @@
-import { REFACTORING_ALLOCATION_FORMAT, REFACTORING_RATIO_STEP_PERCENT } from './config';
+import { REFACTORING_RATIO_STEP_PERCENT } from './config';
+import { getMessages, interpolate } from './i18n';
 import { sanitizeRefactoringRatio } from './techDebt';
 
 // 機能開発とリファクタリングの割合UI(#40)の計算。Phaser に依存しない純粋関数だけを置く。
@@ -38,12 +39,11 @@ export const stepRefactoringRatio = (
   return Math.min(PERCENT, Math.max(0, nextStep * stepPercent)) / PERCENT;
 };
 
-// 「機能80:リファ20」の形。両方の割合は整数パーセントで、合計は常に 100。
+// 「機能80:リファ20」（英語は「Feat 80:Refac 20」#158）の形。両方の割合は整数パーセントで、合計は常に 100。
 export const formatRefactoringAllocation = (ratio: number): string => {
   const refactoringPercent = toPercent(ratio);
   const featurePercent = PERCENT - refactoringPercent;
-  const { feature, separator, refactoring } = REFACTORING_ALLOCATION_FORMAT;
-  return `${feature}${featurePercent}${separator}${refactoring}${refactoringPercent}`;
+  return interpolate(getMessages().balance.allocation, { feature: featurePercent, refactoring: refactoringPercent });
 };
 
 // 開発バランスのメニュー(#156)に縦に並べる選択肢。0 から 1 まで刻み（stepPercent）ごとの割合（10% 刻みなら 0, 0.1, …, 1 の 11 個）。

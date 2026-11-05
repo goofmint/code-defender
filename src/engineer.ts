@@ -1,5 +1,4 @@
 import {
-  AI_AGENT_NONE_LABEL,
   AI_AGENT_SHORT_NAMES,
   ENGINEER_ATTACHMENT_CHANGE,
   ENGINEER_FATIGUE_RATE_MULTIPLIERS,
@@ -11,25 +10,21 @@ import {
   ENGINEER_PERSONALITIES,
   ENGINEER_PERSONALITY_TENDENCIES,
   ENGINEER_PERSONALITY_WEIGHTS,
-  ENGINEER_POPOVER_TEXT,
   ENGINEER_RANKS,
   ENGINEER_SALARY_MAX,
   ENGINEER_SALARY_MIN,
   ENGINEER_SALARY_STEP,
   ENGINEER_SPAWN_CELLS,
   ENGINEER_TENDENCY_OFFSETS,
-  FUNDS_FORMAT,
   INITIAL_ENGINEER_RANKS,
   CODE_MALICIOUS_RATE_MIN,
-  MENU_TEXT,
-  VACATION_HINT_FORMAT,
   VACATION_MALICIOUS_RATE_REDUCTION,
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
 import type { EngineerTendency } from './config';
 import type { AiAgentType } from './aiAgent';
 import { MS_PER_GAME_DAY } from './gameTime';
-import { getMessages } from './i18n';
+import { formatShortAmount, formatYen, getMessages, interpolate } from './i18n';
 import { createRoutes } from './route';
 import type { Route } from './route';
 
@@ -472,30 +467,31 @@ export const getRankLabel = (rank: EngineerRank): string => getMessages().engine
 export const getInitialSalary = (rank: EngineerRank): number => ENGINEER_MONTHLY_SALARY_BY_RANK[rank];
 
 export const formatEngineerCount = (count: number, max: number): string =>
-  `エンジニア: ${count}/${max}`;
+  interpolate(getMessages().engineer.count, { count, max });
 
 // 自主退職(#32)のメッセージ。雇用メッセージと同じ場所に出す。
 export const formatResignedMessage = (engineer: Engineer): string =>
-  `#${engineer.id} ${getRankLabel(engineer.rank)}が退職しました`;
+  interpolate(getMessages().engineer.resigned, { id: engineer.id, rank: getRankLabel(engineer.rank) });
 
-// エンジニアのメニュー(#156)の雇うボタンの文言。「ジュニアを雇う 10万円」。キー名（1〜3）は出さない。
+// エンジニアのメニュー(#156)の雇うボタンの文言。「ジュニアを雇う 10万円」（英語は「Hire Junior ¥100K」#158）。キー名（1〜3）は出さない。
 export const formatHireOption = (rank: EngineerRank, cost: number): string =>
-  `${getRankLabel(rank)}${MENU_TEXT.hireSuffix}${cost / 10000}${MENU_TEXT.hireCostUnit}`;
+  interpolate(getMessages().engineer.hireOption, { rank: getRankLabel(rank), cost: formatShortAmount(cost, 'oneTime') });
 
 export const formatHireMessage = (
   result: HireResult,
   rank: string,
 ): string => {
+  const messages = getMessages();
   if (result.ok) {
-    return `${getRankLabel(result.engineer.rank)}を雇いました`;
+    return interpolate(messages.engineer.hired, { rank: getRankLabel(result.engineer.rank) });
   }
   if (result.reason === 'limit') {
-    return 'これ以上雇えません';
+    return messages.engineer.hireLimit;
   }
   if (result.reason === 'insufficientFunds') {
-    return '資金が足りません';
+    return messages.common.insufficientFunds;
   }
-  return `不明なランクです: ${rank}`;
+  return interpolate(messages.engineer.unknownRank, { rank });
 };
 
 // 仮・要確認(#34): 昇給・減給。企画書(6)は「プレイヤーはいつでも昇給・減給できる」とだけで、刻み・範囲・反映時期は未記載。
@@ -555,24 +551,27 @@ export const adjustEngineerSalary = (
   };
 };
 
-// 金額の表示（資金表示と同じ3桁区切り + 円）。
-const formatYen = (amount: number): string => `${amount.toLocaleString('ja-JP')}${FUNDS_FORMAT.suffix}`;
-
+// 金額は資金表示と同じ3桁区切りの円額（i18n の formatYen #158）。
 export const formatSalaryMessage = (result: SalaryAdjustResult): string => {
+  const { engineer: text, common } = getMessages();
   if (result.ok) {
-    const action = result.direction === 'raise' ? '昇給' : '減給';
-    return `#${result.engineer.id} ${action}: ${formatYen(result.salaryBefore)}→${formatYen(result.salaryAfter)}`;
+    return interpolate(text.salaryChanged, {
+      id: result.engineer.id,
+      action: text.salaryActions[result.direction],
+      before: formatYen(result.salaryBefore),
+      after: formatYen(result.salaryAfter),
+    });
   }
   if (result.reason === 'at-max') {
-    return `これ以上昇給できません（上限 ${formatYen(ENGINEER_SALARY_MAX)}）`;
+    return interpolate(text.salaryAtMax, { amount: formatYen(ENGINEER_SALARY_MAX) });
   }
   if (result.reason === 'at-min') {
-    return `これ以上減給できません（下限 ${formatYen(ENGINEER_SALARY_MIN)}）`;
+    return interpolate(text.salaryAtMin, { amount: formatYen(ENGINEER_SALARY_MIN) });
   }
   if (result.reason === 'invalid-salary') {
-    return `#${result.engineerId} の月給が不正です`;
+    return interpolate(text.salaryInvalid, { id: String(result.engineerId) });
   }
-  return '対象のエンジニアがいません';
+  return common.noTargetEngineer;
 };
 
 export type EngineerSelectDirection = 'previous' | 'next';
@@ -597,29 +596,32 @@ export const selectAdjacentEngineerId = (
 
 // 付けている AIエージェント(#53)の短い名前。付けていなければ「なし」。
 const formatAiAgentName = (engineer: Engineer): string =>
-  engineer.aiAgent === null ? AI_AGENT_NONE_LABEL : AI_AGENT_SHORT_NAMES[engineer.aiAgent];
+  engineer.aiAgent === null ? getMessages().engineer.aiNone : AI_AGENT_SHORT_NAMES[engineer.aiAgent];
 
 // 選択中のエンジニアの情報（エンジニアのメニュー #156 では幅に収めるため2行）。
 // 「選択: #id ランク」「月給 300,000円 AI: 強い」（AIエージェント(#53)を付けていなければ「AI: なし」）。対象がいなければ「選択: 対象なし」の1行。
-export const formatSelectedEngineerLines = (engineer: Engineer | null): readonly string[] =>
-  engineer === null
-    ? ['選択: 対象なし']
+export const formatSelectedEngineerLines = (engineer: Engineer | null): readonly string[] => {
+  const text = getMessages().engineer;
+  return engineer === null
+    ? [text.selectedNone]
     : [
-        `選択: #${engineer.id} ${getRankLabel(engineer.rank)}`,
-        `月給 ${formatYen(engineer.salary)} AI: ${formatAiAgentName(engineer)}`,
+        interpolate(text.selectedHeading, { id: engineer.id, rank: getRankLabel(engineer.rank) }),
+        interpolate(text.selectedDetail, { salary: formatYen(engineer.salary), ai: formatAiAgentName(engineer) }),
       ];
+};
 
 // エンジニアのポップオーバー(#156)の見出しと休暇の状態。「#id ランク AI: 種類」「状態: 勤務中」（休暇中なら「状態: 休暇中」）。
-export const formatEngineerPopoverLines = (engineer: Engineer): readonly string[] => [
-  `#${engineer.id} ${getRankLabel(engineer.rank)} AI: ${formatAiAgentName(engineer)}`,
-  `${ENGINEER_POPOVER_TEXT.statePrefix}${
-    isEngineerOnVacation(engineer) ? ENGINEER_POPOVER_TEXT.onVacation : ENGINEER_POPOVER_TEXT.working
-  }`,
-];
+export const formatEngineerPopoverLines = (engineer: Engineer): readonly string[] => {
+  const text = getMessages().engineer;
+  return [
+    interpolate(text.popoverHeading, { id: engineer.id, rank: getRankLabel(engineer.rank), ai: formatAiAgentName(engineer) }),
+    interpolate(text.popoverState, { state: isEngineerOnVacation(engineer) ? text.onVacation : text.working }),
+  ];
+};
 
 // ポップオーバーの休暇ボタンの文言(#156)。勤務中は「休暇にする」、休暇中は「復帰する」。
 export const formatVacationButton = (engineer: Engineer): string =>
-  isEngineerOnVacation(engineer) ? ENGINEER_POPOVER_TEXT.endVacation : ENGINEER_POPOVER_TEXT.startVacation;
+  isEngineerOnVacation(engineer) ? getMessages().engineer.endVacation : getMessages().engineer.startVacation;
 
 // 0〜1 の割合をパーセントポイント（四捨五入した整数）にする。
 const toPercentPoints = (ratio: number): number => Math.round(ratio * 100);
@@ -634,8 +636,15 @@ export const formatVacationHint = (
   reduction: number = VACATION_MALICIOUS_RATE_REDUCTION,
   reductionMax: number = VACATION_MALICIOUS_RATE_REDUCTION_MAX,
   rateMin: number = CODE_MALICIOUS_RATE_MIN,
-): readonly string[] => [
-  VACATION_HINT_FORMAT.operation,
-  `${VACATION_HINT_FORMAT.ratePrefix}${toPercentPoints(reduction)}${VACATION_HINT_FORMAT.perVacationSuffix}${toPercentPoints(reductionMax)}${VACATION_HINT_FORMAT.capSuffix}${toPercentPoints(rateMin)}${VACATION_HINT_FORMAT.floorSuffix}`,
-  VACATION_HINT_FORMAT.persistence,
-];
+): readonly string[] => {
+  const text = getMessages().vacation;
+  return [
+    text.hintOperation,
+    interpolate(text.hintRate, {
+      reduction: toPercentPoints(reduction),
+      max: toPercentPoints(reductionMax),
+      min: toPercentPoints(rateMin),
+    }),
+    text.hintPersistence,
+  ];
+};

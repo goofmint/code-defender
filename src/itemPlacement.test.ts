@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   ITEM_ATTACK_COOLDOWN_MS,
   ITEM_BLOCKED_RECTS,
@@ -50,7 +50,10 @@ import {
   SPAWN_CLEARANCE_RADIUS,
 } from './itemPlacement';
 import type { InstantPurchaseState, PlacedItem, PurchaseState } from './itemPlacement';
-import { RELEASE_POINT_CENTER, RELEASE_POINT_LABEL_BOUNDS } from './releasePoint';
+import { getReleasePointLabelBounds, RELEASE_POINT_CENTER } from './releasePoint';
+import { SUPPORTED_LOCALES } from './i18n/resolveLocale';
+import { setLocale } from './i18n';
+import { rectsOverlap } from './geometry';
 import { cellCenter } from './route';
 import type { GridCell, Route } from './route';
 
@@ -360,8 +363,8 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
     expect(isPlaceableCell({ col: 58, row: 19 }, noRoutes)).toBe(true); // 上端 y=304（距離 34）
   });
 
-  it('「リリース」のラベル（RELEASE_POINT_LABEL_BOUNDS）に重なると不可', () => {
-    expect(RELEASE_POINT_LABEL_BOUNDS).toEqual({ x: 902, y: 224.5, width: 56, height: 17.5 });
+  it('「リリース」のラベル（getReleasePointLabelBounds）に重なると不可', () => {
+    expect(getReleasePointLabelBounds()).toEqual({ x: 902, y: 224.5, width: 56, height: 17.5 });
     expect(isPlaceableCell({ col: 58, row: 13 }, noRoutes)).toBe(true); // 下端 y=224（ラベルの上端 224.5 まで 0.5px 空く）
     expect(isPlaceableCell({ col: 58, row: 14 }, noRoutes)).toBe(false); // 下端 y=240（ラベルに 15.5px 重なる。円からは距離 30 で離れている）
     expect(isPlaceableCell({ col: 55, row: 14 }, noRoutes)).toBe(true); // 右端 x=896（ラベルの左端 902 まで 6px 空く）
@@ -999,3 +1002,78 @@ describe('isIncidentPreventedByNote: 書き置きで障害を防ぐ(#58)', () =>
     );
   });
 });
+
+describe('アイテムの文言（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('成功・資金不足・置けない・不明', () => {
+    expect(formatItemMessage(purchaseItem(state(), 'linter', free, options), 'linter')).toBe('Placed Linter');
+    expect(formatItemMessage({ ok: false, reason: 'insufficientFunds' }, 'linter')).toBe('Not enough funds');
+    expect(formatItemMessage({ ok: false, reason: 'notPlaceable' }, 'linter')).toBe("Can't place it there");
+    expect(formatItemMessage({ ok: false, reason: 'unknownItem' }, 'foo')).toBe('Unknown item: foo');
+  });
+
+  it('メニューの枠は千円単位（1回払いは ¥…K、月額は ¥…K/mo）で、金額の計算は変えない', () => {
+    expect(formatItemOption('linter')).toBe('Linter ¥25K');
+    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit ¥100K/mo');
+    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit ¥50K/mo');
+    expect(formatItemOption('codeRabbit', 0)).toBe('CodeRabbit ¥0K/mo');
+    expect(formatItemOption('seniorNote')).toBe('Senior ¥100K');
+  });
+});
+
+describe.each(SUPPORTED_LOCALES)('リリース地点のラベルの置けない矩形（%s #158）', (locale) => {
+  beforeEach(() => {
+    setLocale(locale);
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+  const noRoutes = { routes: [], placedItems: [] as PlacedItem[] };
+
+  it('矩形はフィールドの内側に収まり、中心はリリース地点の中心の真上', () => {
+    const bounds = getReleasePointLabelBounds();
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(FIELD_WIDTH);
+    expect(bounds.y).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width / 2).toBeCloseTo(RELEASE_POINT_CENTER.x);
+  });
+
+  it('ラベルの矩形に重なる配置セルはすべて置けない', () => {
+    const bounds = getReleasePointLabelBounds();
+    const overlapping: { col: number; row: number }[] = [];
+    for (let col = 0; col < PLACEMENT_COLS; col += 1) {
+      for (let row = 0; row < PLACEMENT_ROWS; row += 1) {
+        if (rectsOverlap(itemFootprint({ col, row }), bounds)) overlapping.push({ col, row });
+      }
+    }
+    expect(overlapping.length).toBeGreaterThan(0);
+    for (const cell of overlapping) expect(isPlaceableCell(cell, noRoutes)).toBe(false);
+  });
+});
+
+describe('リリース地点のラベルの置けない矩形の値（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('「Release」の推定幅 58.8px（半角 7 文字 × 14px × 0.6）を中央に置く。高さ・y は日本語と同じ', () => {
+    const bounds = getReleasePointLabelBounds();
+    expect(bounds.width).toBeCloseTo(58.8);
+    expect(bounds.x).toBeCloseTo(930 - 58.8 / 2);
+    expect(bounds.y).toBe(224.5);
+    expect(bounds.height).toBe(17.5);
+    expect(isPlaceableCell({ col: 55, row: 14 }, noRoutesEn)).toBe(true); // 右端 x=896（ラベルの左端 900.6 まで 4.6px 空く）
+    expect(isPlaceableCell({ col: 56, row: 14 }, noRoutesEn)).toBe(false); // 右端 x=912（ラベルに 11.4px 重なる）
+    expect(isPlaceableCell({ col: 58, row: 13 }, noRoutesEn)).toBe(true); // 下端 y=224（ラベルの上端 224.5 まで 0.5px 空く）
+  });
+});
+const noRoutesEn = { routes: [], placedItems: [] as PlacedItem[] };

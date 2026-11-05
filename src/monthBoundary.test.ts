@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import { getAiAgentMonthlyFee } from './aiAgent';
 import { ENGINEER_MONTHLY_SALARY_BY_RANK } from './config';
 import type { Engineer } from './engineer';
@@ -69,5 +70,23 @@ describe('formatMonthEndPayment(#156)', () => {
   it('「月末支払: 900,000円」の形（3桁区切り）', () => {
     expect(formatMonthEndPayment(900000)).toBe('月末支払: 900,000円');
     expect(formatMonthEndPayment(0)).toBe('月末支払: 0円');
+  });
+});
+
+describe('formatMonthEndPayment（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it.each([
+    [0, 'Month-end costs: ¥0'],
+    [999, 'Month-end costs: ¥999'],
+    [1000, 'Month-end costs: ¥1,000'],
+    [900000, 'Month-end costs: ¥900,000'],
+  ])('formatMonthEndPayment(%d) = %s', (amount, expected) => {
+    expect(formatMonthEndPayment(amount)).toBe(expected);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HALF_WIDTH_CHAR_RATIO } from './config';
 import { getCatalogue } from './i18n';
-import { RELEASE_POINT_STYLE } from './releasePoint';
+import { getReleasePointLabel, RELEASE_POINT_STYLE } from './releasePoint';
 import { estimateTextWidth, isHalfWidthChar } from './textMetrics';
 
 const RELEASE_LABEL_FONT_PX = parseInt(RELEASE_POINT_STYLE.labelFontSize, 10);
@@ -66,7 +66,7 @@ describe('estimateTextWidth', () => {
   it('日本語の「リリース」はリリースラベルの文字サイズ（14px）で 56px（従来の見積もりと同じ）', () => {
     expect(getCatalogue('ja').releasePoint.label).toBe('リリース');
     expect(estimateTextWidth(getCatalogue('ja').releasePoint.label, RELEASE_LABEL_FONT_PX)).toBe(56);
-    expect(estimateTextWidth(RELEASE_POINT_STYLE.label, RELEASE_LABEL_FONT_PX)).toBe(56);
+    expect(estimateTextWidth(getReleasePointLabel(), RELEASE_LABEL_FONT_PX)).toBe(56);
   });
 
   it('英語のリリースラベルは 60px 以下（中心 x=930 から画面右端まで 30px）', () => {

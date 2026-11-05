@@ -448,3 +448,29 @@ describe('AIエージェントの表示名 #158', () => {
     });
   });
 });
+
+describe('AIエージェントの文言（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('成功・付け替え・各失敗', () => {
+    const engineers = [makeEngineer(0, 'junior', 0, 'strong')];
+    expect(formatAiAgentMessage(equipAiAgent([makeEngineer(0, 'junior', 0)], 0, 'cheap', ACTIVE), 'cheap')).toBe(
+      'Equipped AI (Budget)',
+    );
+    expect(formatAiAgentMessage(equipAiAgent(engineers, 0, 'normal', ACTIVE), 'normal')).toBe('Swapped AI (Strong) for AI (Std)');
+    expect(formatAiAgentMessage({ ok: false, reason: 'gameOver' }, 'strong')).toBe('');
+    expect(formatAiAgentMessage({ ok: false, reason: 'unknownAgent' }, 'foo')).toBe('Unknown AI agent: foo');
+    expect(formatAiAgentMessage({ ok: false, reason: 'engineerNotFound' }, 'strong')).toBe('No engineer selected');
+    expect(formatAiAgentMessage({ ok: false, reason: 'alreadyEquipped' }, 'strong')).toBe('Already using this AI agent');
+    expect(formatAiAgentMessage({ ok: false, reason: 'insufficientFunds' }, 'strong')).toBe('Not enough funds');
+  });
+
+  it.each(AI_AGENT_TYPES)('%s のボタンは「AI 名前 月額」で、月額は精算と同じ計算を千円単位にする', (type) => {
+    expect(formatAiAgentOption(type)).toBe(`AI ${AI_AGENT_SHORT_NAMES[type]} ¥${getAiAgentMonthlyFee(type) / 1000}K/mo`);
+  });
+});

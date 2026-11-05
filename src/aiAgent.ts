@@ -9,10 +9,9 @@ import {
   CODE_SPAWN_INTERVAL_MIN_MS,
   ITEM_MONTHLY_FEE_RATIO,
   ITEM_PRICE_TIERS,
-  MENU_TEXT,
 } from './config';
 import type { Engineer } from './engineer';
-import { getMessages } from './i18n';
+import { formatShortAmount, getMessages, interpolate } from './i18n';
 import type { ItemPayment } from './item';
 
 export const AI_AGENT_TYPES = ['strong', 'normal', 'cheap'] as const;
@@ -111,30 +110,34 @@ export const equipAiAgent = (
 
 // 結果のメッセージ。ゲームオーバー中は表示しないので空文字。
 export const formatAiAgentMessage = (result: EquipAiAgentResult, agentType: string): string => {
+  const messages = getMessages();
   if (result.ok) {
     if (!isAiAgentType(agentType)) throw new Error(`成功した結果に不明なAIエージェントが渡されました: ${agentType}`);
     const name = AI_AGENT_SHORT_NAMES[agentType];
     return result.replaced === null
-      ? `AI(${name})を付けました`
-      : `AI(${AI_AGENT_SHORT_NAMES[result.replaced]})を AI(${name})に付け替えました`;
+      ? interpolate(messages.aiAgents.equipped, { name })
+      : interpolate(messages.aiAgents.replaced, { from: AI_AGENT_SHORT_NAMES[result.replaced], to: name });
   }
   switch (result.reason) {
     case 'gameOver':
       return '';
     case 'unknownAgent':
-      return `不明なAIエージェントです: ${agentType}`;
+      return interpolate(messages.aiAgents.unknownAgent, { agent: agentType });
     case 'engineerNotFound':
-      return '対象のエンジニアがいません';
+      return messages.common.noTargetEngineer;
     case 'alreadyEquipped':
-      return '同じAIエージェントを付けています';
+      return messages.aiAgents.alreadyEquipped;
     case 'insufficientFunds':
-      return '資金が足りません';
+      return messages.common.insufficientFunds;
   }
 };
 
-// エンジニアのポップオーバー(#156)のボタンの文言。「AI 強い 10万/月」。月額は精算と同じ計算（getAiAgentMonthlyFee）。キー名（V/B/N）は出さない。
+// エンジニアのポップオーバー(#156)のボタンの文言。「AI 強い 10万/月」（英語は「AI Strong ¥100K/mo」#158）。月額は精算と同じ計算（getAiAgentMonthlyFee）。キー名（V/B/N）は出さない。
 export const formatAiAgentOption = (agentType: AiAgentType, ratio: number = ITEM_MONTHLY_FEE_RATIO): string =>
-  `${MENU_TEXT.aiPrefix}${AI_AGENT_SHORT_NAMES[agentType]} ${getAiAgentMonthlyFee(agentType, ratio) / 10000}${MENU_TEXT.monthlyUnit}`;
+  interpolate(getMessages().aiAgents.option, {
+    name: AI_AGENT_SHORT_NAMES[agentType],
+    fee: formatShortAmount(getAiAgentMonthlyFee(agentType, ratio), 'monthly'),
+  });
 
 // 倍率が 0 以下・有限でないなら 1（効果なし）として扱う。
 const sanitizeMultiplier = (multiplier: number): number =>

@@ -22,6 +22,26 @@ export const en: Messages = {
   penalty: {
     amount: '-{amount}',
   },
+  common: {
+    insufficientFunds: 'Not enough funds',
+    noTargetEngineer: 'No engineer selected',
+    notPlaceable: "Can't place it there",
+    unknownItem: 'Unknown item: {item}',
+  },
+  hud: {
+    elapsedDays: 'Days elapsed: {days}',
+    funds: 'Funds: {amount}',
+    cumulativeSales: 'Total sales: {amount}',
+    monthEndPayment: 'Month-end costs: {amount}',
+    techDebt: 'Tech debt: {debt}',
+    // 右下の左の欄（STATUS_PANEL_INDICATOR_WIDTH）に収まる短い語にする。
+    techDebtLevel: 'Debt {level}',
+    techDebtLevels: {
+      normal: 'OK',
+      caution: 'Warn',
+      critical: 'High',
+    },
+  },
   items: {
     names: {
       codeRabbit: 'CodeRabbit',
@@ -84,6 +104,43 @@ export const en: Messages = {
       worksFine: 'Yoshi',
       seniorNote: 'Note',
     },
+    option: '{name} {price}',
+    placed: 'Placed {name}',
+    used: 'Used {name}',
+    noEligibleIncident: 'No incident to roll back',
+    // 購入結果のメッセージの位置から右下の指標（x=612）の手前に収まる長さにする。
+    seniorNotePrevented: "The senior's note averted an outage (unreadable)",
+  },
+  balance: {
+    title: 'Dev balance',
+    // メニューの幅（MENU_PANEL_WIDTH.balance）に収まるよう短くする。
+    allocation: 'Feat {feature}:Refac {refactoring}',
+  },
+  outage: {
+    major: 'Major outage!',
+  },
+  // pt はステージポイント。
+  initialPlacement: {
+    header: 'Setup - Points left: {points}pt',
+    selected: 'Selected: {selection}',
+    selectionNone: 'None',
+    selectionEngineer: 'Engineer',
+    itemCost: '{name} {cost}pt',
+    // 初期配置UIの範囲の幅（INITIAL_PLACEMENT_UI_BOUNDS）に収まる長さにする。
+    instruction: 'Pick from the item icon, click floor; × undo',
+    startButton: 'Start',
+    engineerButton: 'Engineers left: {count}',
+    placed: 'Placed {name}',
+    removed: 'Removed {name}',
+    insufficientPoints: 'Not enough stage points',
+    noItemThere: 'No item there',
+    engineerPlaced: 'Placed an engineer',
+    engineerRemoved: 'Removed an engineer',
+    engineerNotCandidate: "Engineers can't go here",
+    engineerOverlapsItem: "Can't place: overlaps an item",
+    noUnplacedEngineer: 'No engineer left to place',
+    selectFirst: 'Choose what to place first',
+    placeAllEngineers: 'Place all engineers first',
   },
   aiAgents: {
     names: {
@@ -96,6 +153,11 @@ export const en: Messages = {
       normal: 'Std',
       cheap: 'Budget',
     },
+    option: 'AI {name} {fee}',
+    equipped: 'Equipped AI ({name})',
+    replaced: 'Swapped AI ({from}) for AI ({to})',
+    unknownAgent: 'Unknown AI agent: {agent}',
+    alreadyEquipped: 'Already using this AI agent',
   },
   engineer: {
     ranks: {
@@ -113,6 +175,36 @@ export const en: Messages = {
       cheerful: 'Cheerful',
       gloomy: 'Gloomy',
     },
+    count: 'Engineers: {count}/{max}',
+    hireOption: 'Hire {rank} {cost}',
+    hired: 'Hired a {rank}',
+    hireLimit: "Can't hire any more",
+    unknownRank: 'Unknown rank: {rank}',
+    resigned: '#{id} {rank} resigned',
+    selectedNone: 'Selected: none',
+    selectedHeading: 'Selected: #{id} {rank}',
+    selectedDetail: 'Salary {salary} AI: {ai}',
+    aiNone: 'None',
+    salaryButtons: {
+      previous: '◀ Prev',
+      next: 'Next ▶',
+      raise: 'Raise',
+      cut: 'Cut',
+    },
+    salaryChanged: '#{id} {action}: {before}→{after}',
+    salaryActions: {
+      raise: 'Raise',
+      cut: 'Cut',
+    },
+    salaryAtMax: "Can't raise any further (max {amount})",
+    salaryAtMin: "Can't cut any further (min {amount})",
+    salaryInvalid: "#{id}'s salary is invalid",
+    popoverHeading: '#{id} {rank} AI: {ai}',
+    popoverState: 'Status: {state}',
+    working: 'Working',
+    onVacation: 'On vacation',
+    startVacation: 'Send on vacation',
+    endVacation: 'Back to work',
   },
   maliciousCode: {
     names: {
@@ -130,6 +222,10 @@ export const en: Messages = {
   vacation: {
     // 「休」の代わり。円に収まる2文字の「眠り」の記号にする。単独の英字は操作キー（Z/X など）と紛らわしいので使わない。
     marker: 'Zz',
+    // ポップオーバーの幅（ENGINEER_POPOVER_WIDTH）に収まる長さにする。pts はパーセントポイント。
+    hintOperation: 'Vacation button: leave/return (paid)',
+    hintRate: 'Bad code -{reduction}pts each, max -{max}, min {min}%',
+    hintPersistence: 'Effect stays; no code while on leave',
   },
   releasePoint: {
     // 推定幅（textMetrics.ts）が 60px 以下になる長さ（リリース地点の中心 x=930 から画面右端 960 まで 30px）。

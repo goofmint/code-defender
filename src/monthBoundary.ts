@@ -1,8 +1,8 @@
 import { getMonthlyAiAgentFees } from './aiAgent';
-import { MONTH_END_PAYMENT_FORMAT } from './config';
 import type { Engineer } from './engineer';
 import { subtractFunds } from './funds';
 import { isBankrupt } from './gameOver';
+import { formatYen, getMessages, interpolate } from './i18n';
 import { getMonthlyItemFees, shouldChargeItemFees } from './itemFee';
 import type { ItemFeePaidEvent } from './itemFee';
 import type { PlacedItem } from './itemPlacement';
@@ -57,6 +57,6 @@ export const getMonthEndPaymentForecast = (
   getMonthlyItemFees(placedItems).amount +
   getMonthlyAiAgentFees(engineers).amount;
 
-// 「月末支払: 900,000円」。数値部分は3桁区切り（formatFunds と同じ）。
+// 「月末支払: 900,000円」（英語は「Month-end costs: ¥900,000」#158）。数値部分は3桁区切り（formatFunds と同じ）。
 export const formatMonthEndPayment = (amount: number): string =>
-  `${MONTH_END_PAYMENT_FORMAT.prefix}${amount.toLocaleString('ja-JP')}${MONTH_END_PAYMENT_FORMAT.suffix}`;
+  interpolate(getMessages().hud.monthEndPayment, { amount: formatYen(amount) });

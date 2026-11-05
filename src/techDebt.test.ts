@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import { initialSpawnElapsed, pickCodeKind, stepSpawnTimer } from './codeFlow';
 import {
   CODE_MALICIOUS_RATE_MIN,
@@ -19,6 +20,7 @@ import {
   clampTechDebt,
   createTechDebtChangedEvent,
   formatTechDebt,
+  formatTechDebtLevel,
   getTechDebtLevel,
   refactoringMaliciousRateModifier,
   repayTechDebt,
@@ -668,10 +670,36 @@ describe('getTechDebtLevel: 右下の指標の段階(#156)', () => {
   });
 
   it('段階ごとに色と語がある（緑・オレンジ・赤／正常・注意・要解消）', () => {
-    expect(TECH_DEBT_LEVELS.normal.label).toBe('正常');
-    expect(TECH_DEBT_LEVELS.caution.label).toBe('注意');
-    expect(TECH_DEBT_LEVELS.critical.label).toBe('要解消');
+    expect(formatTechDebtLevel('normal')).toBe('負債 正常');
+    expect(formatTechDebtLevel('caution')).toBe('負債 注意');
+    expect(formatTechDebtLevel('critical')).toBe('負債 要解消');
     const colors = [TECH_DEBT_LEVELS.normal.color, TECH_DEBT_LEVELS.caution.color, TECH_DEBT_LEVELS.critical.color];
     expect(new Set(colors).size).toBe(3);
+  });
+});
+
+describe('formatTechDebt / formatTechDebtLevel（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it.each([
+    [0, 'Tech debt: 0'],
+    [4.49, 'Tech debt: 4'],
+    [4.5, 'Tech debt: 5'],
+    [100, 'Tech debt: 100'],
+  ])('formatTechDebt(%d) = %s', (debt, expected) => {
+    expect(formatTechDebt(debt)).toBe(expected);
+  });
+
+  it.each([
+    ['normal', 'Debt OK'],
+    ['caution', 'Debt Warn'],
+    ['critical', 'Debt High'],
+  ] as const)('formatTechDebtLevel(%s) = %s', (level, expected) => {
+    expect(formatTechDebtLevel(level)).toBe(expected);
   });
 });

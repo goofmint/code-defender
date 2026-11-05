@@ -1,7 +1,7 @@
 // 初期配置フェーズ(#47)を、実際の MainScene の create() / update() / pointerdown / 開始キー / tryRestart() で確かめる。
 // main.ts は読み込み時に new Phaser.Game(config) を実行するので、このファイルの中だけで phaser をモックする（engineerResign.test.ts と同じ形）。
 // 描画（render.ts）もモックして、Phaser の GameObject を作らずに create() を通す。
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import {
   CELL_SIZE,
@@ -32,6 +32,7 @@ import {
   listEngineerCandidateCells,
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
+import { setLocale } from './i18n';
 import { ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlacement';
@@ -778,5 +779,43 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     const routes = scene.routes.length;
     pointerDown({ x: CELL_SIZE / 2, y: CELL_SIZE / 2 });
     expect(scene.routes).toHaveLength(routes);
+  });
+});
+
+describe('MainScene: 英語の初期配置パネル(#158)', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  const expectedPanel = [
+    `Setup - Points left: ${STAGE_POINTS_INITIAL}pt`,
+    'Selected: None',
+    'Pick from the item icon, click floor; × undo',
+  ];
+
+  it('create() で英語のパネル・エンジニアの選択ボタンを描き、未選択で床を押すと英語のメッセージを出す', () => {
+    const { scene, pointerDown } = createHarness();
+    expect(vi.mocked(render.drawInitialPlacementPanel).mock.calls.at(-1)?.[1]).toEqual(expectedPanel);
+    expect(vi.mocked(render.drawInitialPlacementEngineerButton).mock.calls.at(-1)?.[1]).toBe('Engineers left: 0');
+    const [cell] = placeableCells(scene.routes, 1);
+    pointerDown(centerOf(cell));
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'Choose what to place first');
+  });
+
+  it('倒産後のリスタート（create() のやり直し）でも英語のパネルを描く', () => {
+    const { scene, pressKey } = createHarness();
+    pressKey(startKey);
+    scene.gameOver = { over: true, at: 0 };
+    scene.time.now = Number.MAX_SAFE_INTEGER;
+    vi.mocked(render.drawInitialPlacementPanel).mockClear();
+
+    pressKey(GAME_OVER_RESTART_KEYS[0]);
+
+    expect(scene.scene.restart).toHaveBeenCalledOnce();
+    expect(render.drawInitialPlacementPanel).toHaveBeenCalledOnce();
+    expect(vi.mocked(render.drawInitialPlacementPanel).mock.calls[0]?.[1]).toEqual(expectedPanel);
   });
 });
