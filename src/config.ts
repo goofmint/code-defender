@@ -698,3 +698,35 @@ export const SPAWN_MARKER_DECOR_STYLE = {
   ringAlpha: 0.8,
   iconSize: 10,
 } as const;
+
+// 仮(#144): リリース地点（半径 RELEASE_POINT_STYLE.radius の緑の円）の装飾。内側の同心円リング・中央の上向き矢印（デプロイ）のアイコン、
+// 外側に広がって消えるパルス（ループ）。パルスの外端（半径 + 線幅の半分）はセル内（中心から CELL_SIZE / 2 = 30px 以内）に収める。
+export const RELEASE_POINT_DECOR_COLORS = {
+  ring: 0x1b5e20,
+  icon: 0xffffff,
+  pulse: 0xb9f6ca,
+} as const;
+export const RELEASE_POINT_DECOR_STYLE = {
+  innerRingRadius: 17,
+  ringWidth: 2,
+  ringAlpha: 0.7,
+  iconSize: 14,
+  iconLineWidth: 3,
+} as const;
+export const RELEASE_POINT_PULSE = {
+  maxRadius: 28,
+  strokeWidth: 2,
+  startAlpha: 0.8,
+  durationMs: 1200,
+} as const;
+// 仮(#144): 正常なコードをリリースしたときの一時エフェクト。リリース地点から緑の輪が広がり、決まった数の粒が放射状に飛んで消える。
+export const RELEASE_BURST = {
+  ringColor: 0x69f0ae,
+  ringStrokeWidth: 3,
+  ringEndRadius: 44,
+  particleColor: 0xb9f6ca,
+  particleCount: 8,
+  particleRadius: 3,
+  particleDistance: 36,
+  durationMs: 450,
+} as const;

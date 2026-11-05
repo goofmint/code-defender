@@ -7,7 +7,7 @@ import {
   FIELD_WIDTH,
   GRID_LINE_WIDTH,
 } from './field';
-import { RELEASE_POINT_CENTER, RELEASE_POINT_STYLE } from './releasePoint';
+import { burstParticleOffsets, RELEASE_POINT_CENTER, RELEASE_POINT_STYLE } from './releasePoint';
 import {
   cellCenter,
   routeChevrons,
@@ -64,6 +64,10 @@ import {
   REFACTORING_RATIO_LABEL_WIDTH,
   REFACTORING_RATIO_UI_GAP,
   REFACTORING_RATIO_UI_POSITION,
+  RELEASE_BURST,
+  RELEASE_POINT_DECOR_COLORS,
+  RELEASE_POINT_DECOR_STYLE,
+  RELEASE_POINT_PULSE,
   ROUTE_COLORS,
   ROUTE_LINE_STYLE,
   SALARY_ADJUST_KEYS,
@@ -150,6 +154,8 @@ export const drawField = (scene: Phaser.Scene): void => {
 // 仮: フィールド（FIELD_DEPTH=-1）より手前、後続オブジェクトの邪魔にならない深さ。
 const RELEASE_POINT_DEPTH = 0;
 
+// リリース地点(#144): 外側へ広がって消えるパルスのリング（ループ）・緑の円・内側の同心円リングと上向き矢印のアイコン・「リリース」のラベル。
+// どれもシーンが持つ（create() で1回だけ作る）。scene.restart() でシーンごと破棄され、倒産時の tweens.pauseAll() でパルスも止まる。
 export const drawReleasePoint = (scene: Phaser.Scene): void => {
   const { x, y } = RELEASE_POINT_CENTER;
   const {
@@ -163,15 +169,42 @@ export const drawReleasePoint = (scene: Phaser.Scene): void => {
     labelColor,
     labelGap,
   } = RELEASE_POINT_STYLE;
+  // パルスは円より先に作って円の後ろに重ねる。半径 radius から maxRadius まで広げながら消す。
+  const pulse = scene.add
+    .circle(x, y, radius)
+    .setStrokeStyle(RELEASE_POINT_PULSE.strokeWidth, RELEASE_POINT_DECOR_COLORS.pulse, RELEASE_POINT_PULSE.startAlpha)
+    .setDepth(RELEASE_POINT_DEPTH);
+  scene.tweens.add({
+    targets: pulse,
+    scale: RELEASE_POINT_PULSE.maxRadius / radius,
+    alpha: 0,
+    duration: RELEASE_POINT_PULSE.durationMs,
+    repeat: -1,
+  });
   scene.add
     .circle(x, y, radius, fillColor)
     .setStrokeStyle(strokeWidth, strokeColor)
     .setDepth(RELEASE_POINT_DEPTH);
+  // 内側の同心円リングと、中央の上向き矢印（矢じり・軸・下の台）。
+  const { innerRingRadius, ringWidth, ringAlpha, iconSize, iconLineWidth } = RELEASE_POINT_DECOR_STYLE;
+  const icon = scene.add.graphics();
+  icon.lineStyle(ringWidth, RELEASE_POINT_DECOR_COLORS.ring, ringAlpha);
+  icon.strokeCircle(0, 0, innerRingRadius);
+  const half = iconSize / 2;
+  const wing = half * 0.6;
+  icon.lineStyle(iconLineWidth, RELEASE_POINT_DECOR_COLORS.icon, 1);
+  icon.lineBetween(0, wing, 0, -half);
+  icon.lineBetween(-wing, -half + wing, 0, -half);
+  icon.lineBetween(wing, -half + wing, 0, -half);
+  icon.lineBetween(-half, half, half, half);
+  icon.setPosition(x, y).setDepth(RELEASE_POINT_DEPTH);
   scene.add
     .text(x, y - radius - labelGap, label, {
       fontSize: labelFontSize,
       fontFamily: labelFontFamily,
       color: labelColor,
+      stroke: ELAPSED_DAYS_STYLE.strokeColor,
+      strokeThickness: ELAPSED_DAYS_STYLE.strokeThickness,
     })
     .setOrigin(0.5, 1)
     .setDepth(RELEASE_POINT_DEPTH);
@@ -573,6 +606,37 @@ export const drawDefeatEffect = (scene: Phaser.Scene, position: Point): void => 
     alpha: 0,
     duration: DEFEAT_EFFECT_DURATION_MS,
     onComplete: () => ring.destroy(),
+  });
+};
+
+// 正常リリースのエフェクト(#144)。リリース地点から緑の輪が広がり、RELEASE_BURST.particleCount 個の粒が放射状に飛んで消える。
+// 1回のリリースで作るのは輪1個と粒 particleCount 個だけで、どれも Tween の完了時に破棄する（drawDefeatEffect と同じ）。
+export const drawReleaseBurst = (scene: Phaser.Scene): void => {
+  const { x, y } = RELEASE_POINT_CENTER;
+  const { radius } = RELEASE_POINT_STYLE;
+  const ring = scene.add
+    .circle(x, y, radius)
+    .setStrokeStyle(RELEASE_BURST.ringStrokeWidth, RELEASE_BURST.ringColor)
+    .setDepth(ATTACK_EFFECT_DEPTH);
+  scene.tweens.add({
+    targets: ring,
+    scale: RELEASE_BURST.ringEndRadius / radius,
+    alpha: 0,
+    duration: RELEASE_BURST.durationMs,
+    onComplete: () => ring.destroy(),
+  });
+  burstParticleOffsets(RELEASE_BURST.particleCount, RELEASE_BURST.particleDistance).forEach((offset) => {
+    const particle = scene.add
+      .circle(x, y, RELEASE_BURST.particleRadius, RELEASE_BURST.particleColor)
+      .setDepth(ATTACK_EFFECT_DEPTH);
+    scene.tweens.add({
+      targets: particle,
+      x: x + offset.x,
+      y: y + offset.y,
+      alpha: 0,
+      duration: RELEASE_BURST.durationMs,
+      onComplete: () => particle.destroy(),
+    });
   });
 };
 

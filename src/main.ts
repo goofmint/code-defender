@@ -63,6 +63,7 @@ import {
   drawPenaltyText,
   drawPlayer,
   drawRefactoringRatioControl,
+  drawReleaseBurst,
   drawReleasePoint,
   drawRoutes,
   drawSalaryButtons,
@@ -766,6 +767,8 @@ class MainScene extends Phaser.Scene {
     // 正常なコードのリリース1件を作業1単位として技術的負債を精算する（売上が 0 でも精算する）。ゲームオーバー中は精算しない。
     if (payload.kind === 'normal' && !this.gameOver.over) {
       this.changeTechDebt(resolveWorkTechDebt(this.techDebt, this.refactoringRatio), 'work');
+      // 正常リリースの演出(#144)。ゲームオーバー中は Tween が止まり破棄されないため出さない。
+      drawReleaseBurst(this);
     }
     const incident = settleIncident(this.funds, payload, this.gameOver);
     if (incident === null) {
