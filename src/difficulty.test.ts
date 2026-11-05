@@ -33,6 +33,7 @@ import {
   setEngineerVacation,
 } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
+import { techDebtMaliciousRateModifier } from './techDebt';
 
 const STEP = DIFFICULTY_STEP_MS;
 // 上限に達する段階（切り上げ）。
@@ -283,6 +284,7 @@ describe('ランク別の不正コード率で種類を決める（pickCodeKind 
     vacationRateReduction: 0,
     salary: getInitialSalary(rank),
     initialSalary: getInitialSalary(rank),
+    aiAgent: null,
     ...createEngineerParameters(rank, 'meticulous'),
   });
   // ルート 0〜2 に別ランクの担当者、ルート 3 は担当者なし。routeId: null の人はどのルートにも影響しない。
@@ -593,6 +595,7 @@ describe('vacationMaliciousRateModifiers（休暇による補正・境界値）'
     vacationRateReduction,
     salary: getInitialSalary(rank),
     initialSalary: getInitialSalary(rank),
+    aiAgent: null,
     ...createEngineerParameters(rank, 'meticulous'),
   });
 
@@ -672,5 +675,85 @@ describe('vacationMaliciousRateModifiers（休暇による補正・境界値）'
     expect(rate).toBe(MIN);
     expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
     expect(pickCodeKind(() => rate, rate)).toBe('normal');
+  });
+});
+
+describe('技術的負債による補正と effectiveMaliciousRate の合成(#45・境界値)', () => {
+  // 上限・最大加算量は引数で渡して config の仮の値に依存しないようにする。
+  const DEBT_MAX = 100;
+  const BONUS = 0.2;
+  const debtModifier = (debt: number): number => techDebtMaliciousRateModifier(debt, { max: DEBT_MAX, maxBonus: BONUS });
+  // ランクなし・0ms の基礎率に負債の最大加算量を足すと target になる、追加の差分。
+  const extraFor = (target: number): number => delta(target) - BONUS;
+
+  it.each(RANK_OR_NONE)('%s: 負債 0 は基礎率と同じ', (rank) => {
+    for (const ms of [0, STEP, STEP * (maxCapStep + 1)]) {
+      expect(effectiveMaliciousRate(rank, ms, [debtModifier(0)])).toBe(maliciousRateForRank(rank, ms));
+    }
+  });
+
+  it.each(RANK_OR_NONE)('%s: 負債 MAX は基礎率 + maxBonus（ランク上限を超えてよい）', (rank) => {
+    const ms = STEP * (maxCapStep + 1);
+    const base = maliciousRateForRank(rank, ms);
+    expect(effectiveMaliciousRate(rank, ms, [debtModifier(DEBT_MAX)])).toBeCloseTo(base + BONUS, 12);
+    expect(effectiveMaliciousRate(rank, ms, [debtModifier(DEBT_MAX)])).toBeGreaterThan(base);
+  });
+
+  it.each(RANK_OR_NONE)('%s: 負債 MAX / 2 は基礎率 + maxBonus / 2', (rank) => {
+    const base = maliciousRateForRank(rank, STEP);
+    expect(effectiveMaliciousRate(rank, STEP, [debtModifier(DEBT_MAX / 2)])).toBeCloseTo(base + BONUS / 2, 12);
+  });
+
+  it.each([
+    ['1 - ε', 1 - EPS, 1 - EPS],
+    ['1', 1, 1],
+    ['1 + ε', 1 + EPS, 1],
+  ])('上限の境界: 負債 MAX との合計 %s は 1 で止まる', (_label, target, expected) => {
+    expect(effectiveMaliciousRate(undefined, 0, [debtModifier(DEBT_MAX), extraFor(target)])).toBeCloseTo(expected, 12);
+  });
+
+  it('上限の境界: 負債 MAX との合計 1 - ε は 1 未満、1 + ε は 1', () => {
+    expect(effectiveMaliciousRate(undefined, 0, [debtModifier(DEBT_MAX), extraFor(1 - EPS)])).toBeLessThan(1);
+    expect(effectiveMaliciousRate(undefined, 0, [debtModifier(DEBT_MAX), extraFor(1 + EPS)])).toBe(1);
+  });
+
+  it.each(RANK_OR_NONE)('%s: 負の差分（休暇・リファクタリング想定）と合成しても合計後に下限 MIN を適用する', (rank) => {
+    expect(effectiveMaliciousRate(rank, STEP, [debtModifier(DEBT_MAX), -1])).toBe(MIN);
+    // 負債の増加と負の差分は相殺される（差分ごとにはクランプしない）。
+    expect(effectiveMaliciousRate(rank, STEP, [debtModifier(DEBT_MAX), -BONUS])).toBeCloseTo(
+      maliciousRateForRank(rank, STEP),
+      12,
+    );
+  });
+
+  it('休暇の補正と負債の補正を合成する', () => {
+    const engineer: Engineer = {
+      id: 0,
+      rank: 'junior',
+      routeId: 0,
+      personality: 'meticulous',
+      onVacation: false,
+      vacationRateReduction: 0.1,
+      salary: getInitialSalary('junior'),
+      initialSalary: getInitialSalary('junior'),
+      aiAgent: null,
+      ...createEngineerParameters('junior', 'meticulous'),
+    };
+    const modifiers = [...vacationMaliciousRateModifiers(engineer), debtModifier(DEBT_MAX)];
+    const base = maliciousRateForRank('junior', STEP);
+    expect(effectiveMaliciousRate('junior', STEP, modifiers)).toBeCloseTo(base - 0.1 + BONUS, 12);
+  });
+
+  it.each(RANK_OR_NONE)('%s: pickCodeKind の境界は負債で移動する（rate - ε は不正、rate は正常）', (rank) => {
+    const low = effectiveMaliciousRate(rank, STEP, [debtModifier(0)]);
+    const high = effectiveMaliciousRate(rank, STEP, [debtModifier(DEBT_MAX)]);
+    expect(high).toBeGreaterThan(low);
+    for (const rate of [low, high]) {
+      expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
+      expect(pickCodeKind(() => rate, rate)).toBe('normal');
+    }
+    // 負債 0 では正常になる乱数が、負債 MAX では不正になる。
+    expect(pickCodeKind(() => low, low)).toBe('normal');
+    expect(pickCodeKind(() => low, high)).toBe('malicious');
   });
 });

@@ -96,6 +96,7 @@ type SceneUnderTest = {
   gameOver: GameOverState;
   codes: FakeCode[];
   codeHp: Map<number, number>;
+  codeHold: Map<number, number>;
   placedItems: readonly PlacedItem[];
   time: { now: number };
   tweens: { readonly killTweensOf: Mock<(target: object) => void>; readonly pauseAll: Mock<() => void> };
@@ -180,6 +181,7 @@ const makeEngineer = (onVacation: boolean): Engineer => ({
   vacationRateReduction: 0,
   salary: ENGINEER_MONTHLY_SALARY_BY_RANK.junior,
   initialSalary: ENGINEER_MONTHLY_SALARY_BY_RANK.junior,
+  aiAgent: null,
   ...createEngineerParameters('junior', 'meticulous'),
 });
 
@@ -214,6 +216,7 @@ const createScene = (options: SceneOptions = {}): SceneUnderTest => {
       .filter((code) => code.kind === 'malicious')
       .map((code) => [code.id, options.hp?.get(code.id) ?? DEFAULT_MALICIOUS_CODE_HP]),
   );
+  scene.codeHold = new Map();
   scene.placedItems = options.placedItems ?? [];
   scene.time = { now: T0 };
   scene.tweens = { killTweensOf: vi.fn<(target: object) => void>(), pauseAll: vi.fn<() => void>() };
