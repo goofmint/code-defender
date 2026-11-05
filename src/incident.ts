@@ -21,7 +21,8 @@ export type IncidentPreventedPayload = {
 };
 
 export type IncidentEvent = {
-  readonly codeId: number;
+  // 障害を起こしたコードの id。コードを持たない障害（金曜日の夕方デプロイ #58 の予約した障害）では null。
+  readonly codeId: number | null;
   // 種別を持たない不正コードでは undefined。
   readonly maliciousType: MaliciousCodeType | undefined;
   // 損害額（円）。
@@ -31,7 +32,7 @@ export type IncidentEvent = {
 };
 
 export const createIncidentEvent = (
-  codeId: number,
+  codeId: number | null,
   maliciousType: MaliciousCodeType | undefined,
   damage: number,
   fundsBefore: number,
@@ -73,4 +74,17 @@ export const settleIncident = (
     funds,
     subtractFunds(funds, damage),
   );
+};
+
+// 予約した障害（金曜日の夕方デプロイ #58）を精算する。コードを持たないので codeId・種別はなし。ゲームオーバー後は null。
+// 損害ぶん資金を引く（マイナスもそのまま）。倒産判定は呼び出し側（checkBankruptcy）が行う。書き置き(#58)では防がない。
+export const settleScheduledIncident = (
+  funds: number,
+  damage: number,
+  gameOver: GameOverState,
+): IncidentEvent | null => {
+  if (gameOver.over) {
+    return null;
+  }
+  return createIncidentEvent(null, undefined, damage, funds, subtractFunds(funds, damage));
 };

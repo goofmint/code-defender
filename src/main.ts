@@ -24,6 +24,7 @@ import {
   PIZZA_TECH_DEBT,
   PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
+  PLAYER_SPEED,
   REFACTORING_RATIO_KEYS,
   SENIOR_NOTE_PREVENTED_MESSAGE,
   REVENUE_PER_NORMAL_CODE,
@@ -120,8 +121,14 @@ import { getEngineerSalaries, SALARY_PAID_EVENT } from './salary';
 import { applySalaryToAttachment } from './salaryAttachment';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { settleMonthBoundary } from './monthBoundary';
-import { calculateDamage, INCIDENT_EVENT, INCIDENT_PREVENTED_EVENT, settleIncident } from './incident';
-import type { IncidentPreventedPayload } from './incident';
+import {
+  calculateDamage,
+  INCIDENT_EVENT,
+  INCIDENT_PREVENTED_EVENT,
+  settleIncident,
+  settleScheduledIncident,
+} from './incident';
+import type { IncidentEvent, IncidentPreventedPayload } from './incident';
 import { advanceTechDebtNeglect, MAJOR_OUTAGE_EVENT, settleMajorOutage } from './outage';
 import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
@@ -202,13 +209,20 @@ import { formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, st
 import type { ItemPageDirection } from './itemBar';
 import {
   canRollback,
+  codeMoveMultiplier,
   coffeeSpawnIntervalMultiplier,
+  documentationMaliciousRateModifiers,
+  expireEffects,
+  isEffectActive,
+  playerSpeedMultiplier,
   recordIncident,
   rollbackIncident,
   rollFridayDeployIncident,
   scheduleIncident,
+  spawnIntervalMultiplier,
   startEffect,
   startEnergyDrink,
+  takeDueIncidents,
 } from './itemEffect';
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
 import type { Point, Route } from './route';
@@ -446,11 +460,19 @@ class MainScene extends Phaser.Scene {
     if (this.gameOver.over) {
       return;
     }
+    // 期限切れの時限効果(#58)をフレームの最初に外す。時刻はゲーム内の経過時間（elapsedMs）。
+    this.activeEffects = expireEffects(this.activeEffects, this.elapsedMs);
     // 愛着心が最低になったエンジニアは毎フレーム判定して退職させる(#32)。月次処理（advanceClock）より前に置き、退職者に給料を払わない。
     this.resignEngineers();
     const prevElapsedMs = this.elapsedMs;
     this.advanceClock(delta);
     // 月の給料で倒産したら、同じフレームの移動・コードの更新はしない。
+    if (this.gameOver.over) {
+      return;
+    }
+    // 金曜日の夕方デプロイ(#58)で予約した障害のうち、時刻が来たものを起こす。
+    this.fireScheduledIncidents();
+    // 予約した障害で倒産したら、同じフレームの移動・コードの更新はしない。
     if (this.gameOver.over) {
       return;
     }
@@ -491,11 +513,13 @@ class MainScene extends Phaser.Scene {
         })
       : { x: 0, y: 0 };
     const position = { x: player.x, y: player.y };
+    // エナジードリンク(#58)の加速期・鈍化期は主人公の速度に倍率を掛ける。
+    const speed = PLAYER_SPEED * playerSpeedMultiplier(this.activeEffects, this.elapsedMs);
 
     // いずれかの移動キーが押されていればキーボード優先。方向が相殺されてゼロでもポインターには切り替えない。
     if (anyKeyDown) {
       if (keyDirection.x !== 0 || keyDirection.y !== 0) {
-        const next = clampToField(movePlayer(position, keyDirection, delta));
+        const next = clampToField(movePlayer(position, keyDirection, delta, speed));
         player.setPosition(next.x, next.y);
       }
       return;
@@ -514,7 +538,7 @@ class MainScene extends Phaser.Scene {
     if (direction.x === 0 && direction.y === 0) {
       return;
     }
-    const next = clampToField(movePlayerToward(position, target, direction, delta));
+    const next = clampToField(movePlayerToward(position, target, direction, delta, speed));
     player.setPosition(next.x, next.y);
   }
 
@@ -788,11 +812,16 @@ class MainScene extends Phaser.Scene {
     if (this.gameOver.over) {
       return;
     }
+    const worksFine = isEffectActive(this.activeEffects, 'worksFine', this.elapsedMs);
     this.placedItems = this.placedItems.map((item) => {
       if (isRandomDeleteItem(item.itemType)) {
         return this.deleteCodeByCat(item, now);
       }
       if (!isAttackItem(item.itemType)) {
+        return item;
+      }
+      // 「動いてるからヨシ！」(#58)の間は置いたアイテムは攻撃しない（主人公の攻撃は止めない）。
+      if (worksFine) {
         return item;
       }
       if (!canItemAttack(now, item.lastAttackTime, getItemAttackCooldownMs(item.itemType))) {
@@ -977,6 +1006,8 @@ class MainScene extends Phaser.Scene {
     if (!result.triggered) {
       return;
     }
+    // 予約した障害(#58)はゲームオーバーで捨てる（リスタートでも create で空にする）。
+    this.scheduledIncidents = [];
     this.tweens.pauseAll();
     drawGameOver(this, this.score, getElapsedDays(this.elapsedMs));
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
@@ -1005,19 +1036,41 @@ class MainScene extends Phaser.Scene {
       this.itemMessageText?.destroy();
       this.itemMessageText = drawItemMessage(this, SENIOR_NOTE_PREVENTED_MESSAGE);
       const prevented: IncidentPreventedPayload = {
-        codeId: incident.codeId,
+        codeId: payload.id,
         maliciousType: incident.maliciousType,
         damage: incident.damage,
       };
       this.events.emit(INCIDENT_PREVENTED_EVENT, prevented);
       return;
     }
-    // ロールバックボタン(#58)で取り消せるよう、確定した障害の損害額を記録する（前の記録は置き換える）。
+    this.applyIncident(incident);
+  }
+
+  // 確定した障害の損害を資金から引き、演出と INCIDENT_EVENT を出す（リリースの障害・予約した障害 #58 共通）。
+  // ロールバックボタン(#58)で取り消せるよう、損害額を直前の障害として記録する（前の記録は置き換える）。
+  private applyIncident(incident: IncidentEvent): void {
     this.lastIncident = recordIncident(incident.damage);
     this.changeFunds(incident.fundsAfter, 'damage');
     const { r, g, b } = Phaser.Display.Color.IntegerToRGB(INCIDENT_FLASH_COLOR);
     this.cameras.main.flash(INCIDENT_FLASH_DURATION_MS, r, g, b);
     this.events.emit(INCIDENT_EVENT, incident);
+  }
+
+  // 金曜日の夕方デプロイ(#58)で予約した障害のうち、elapsedMs までに時刻が来たものを予約順に起こす。書き置きでは防がない。
+  // 倒産したら残りは起こさない（予約は onFundsChanged で捨てる）。
+  private fireScheduledIncidents(): void {
+    const { due, pending } = takeDueIncidents(this.scheduledIncidents, this.elapsedMs);
+    if (due.length === 0) {
+      return;
+    }
+    this.scheduledIncidents = pending;
+    for (const scheduled of due) {
+      const incident = settleScheduledIncident(this.funds, scheduled.damage, this.gameOver);
+      if (incident === null) {
+        return;
+      }
+      this.applyIncident(incident);
+    }
   }
 
   // 技術的負債が閾値を超えたまま猶予時間を過ぎたら大障害を起こし、損害ぶん資金を減らす(#46)。
@@ -1109,14 +1162,24 @@ class MainScene extends Phaser.Scene {
   // 負債はコード生成のたびに this.techDebt から計算する。同じフレームのリリースで負債が変わった場合は、次回の updateCodes の生成から反映される。
   // 今後の補正はこの配列に差分を追加して合成する: #41 リファクタリング（プロダクト全体の減少）。
   private maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[] {
-    return [...vacationMaliciousRateModifiers(engineer), techDebtMaliciousRateModifier(this.techDebt)];
+    return [
+      ...vacationMaliciousRateModifiers(engineer),
+      techDebtMaliciousRateModifier(this.techDebt),
+      // #58 ドキュメント（担当がジュニアのルートだけ、購入からの経過時間に応じて減少）。
+      ...documentationMaliciousRateModifiers(engineer?.rank, this.documentationPurchasedAtMs, this.elapsedMs),
+    ];
   }
 
   private updateCodes(delta: number): void {
     // 技術的負債に応じて生成間隔を延ばす(#44)。フレーム開始時の負債で1回だけ計算し、全ルートに同じ間隔を使う。
     // フレーム内（リリース精算など）で負債が変わっても、反映は次のフレームから。
     // 新規ルートの初期値にも同じ間隔を渡し、負債があっても最初の更新ですぐ1個生成されるようにする（既存の挙動を維持）。
-    const spawnIntervalMs = techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS);
+    // ピザ(#58)の間は全ルートの間隔に倍率を掛ける。
+    const spawnIntervalMs =
+      techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS) *
+      spawnIntervalMultiplier(this.activeEffects, this.elapsedMs);
+    // コードフリーズ(#58)の間は全ルートを休暇と同じく止める（生成・移動を止め、リリース・売上も止まる。ゲーム内時計は進める）。
+    const frozen = isEffectActive(this.activeEffects, 'codeFreeze', this.elapsedMs);
     for (const route of this.routes) {
       // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
       const engineer = findEngineerByRoute(this.engineers, route.id);
@@ -1130,7 +1193,7 @@ class MainScene extends Phaser.Scene {
         this.spawnElapsed.get(route.id) ?? initialSpawnElapsed(routeIntervalMs),
         delta,
         routeIntervalMs,
-        isAssigneeOnVacation(engineer),
+        isAssigneeOnVacation(engineer) || frozen,
       );
       this.spawnElapsed.set(route.id, step.elapsedMs);
       if (step.spawn) {
@@ -1145,7 +1208,9 @@ class MainScene extends Phaser.Scene {
       }
     }
 
-    const distance = (codeSpeedAt(this.elapsedMs) * delta) / 1000;
+    // 「動いてるからヨシ！」(#58)の間はコードの移動距離に倍率を掛ける。
+    const distance =
+      ((codeSpeedAt(this.elapsedMs) * delta) / 1000) * codeMoveMultiplier(this.activeEffects, this.elapsedMs);
     const flowing: ActiveCode[] = [];
     for (const [index, active] of this.codes.entries()) {
       // 同じフレームで倒産したら、残りのコードは処理せず流れたままにする（追加の損害を出さない）。
@@ -1154,7 +1219,7 @@ class MainScene extends Phaser.Scene {
         break;
       }
       // 担当者の休暇中はそのルートのコードを進めない(#36)。流れたまま残るので攻撃はできる。
-      const moved = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId));
+      const moved = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId) || frozen);
       const next: ActiveCode = { ...advanceCode(active, moved), graphics: active.graphics };
       // hp を持つのは不正なコードだけ。正常なコードは撃破されない。
       const hp = this.codeHp.get(next.id);
