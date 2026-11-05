@@ -27,6 +27,7 @@ import type { GameOverState } from './gameOver';
 import { INCIDENT_EVENT, incidentDamage } from './incident';
 import { getItemRange } from './item';
 import type { ItemType } from './item';
+import { placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import { drawDefeatEffect, drawItemAttackEffect } from './render';
 import { cellCenter } from './route';
@@ -270,7 +271,7 @@ describe('MainScene.updateCodes: CI の確率阻止', () => {
     expect(code.graphics.destroy).toHaveBeenCalledTimes(1);
     expect(scene.tweens.killTweensOf).toHaveBeenCalledWith(code.graphics);
     expect(drawDefeatEffect).toHaveBeenCalledExactlyOnceWith(scene, RELEASE);
-    expect(drawItemAttackEffect).toHaveBeenCalledExactlyOnceWith(scene, cellCenter(CI_CELL), RELEASE);
+    expect(drawItemAttackEffect).toHaveBeenCalledExactlyOnceWith(scene, placementCellCenter(CI_CELL), RELEASE);
   });
 
   it('阻止に失敗すると従来どおりリリースされ、障害で資金が減る', () => {
@@ -442,7 +443,7 @@ describe('MainScene.updateCodes: CI の減速', () => {
 
 describe('MainScene.updateItems: CI は汎用攻撃をしない', () => {
   it('CI の範囲内に不正なコードがいても攻撃せず、クールダウンも変わらない', () => {
-    const center = cellCenter(CI_CELL);
+    const center = placementCellCenter(CI_CELL);
     const code: FakeCode = { ...makeCode(1, 1), position: center };
     const scene = createScene({ codes: [code], placedItems: [placed(0, 'ci')] });
 
@@ -455,7 +456,7 @@ describe('MainScene.updateItems: CI は汎用攻撃をしない', () => {
   });
 
   it('CI と並べて置いた nearestTarget のアイテムは従来どおり攻撃する', () => {
-    const center = cellCenter(CI_CELL);
+    const center = placementCellCenter(CI_CELL);
     const code: FakeCode = { ...makeCode(1, 1), position: center };
     const scene = createScene({
       codes: [code],
@@ -466,6 +467,6 @@ describe('MainScene.updateItems: CI は汎用攻撃をしない', () => {
 
     expect(scene.placedItems[0]?.lastAttackTime).toBeNull();
     expect(scene.placedItems[1]?.lastAttackTime).toBe(T0);
-    expect(drawItemAttackEffect).toHaveBeenCalledExactlyOnceWith(scene, cellCenter({ col: 4, row: 2 }), center);
+    expect(drawItemAttackEffect).toHaveBeenCalledExactlyOnceWith(scene, placementCellCenter({ col: 4, row: 2 }), center);
   });
 });

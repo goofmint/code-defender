@@ -20,9 +20,9 @@ import {
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
-  INITIAL_PLACEMENT_BLOCKED_CELLS,
   INITIAL_PLACEMENT_START_KEYS,
-  ITEM_BLOCKED_CELLS,
+  INITIAL_PLACEMENT_UI_BOUNDS,
+  ITEM_BLOCKED_RECTS,
   ITEM_BUY_KEYS,
   ITEM_PAGE_KEYS,
   MAX_ENGINEERS,
@@ -226,9 +226,11 @@ import {
   getItemAttackCooldownMs,
   getItemOrigin,
   isIncidentPreventedByNote,
+  isPointInField,
   ITEM_PLACED_EVENT,
   ITEM_USED_EVENT,
-  pointToCell,
+  placementCellCenter,
+  pointToPlacementCell,
   purchaseInstantItem,
   purchaseItem,
   shouldItemHesitate,
@@ -518,17 +520,17 @@ class MainScene extends Phaser.Scene {
     this.initialPlacementMessageText = drawInitialPlacementMessage(this, message);
   }
 
-  // 初期配置(#47)の押下。ボタン・マーカー上の押下（currentlyOver あり）は何もしない（ボタン側の処理だけ動く）。
-  // 置いてあるセルなら撤去してポイントを全額返し、空のセルなら選択中の種類を置く。資金は変えない（changeFunds は通さない）。
+  // 初期配置(#47)の押下。ボタン・マーカー上の押下（currentlyOver あり）とフィールド外の押下は何もしない（ボタン側の処理だけ動く）。
+  // 押した点が置いてあるアイテムのフットプリント内なら撤去してポイントを全額返し、そうでなければ押した点を含む配置グリッド（16px #151）のセルに
+  // 選択中の種類を置く。資金は変えない（changeFunds は通さない）。
   private onInitialPlacementPointerDown(
     point: { readonly x: number; readonly y: number },
     currentlyOver: readonly Phaser.GameObjects.GameObject[],
   ): void {
-    if (this.phase !== 'setup' || currentlyOver.length > 0) {
+    if (this.phase !== 'setup' || currentlyOver.length > 0 || !isPointInField(point)) {
       return;
     }
-    const cell = pointToCell(point);
-    const removal = removeInitialItem(this.initialPlacement, cell);
+    const removal = removeInitialItem(this.initialPlacement, point);
     if (removal.ok) {
       this.initialPlacement = removal.state;
       const drawing = this.initialPlacementDrawings.get(removal.item.id);
@@ -542,10 +544,11 @@ class MainScene extends Phaser.Scene {
       return;
     }
     const itemType = this.initialPlacementItemType;
-    // 初期配置UIと重なるセルは、初期配置の間だけ置けない（UI はプレイ開始で消える）。
+    const cell = pointToPlacementCell(point);
+    // 初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS）と重なる位置は、初期配置の間だけ置けない（UI はプレイ開始で消える）。
     const result = placeInitialItem(this.initialPlacement, itemType, cell, {
       routes: this.routes,
-      blockedCells: [...ITEM_BLOCKED_CELLS, ...INITIAL_PLACEMENT_BLOCKED_CELLS],
+      blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS],
     });
     this.showInitialPlacementMessage(formatInitialPlacementMessage(result, itemType));
     if (!result.ok) {
@@ -882,7 +885,7 @@ class MainScene extends Phaser.Scene {
     this.events.emit(AI_AGENT_EQUIPPED_EVENT, payload);
   }
 
-  // 主人公がいるセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  // 主人公がいる配置グリッド（16px #151）のセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
   // 初期配置(#47)の間は買わず、置くアイテムの種類を選ぶだけにする（購入バーのページ切り替えは changeItemPage がそのまま動く）。
   // 置かないアイテム（placement: none #58）は useInstantItem で買って、その場で効果を発動する。
   private buyItem(itemType: ItemType): void {
@@ -901,7 +904,7 @@ class MainScene extends Phaser.Scene {
     const result = purchaseItem(
       { funds: this.funds, placedItems: this.placedItems, nextId: this.nextItemId, gameOver: this.gameOver.over },
       itemType,
-      pointToCell({ x: player.x, y: player.y }),
+      pointToPlacementCell({ x: player.x, y: player.y }),
       { routes: this.routes },
     );
     this.itemMessageText?.destroy();
@@ -1063,10 +1066,10 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  // アイテムの攻撃の起点(#58)。主人公についてまわるアイテムは主人公の位置 + ずれ、それ以外は置いたセルの中心。
+  // アイテムの攻撃の起点(#58)。主人公についてまわるアイテムは主人公の位置 + ずれ、それ以外は置いたセル（配置グリッド #151）の中心。
   private getItemOrigin(item: PlacedItem): Point {
     if (!isFollowItem(item.itemType)) {
-      return cellCenter(item.cell);
+      return placementCellCenter(item.cell);
     }
     const player = this.player;
     if (!player) {
@@ -1120,7 +1123,7 @@ class MainScene extends Phaser.Scene {
       return item;
     }
     this.removeActiveCode(target);
-    drawItemAttackEffect(this, cellCenter(item.cell), target.position);
+    drawItemAttackEffect(this, placementCellCenter(item.cell), target.position);
     const payload: CodeDeletedByCatPayload = {
       id: target.id,
       kind: target.kind,
@@ -1475,7 +1478,7 @@ class MainScene extends Phaser.Scene {
       const interceptor =
         fate === 'released' ? rollCiInterception(this.placedItems, next, Math.random, CI_INTERCEPT_RATE) : null;
       if (interceptor !== null) {
-        drawItemAttackEffect(this, cellCenter(interceptor.cell), next.position);
+        drawItemAttackEffect(this, placementCellCenter(interceptor.cell), next.position);
         this.discardCode(next);
         drawDefeatEffect(this, next.position);
         const defeatedPayload: CodeDefeatedPayload = { id: next.id, routeId: next.routeId };

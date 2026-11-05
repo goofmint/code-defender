@@ -6,10 +6,9 @@ import { ITEM_POWER_DAMAGE, ITEM_STRONG_AGAINST_MULTIPLIER } from './config';
 import { applyHit, getInitialHp } from './defeat';
 import type { HitResult } from './defeat';
 import { getItemDamage, getItemRange, ITEM_DEFINITIONS } from './item';
-import { findItemTarget } from './itemPlacement';
+import { findItemTarget, placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import type { MaliciousCodeType } from './maliciousCode';
-import { cellCenter } from './route';
 
 type ScannerTarget = AttackTarget & {
   readonly id: number;
@@ -18,7 +17,7 @@ type ScannerTarget = AttackTarget & {
 };
 
 const scanner: PlacedItem = { id: 0, itemType: 'securityScanner', cell: { col: 5, row: 5 }, lastAttackTime: null };
-const center = cellCenter(scanner.cell);
+const center = placementCellCenter(scanner.cell);
 const range = getItemRange('securityScanner');
 const basePower = ITEM_POWER_DAMAGE[ITEM_DEFINITIONS.securityScanner.power];
 

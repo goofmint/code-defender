@@ -21,11 +21,10 @@ import { createMonthElapsedEvent } from './gameTime';
 import type { MonthElapsedEvent } from './gameTime';
 import type { ItemType } from './item';
 import { ITEM_FEE_PAID_EVENT } from './itemFee';
-import { getItemMonthlyFee, getItemPrice, ITEM_PLACED_EVENT } from './itemPlacement';
+import { getItemMonthlyFee, getItemPrice, ITEM_PLACED_EVENT, placementCellCenter } from './itemPlacement';
 import type { ActiveEffect } from './itemEffect';
 import type { PlacedItem } from './itemPlacement';
 import { drawDefeatEffect, drawItemAttackEffect, flashCode } from './render';
-import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
 import { SALARY_PAID_EVENT } from './salary';
 
@@ -107,7 +106,8 @@ const DAMAGE = ITEM_POWER_DAMAGE.medium;
 const PRICE = getItemPrice('codeRabbit');
 const FEE = getItemMonthlyFee('codeRabbit');
 const T0 = 10_000;
-// ルートは行 5 を通る。col 7・行 4 は HUD・昇給減給ボタンと重ならないルート隣接セル。
+// ルートは行 5（y=330）を通る。アイテムのセルは配置グリッド（16px #151）の col 28・行 16（中心 456,264）で、
+// HUD（x≦416）とルートの線のクリアランス（y≧322）のどちらにもフットプリントが重ならない。
 const ROUTE: Route = {
   id: 0,
   spawn: { col: 0, row: 5 },
@@ -116,8 +116,8 @@ const ROUTE: Route = {
     { col: 8, row: 5 },
   ],
 };
-const ITEM_CELL: GridCell = { col: 7, row: 4 };
-const ITEM_CENTER = cellCenter(ITEM_CELL);
+const ITEM_CELL: GridCell = { col: 28, row: 16 };
+const ITEM_CENTER = placementCellCenter(ITEM_CELL);
 
 const isFundsChangedEvent = (payload: object): payload is FundsChangedEvent =>
   'previous' in payload && 'current' in payload && 'delta' in payload && 'reason' in payload;

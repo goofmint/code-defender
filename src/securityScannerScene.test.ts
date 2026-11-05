@@ -9,11 +9,12 @@ import { DEFAULT_REFACTORING_RATIO, ENGINEER_SPAWN_CELLS, ITEM_ATTACK_COOLDOWN_M
 import { getInitialHp } from './defeat';
 import type { Engineer } from './engineer';
 import type { GameOverState } from './gameOver';
+import { placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import { MALICIOUS_CODE_TYPES } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
 import { drawCode } from './render';
-import { cellCenter, createRoutes } from './route';
+import { createRoutes } from './route';
 import type { Route } from './route';
 import type { ActiveEffect, IncidentRecord } from './itemEffect';
 
@@ -149,7 +150,7 @@ const placeScanner = (scene: SceneUnderTest, lastAttackTime: number | null): voi
 
 // スキャナーのセル中心から (dx, dy) の位置に不正コードを置く。HP は種別の初期値。
 const placeMaliciousCode = (scene: SceneUnderTest, id: number, maliciousType: MaliciousCodeType, dx = 0, dy = 0): void => {
-  const center = cellCenter(scannerCell);
+  const center = placementCellCenter(scannerCell);
   const code: FakeActiveCode = {
     ...spawnCode(id, 'malicious', route, maliciousType),
     position: { x: center.x + dx, y: center.y + dy },

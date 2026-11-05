@@ -1,12 +1,5 @@
 import Phaser from 'phaser';
-import {
-  CELL_SIZE,
-  FIELD_COLS,
-  FIELD_HEIGHT,
-  FIELD_ROWS,
-  FIELD_WIDTH,
-  GRID_LINE_WIDTH,
-} from './field';
+import { FIELD_HEIGHT, FIELD_WIDTH, GRID_LINE_WIDTH } from './field';
 import { burstParticleOffsets, RELEASE_POINT_CENTER, RELEASE_POINT_STYLE } from './releasePoint';
 import {
   cellCenter,
@@ -112,7 +105,7 @@ import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
 import type { PlayerFacing } from './player';
 import {
   ITEM_ATTACK_LINE,
-  ITEM_BOX_RATIO,
+  ITEM_BOX_SIZE,
   ITEM_BUTTON_COLORS,
   ITEM_BUTTON_FILL_ALPHA,
   ITEM_BUTTON_FONT_SIZE,
@@ -133,10 +126,14 @@ import {
   INITIAL_PLACEMENT_TEXT,
   ITEM_PAGE_BUTTON_LABELS,
   ITEM_PAGE_SIZE,
+  PLACEMENT_CELL_SIZE,
+  PLACEMENT_COLS,
+  PLACEMENT_ROWS,
   REVEALED_CODE_STYLE,
 } from './config';
 import { itemButtonRect, itemPageControlRects } from './itemBar';
 import type { ItemBarRect, ItemPageDirection } from './itemBar';
+import { placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import { formatAiAgentButton } from './aiAgent';
@@ -148,22 +145,30 @@ const FIELD_DEPTH = -1;
 const PLAYER_DEPTH = 1;
 
 // 床（#144）: 濃紺2色の市松タイル、薄いグリッド線、外周を暗くする帯（ビネット）と縁取り。すべて1つの Graphics に描く。
+// タイルとグリッド線はアイテムの配置グリッド（16px #151）で描き、見えるタイルと置く単位を合わせる。
+// 最終行（y=528〜540）はフィールドの高さで切り詰め、グリッド線もフィールドの端で止める。
 export const drawField = (scene: Phaser.Scene): void => {
   const g = scene.add.graphics();
   g.setDepth(FIELD_DEPTH);
-  for (let row = 0; row < FIELD_ROWS; row++) {
-    for (let col = 0; col < FIELD_COLS; col++) {
+  for (let row = 0; row < PLACEMENT_ROWS; row++) {
+    const y = row * PLACEMENT_CELL_SIZE;
+    const height = Math.min(PLACEMENT_CELL_SIZE, FIELD_HEIGHT - y);
+    for (let col = 0; col < PLACEMENT_COLS; col++) {
+      const x = col * PLACEMENT_CELL_SIZE;
+      const width = Math.min(PLACEMENT_CELL_SIZE, FIELD_WIDTH - x);
       const color = (col + row) % 2 === 0 ? FIELD_FLOOR_COLORS.tileLight : FIELD_FLOOR_COLORS.tileDark;
       g.fillStyle(color, 1);
-      g.fillRect(col * CELL_SIZE, row * CELL_SIZE, CELL_SIZE, CELL_SIZE);
+      g.fillRect(x, y, width, height);
     }
   }
   g.lineStyle(GRID_LINE_WIDTH, FIELD_FLOOR_COLORS.grid, FIELD_FLOOR_STYLE.gridAlpha);
-  for (let col = 0; col <= FIELD_COLS; col++) {
-    g.lineBetween(col * CELL_SIZE, 0, col * CELL_SIZE, FIELD_HEIGHT);
+  for (let col = 0; col <= PLACEMENT_COLS; col++) {
+    const x = Math.min(col * PLACEMENT_CELL_SIZE, FIELD_WIDTH);
+    g.lineBetween(x, 0, x, FIELD_HEIGHT);
   }
-  for (let row = 0; row <= FIELD_ROWS; row++) {
-    g.lineBetween(0, row * CELL_SIZE, FIELD_WIDTH, row * CELL_SIZE);
+  for (let row = 0; row <= PLACEMENT_ROWS; row++) {
+    const y = Math.min(row * PLACEMENT_CELL_SIZE, FIELD_HEIGHT);
+    g.lineBetween(0, y, FIELD_WIDTH, y);
   }
   // ビネット: 外側の段ほど濃い帯を、フィールドの内側へ1段ずつ重ねる。
   const { vignetteSteps, vignetteStepWidth, vignetteMaxAlpha, frameWidth, frameAlpha } = FIELD_FLOOR_STYLE;
@@ -1020,13 +1025,14 @@ export const drawAiAgentButtons = (
     return button;
   });
 
-// 置いたアイテム（セル内の色付き四角と短い文字）。主人公(1)より下、コード(0.5)と同じ深さ。
+// 置いたアイテム（色付き四角と短い文字）。主人公(1)より下、コード(0.5)と同じ深さ。
 const ITEM_DEPTH = 0.4;
 
-// 表示（四角と文字の Container）を返す(#58)。初期配置(#47)で撤去するときはこの Container を destroy() する。主人公についてまわるアイテム（ペアプロ相棒）は MainScene が毎フレーム setPosition で動かす。
+// 表示（四角と文字の Container）を返す(#58)。位置は配置グリッド（16px #151）のセルの中心、四角の一辺は ITEM_BOX_SIZE（配置判定のフットプリントと同じ）。
+// 初期配置(#47)で撤去するときはこの Container を destroy() する。主人公についてまわるアイテム（ペアプロ相棒）は MainScene が毎フレーム setPosition で動かす。
 export const drawPlacedItem = (scene: Phaser.Scene, item: PlacedItem): Phaser.GameObjects.Container => {
-  const { x, y } = cellCenter(item.cell);
-  const size = CELL_SIZE * ITEM_BOX_RATIO;
+  const { x, y } = placementCellCenter(item.cell);
+  const size = ITEM_BOX_SIZE;
   const box = scene.add.rectangle(0, 0, size, size, ITEM_COLORS[item.itemType]).setStrokeStyle(2, 0xffffff);
   const mark = scene.add
     .text(0, 0, ITEM_MARKS[item.itemType], {

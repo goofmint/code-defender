@@ -6,9 +6,9 @@ import { CAT_DELETE_INTERVAL_MS, DEFAULT_MALICIOUS_CODE_HP, TECH_DEBT_INITIAL } 
 import { CODE_DELETED_BY_CAT_EVENT } from './cat';
 import type { GameOverState } from './gameOver';
 import type { ActiveEffect } from './itemEffect';
+import { placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import { drawDefeatEffect, drawItemAttackEffect } from './render';
-import { cellCenter } from './route';
 import type { GridCell, Point } from './route';
 
 type SceneConstructor = { readonly prototype: object };
@@ -76,7 +76,7 @@ const FUNDS = 123_456;
 const SCORE = 7_890;
 const ROUTE_ID = 0;
 const CAT_CELL: GridCell = { col: 7, row: 4 };
-const CAT_CENTER = cellCenter(CAT_CELL);
+const CAT_CENTER = placementCellCenter(CAT_CELL);
 
 let mainScenePrototype: object;
 

@@ -7,11 +7,12 @@ import {
   STAGE_POINT_COST_BY_TIER,
   STAGE_POINTS_INITIAL,
 } from './config';
+import { pointInRect, rectsOverlap } from './geometry';
 import { getItemPlacement, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
-import { createItemState, isPlaceableCell } from './itemPlacement';
-import type { ItemPriceTier, ItemState, PlacedItem, PlacementContext } from './itemPlacement';
-import type { GridCell } from './route';
+import { createItemState, isPlaceableCell, itemFootprint } from './itemPlacement';
+import type { ItemPriceTier, ItemState, PlacedItem, PlacementCell, PlacementContext } from './itemPlacement';
+import type { Point } from './route';
 
 export type InitialPlacementState = {
   readonly points: number;
@@ -57,16 +58,16 @@ export type InitialPlacementContext = Omit<PlacementContext, 'placedItems'> & {
 
 const isItemType = (value: string): value is ItemType => (ITEM_TYPES as readonly string[]).includes(value);
 
-const isSameCell = (a: GridCell, b: GridCell): boolean => a.col === b.col && a.row === b.row;
-
 // ステージポイントでアイテムを置く。判定順: 不明なアイテム → 置かないアイテム（placement: none #58）・置けない場所 → 既にある → ポイント不足。
 // 置かないアイテムは購入時に効果を発動するもので、セルに置けないため初期配置では notPlaceable にする。
+// cell は配置グリッド（16px #151）のセル。「既にある」はフットプリント（itemFootprint）が既存アイテムと重なるか（辺の接触は重なりとしない）で判定し、
+// 初期配置では主人公についてまわるアイテム（ペアプロ相棒 #58）も含める（初期配置の間は動かないため）。
 // ポイントがちょうどコストなら置けて 0 になる。id と lastAttackTime は purchaseItem と同じ（id は nextId、lastAttackTime は null）。
 // 失敗時は理由だけを返し、入力は変更しない。
 export const placeInitialItem = (
   state: InitialPlacementState,
   itemType: string,
-  cell: GridCell,
+  cell: PlacementCell,
   context: InitialPlacementContext,
 ): InitialPlacementResult => {
   if (!isItemType(itemType)) return { ok: false, reason: 'unknownItem' };
@@ -74,7 +75,8 @@ export const placeInitialItem = (
   const placedItems = state.itemState.placedItems;
   // 既存アイテムを除いた地形だけで判定してから、占有を別に判定する（purchaseItem と同じく occupied を区別するため）。
   if (!isPlaceableCell(cell, { ...context, placedItems: [] })) return { ok: false, reason: 'notPlaceable' };
-  if (placedItems.some((item) => isSameCell(item.cell, cell))) return { ok: false, reason: 'occupied' };
+  const footprint = itemFootprint(cell);
+  if (placedItems.some((item) => rectsOverlap(itemFootprint(item.cell), footprint))) return { ok: false, reason: 'occupied' };
   const cost = getStagePointCost(itemType, context.costTable);
   if (state.points < cost) return { ok: false, reason: 'insufficientPoints' };
   const item: PlacedItem = { id: state.itemState.nextId, itemType, cell, lastAttackTime: null };
@@ -89,14 +91,14 @@ export const placeInitialItem = (
   };
 };
 
-// セルに置いたアイテムを撤去して、そのコストを全額返す。空のセルは notFound（入力は変更しない）。
-// nextId は戻さない（撤去したアイテムの id を再利用しない）。
+// 押した点（ピクセル）がフットプリントの内側にあるアイテムを撤去して、そのコストを全額返す(#151)。該当がなければ notFound（入力は変更しない）。
+// フットプリントは重ならないので該当は最大 1 個。nextId は戻さない（撤去したアイテムの id を再利用しない）。
 export const removeInitialItem = (
   state: InitialPlacementState,
-  cell: GridCell,
+  point: Point,
   costTable: Readonly<Record<ItemPriceTier, number>> = STAGE_POINT_COST_BY_TIER,
 ): InitialRemovalResult => {
-  const item = state.itemState.placedItems.find((placed) => isSameCell(placed.cell, cell));
+  const item = state.itemState.placedItems.find((placed) => pointInRect(point, itemFootprint(placed.cell)));
   if (item === undefined) return { ok: false, reason: 'notFound' };
   const refund = getStagePointCost(item.itemType, costTable);
   return {

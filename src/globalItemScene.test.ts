@@ -14,7 +14,6 @@ import {
   PIZZA_SPAWN_INTERVAL_MULTIPLIER,
   MS_PER_GAME_MONTH,
   PLAYER_SPEED,
-  RELEASE_POINT_CELL,
   TECH_DEBT_INITIAL,
   WORKS_FINE_CODE_SPEED_MULTIPLIER,
   WORKS_FINE_DURATION_MS,
@@ -29,9 +28,11 @@ import type { GameOverState } from './gameOver';
 import { INCIDENT_EVENT } from './incident';
 import { documentationRateReduction, startEffect, startEnergyDrink } from './itemEffect';
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
+import { placementCellCenter, pointToPlacementCell } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
+import { RELEASE_POINT_CENTER } from './releasePoint';
 import { drawCode } from './render';
-import { cellCenter, routePixelPoints } from './route';
+import { routePixelPoints } from './route';
 import type { Point, Route } from './route';
 import { techDebtSpawnIntervalMs } from './techDebt';
 
@@ -291,7 +292,7 @@ describe('「動いてるからヨシ！」(#58)', () => {
 
   it('置いたアイテムは攻撃しないが、主人公の攻撃は効く。期限が切れると再び攻撃する', () => {
     const itemCell = { col: 3, row: 4 };
-    const code: FakeCode = { ...makeCode(1, 0), position: cellCenter(itemCell) };
+    const code: FakeCode = { ...makeCode(1, 0), position: placementCellCenter(itemCell) };
     const scene = createScene();
     scene.codes = [code];
     withMaliciousHp(scene);
@@ -388,7 +389,10 @@ describe('金曜日の夕方デプロイ(#58): 予約した障害', () => {
 
   it('書き置きがリリース地点を守っていても防がない', () => {
     const scene = createScene();
-    scene.placedItems = [{ id: 0, itemType: 'seniorNote', cell: RELEASE_POINT_CELL, lastAttackTime: null }];
+    // リリース地点を含む配置グリッド（16px #151）のセルに書き置きを置く。
+    scene.placedItems = [
+      { id: 0, itemType: 'seniorNote', cell: pointToPlacementCell(RELEASE_POINT_CENTER), lastAttackTime: null },
+    ];
     scene.scheduledIncidents = [{ atMs: NOW, damage }];
 
     scene.fireScheduledIncidents();
