@@ -524,7 +524,7 @@ export const ITEM_STRONG_AGAINST_MULTIPLIER = 2;
 // 仮・要確認(#48): 企画書(8)は「リリースで稼いだポイントでプレイ中にアイテムを追加できる」とだけで、通貨・操作・置ける場所は未記載。以下はすべて仮の値。
 // 通貨: 別のポイントは作らず資金(funds)で買う。正常コードのリリースは売上として資金に入り(#17)、スコアも累計売上(#22)で、別通貨が存在しないため。
 // 価格の段階(円)。企画書の「安い・普通・高い」に対応。1回の購入額。月額払いの毎月の引き落としは #51。
-export const ITEM_PRICE_TIERS = { cheap: 50000, normal: 100000, expensive: 200000 } as const;
+export const ITEM_PRICE_TIERS = { cheap: 25000, normal: 50000, expensive: 100000 } as const;
 // アイテムごとの価格の段階（企画書 8 の価格列）。
 export const ITEM_PRICE_TIER_BY_TYPE = {
   codeRabbit: 'expensive',

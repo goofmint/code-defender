@@ -52,13 +52,13 @@ const placed = (id: number, cell: GridCell, itemType: ItemType = 'linter'): Plac
 
 describe('getItemPrice: 7アイテムの価格', () => {
   it.each([
-    ['codeRabbit', 200000],
-    ['linter', 50000],
-    ['testTool', 100000],
-    ['ci', 100000],
-    ['securityScanner', 200000],
-    ['pairProgrammer', 100000],
-    ['cat', 50000],
+    ['codeRabbit', 100000],
+    ['linter', 25000],
+    ['testTool', 50000],
+    ['ci', 50000],
+    ['securityScanner', 100000],
+    ['pairProgrammer', 50000],
+    ['cat', 25000],
   ] as const)('%s は %i 円', (itemType, price) => {
     expect(getItemPrice(itemType)).toBe(price);
   });
@@ -350,21 +350,21 @@ describe('formatItemMessage / formatItemButton', () => {
   });
 
   it('ボタンは 4 番から始まる', () => {
-    expect(formatItemButton(1, 'linter')).toBe('[5] Linter 5万円');
-    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 20万/月');
-    expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 20万/月');
-    expect(formatItemButton(6, 'cat')).toBe('[0] Cat 5万円');
+    expect(formatItemButton(1, 'linter')).toBe('[5] Linter 2.5万円');
+    expect(formatItemButton(0, 'codeRabbit')).toBe('[4] CodeRabbit 10万/月');
+    expect(formatItemButton(4, 'securityScanner')).toBe('[8] Scanner 10万/月');
+    expect(formatItemButton(6, 'cat')).toBe('[0] Cat 2.5万円');
   });
 
   it('7個のボタンのキー表示は 4〜9 と 0（猫 #57）', () => {
     expect(ITEM_TYPES.map((itemType, index) => formatItemButton(index, itemType))).toEqual([
-      '[4] CodeRabbit 20万/月',
-      '[5] Linter 5万円',
-      '[6] Test 10万円',
-      '[7] CI 10万/月',
-      '[8] Scanner 20万/月',
-      '[9] Pair 10万/月',
-      '[0] Cat 5万円',
+      '[4] CodeRabbit 10万/月',
+      '[5] Linter 2.5万円',
+      '[6] Test 5万円',
+      '[7] CI 5万/月',
+      '[8] Scanner 10万/月',
+      '[9] Pair 5万/月',
+      '[0] Cat 2.5万円',
     ]);
   });
 
@@ -373,9 +373,9 @@ describe('formatItemMessage / formatItemButton', () => {
   });
 
   it('月額の表示は精算と同じ倍率を使う（1回払いは倍率に関係なく購入価格）', () => {
-    expect(formatItemButton(0, 'codeRabbit', 0.5)).toBe('[4] CodeRabbit 10万/月');
+    expect(formatItemButton(0, 'codeRabbit', 0.5)).toBe('[4] CodeRabbit 5万/月');
     expect(formatItemButton(0, 'codeRabbit', 0)).toBe('[4] CodeRabbit 0万/月');
-    expect(formatItemButton(1, 'linter', 0.5)).toBe('[5] Linter 5万円');
+    expect(formatItemButton(1, 'linter', 0.5)).toBe('[5] Linter 2.5万円');
   });
 });
 
