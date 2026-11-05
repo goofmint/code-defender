@@ -6,6 +6,7 @@ import {
   ITEM_ATTACK_COOLDOWN_MS,
   ITEM_BLOCKED_CELLS,
   ITEM_BLOCKED_ROWS,
+  ITEM_BUY_KEY_LABELS,
   ITEM_MONTHLY_FEE_RATIO,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_PRICE_TIERS,
@@ -173,9 +174,6 @@ export const formatItemMessage = (result: PurchaseResult, itemType: string): str
   }
 };
 
-// ボタン表示の番号は 4 から（1〜3 は雇うキー）。
-const ITEM_BUY_KEY_OFFSET = 4;
-
 export const getItemPayment = (itemType: ItemType): ItemPayment => ITEM_DEFINITIONS[itemType].payment;
 
 export const isMonthlyItem = (itemType: ItemType): boolean => getItemPayment(itemType) === 'monthly';
@@ -191,14 +189,17 @@ export const getItemMonthlyFee = (
   return Math.round(getItemPrice(itemType) * safeRatio);
 };
 
-// 購入ボタンの文言。「[5] Linter 5万円」。月額払いは「[4] CodeRabbit 20万/月」（ボタン幅 154px に収めるため「円」を省く）。
+// 購入ボタンの文言。「[5] Linter 5万円」。月額払いは「[4] CodeRabbit 20万/月」（ボタン幅に収めるため「円」を省く）。
+// キーの文字は ITEM_BUY_KEY_LABELS の index 番目（4〜9、猫は 0）。
 // 月額払いは精算と同じ月額（getItemMonthlyFee）を表示する。
 export const formatItemButton = (
   index: number,
   itemType: ItemType,
   ratio: number = ITEM_MONTHLY_FEE_RATIO,
 ): string => {
-  const head = `[${index + ITEM_BUY_KEY_OFFSET}] ${ITEM_SHORT_NAMES[itemType]}`;
+  const keyLabel: string | undefined = ITEM_BUY_KEY_LABELS[index];
+  if (keyLabel === undefined) throw new Error(`購入キーの表示がありません: index ${index}`);
+  const head = `[${keyLabel}] ${ITEM_SHORT_NAMES[itemType]}`;
   if (isMonthlyItem(itemType)) return `${head} ${getItemMonthlyFee(itemType, ratio) / 10000}万/月`;
   return `${head} ${getItemPrice(itemType) / 10000}万円`;
 };

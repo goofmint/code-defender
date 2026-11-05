@@ -26,7 +26,7 @@ const placed = (id: number, itemType: ItemType): PlacedItem => ({
   lastAttackTime: null,
 });
 
-// 月額: CodeRabbit 200000 / CI 100000 / セキュリティスキャナー 200000 / ペアプロ 100000。1回払い: Linter 50000 / テストツール 100000。
+// 月額: CodeRabbit 200000 / CI 100000 / セキュリティスキャナー 200000 / ペアプロ 100000。1回払い: Linter 50000 / テストツール 100000 / 猫 50000。
 describe('支払い区分（企画書 8 のとおり）', () => {
   it.each([
     ['codeRabbit', 'monthly'],
@@ -35,14 +35,15 @@ describe('支払い区分（企画書 8 のとおり）', () => {
     ['ci', 'monthly'],
     ['securityScanner', 'monthly'],
     ['pairProgrammer', 'monthly'],
+    ['cat', 'oneTime'],
   ] as const)('%s は %s', (itemType, expected) => {
     expect(getItemPayment(itemType)).toBe(expected);
     expect(isMonthlyItem(itemType)).toBe(expected === 'monthly');
   });
 
-  it('6アイテムすべて区分を持つ', () => {
+  it('7アイテムすべて区分を持つ（月額4件・1回払い3件）', () => {
     expect(ITEM_TYPES.map(getItemPayment).sort()).toEqual(
-      ['monthly', 'monthly', 'monthly', 'monthly', 'oneTime', 'oneTime'],
+      ['monthly', 'monthly', 'monthly', 'monthly', 'oneTime', 'oneTime', 'oneTime'],
     );
   });
 });
@@ -55,6 +56,7 @@ describe('getItemMonthlyFee: 月額', () => {
     ['pairProgrammer', 100000],
     ['linter', 0],
     ['testTool', 0],
+    ['cat', 0],
   ] as const)('%s の月額は %d', (itemType, expected) => {
     expect(getItemMonthlyFee(itemType)).toBe(expected);
   });
@@ -99,6 +101,11 @@ describe('getMonthlyItemFees: 個数', () => {
 
   it('1回払いだけなら 0個と同じ', () => {
     expect(getMonthlyItemFees([placed(0, 'linter'), placed(1, 'testTool')])).toEqual({ amount: 0, itemCount: 0 });
+  });
+
+  it('猫(#57)は1回払いなので月額の合計にも個数にも入らない', () => {
+    expect(getMonthlyItemFees([placed(0, 'cat'), placed(1, 'cat')])).toEqual({ amount: 0, itemCount: 0 });
+    expect(getMonthlyItemFees([placed(0, 'cat'), placed(1, 'ci')])).toEqual({ amount: 100000, itemCount: 1 });
   });
 
   it('月額と1回払いが混在しても月額だけ合計する', () => {

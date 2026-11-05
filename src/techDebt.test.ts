@@ -7,6 +7,7 @@ import {
   DIFFICULTY_STEP_MS,
   ENGINEER_RANKS,
   REFACTORING_MALICIOUS_RATE_REDUCTION_MAX,
+  TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
   TECH_DEBT_PER_FEATURE_WORK,
   TECH_DEBT_REPAY_PER_REFACTORING_WORK,
@@ -22,6 +23,7 @@ import {
   resolveWorkTechDebt,
   sanitizeRefactoringRatio,
   TECH_DEBT_CHANGED_EVENT,
+  techDebtMaliciousRateModifier,
   techDebtSpawnIntervalMs,
 } from './techDebt';
 import { effectiveMaliciousRate, maliciousRateForRank } from './difficulty';
@@ -231,6 +233,67 @@ describe('formatTechDebt', () => {
     [100, '技術的負債: 100'],
   ])('formatTechDebt(%d) = %s', (debt, expected) => {
     expect(formatTechDebt(debt)).toBe(expected);
+  });
+});
+
+describe('techDebtMaliciousRateModifier（技術的負債による不正コード率の補正・境界値）', () => {
+  // 上限・最大加算量は引数で渡して config の仮の値に依存しないようにする。
+  const BONUS = 0.2;
+  const options = { max: MAX, maxBonus: BONUS };
+
+  it.each([
+    [0, 0],
+    [1, BONUS / MAX],
+    [MAX / 2, BONUS / 2],
+    [MAX - 1, (BONUS * (MAX - 1)) / MAX],
+    [MAX, BONUS],
+    [MAX + 1, BONUS],
+    [-1, 0],
+    [-0.01, 0],
+    [NaN, 0],
+    [Infinity, BONUS],
+    [-Infinity, 0],
+  ])('負債 %d の差分は %d', (debt, expected) => {
+    expect(techDebtMaliciousRateModifier(debt, options)).toBeCloseTo(expected, 12);
+  });
+
+  it('負債 0 と負の負債の差分は 0（-0 を返さない）', () => {
+    for (const debt of [0, -1, -0.01, NaN, -Infinity]) {
+      expect(Object.is(techDebtMaliciousRateModifier(debt, options), 0)).toBe(true);
+    }
+  });
+
+  it('負債 MAX - 1 は MAX より小さく、MAX と MAX + 1 は同じ', () => {
+    expect(techDebtMaliciousRateModifier(MAX - 1, options)).toBeLessThan(techDebtMaliciousRateModifier(MAX, options));
+    expect(techDebtMaliciousRateModifier(MAX + 1, options)).toBe(techDebtMaliciousRateModifier(MAX, options));
+  });
+
+  it('負債が増えても差分は減らない（-1〜MAX + 1 で単調非減少）', () => {
+    let previous = techDebtMaliciousRateModifier(-1, options);
+    for (let debt = 0; debt <= MAX + 1; debt += 0.5) {
+      const current = techDebtMaliciousRateModifier(debt, options);
+      expect(current).toBeGreaterThanOrEqual(previous);
+      previous = current;
+    }
+  });
+
+  it.each([0, -0.1, NaN, Infinity, -Infinity])('maxBonus が %d なら負債に関係なく 0', (maxBonus) => {
+    for (const debt of [0, MAX / 2, MAX, Infinity]) {
+      expect(Object.is(techDebtMaliciousRateModifier(debt, { max: MAX, maxBonus }), 0)).toBe(true);
+    }
+  });
+
+  it.each([0, -1, NaN, Infinity, -Infinity])('max が %d なら負債に関係なく 0', (max) => {
+    for (const debt of [0, MAX / 2, MAX, Infinity]) {
+      expect(Object.is(techDebtMaliciousRateModifier(debt, { max, maxBonus: BONUS }), 0)).toBe(true);
+    }
+  });
+
+  it('既定引数は config の TECH_DEBT_MAX と TECH_DEBT_MALICIOUS_RATE_MAX_BONUS', () => {
+    expect(techDebtMaliciousRateModifier(0)).toBe(0);
+    expect(techDebtMaliciousRateModifier(TECH_DEBT_MAX)).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
+    expect(techDebtMaliciousRateModifier(TECH_DEBT_MAX / 2)).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS / 2, 12);
+    expect(techDebtMaliciousRateModifier(TECH_DEBT_MAX + 1)).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
   });
 });
 

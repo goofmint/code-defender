@@ -10,7 +10,7 @@ import {
 import { effectiveMaliciousRate, maliciousRateForRank } from './difficulty';
 import { createEngineerParameters } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
-import { refactoringMaliciousRateModifier } from './techDebt';
+import { refactoringMaliciousRateModifier, techDebtMaliciousRateModifier } from './techDebt';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -36,7 +36,9 @@ vi.mock('phaser', () => {
 });
 
 // maliciousRateModifiersFor() が触る MainScene の private メンバーだけを表す型。キャストはこのテストファイルの中に閉じる。
+// 補正一覧は [休暇の差分(#39)…, 負債の差分(#45), リファクタリングの差分] の順に並ぶ。
 type SceneUnderTest = {
+  techDebt: number;
   refactoringRatio: number;
   maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[];
 };
@@ -69,8 +71,13 @@ beforeAll(async () => {
   mainScenePrototype = scene.prototype;
 });
 
+// このファイルでは割合だけを動かし、技術的負債(#45)は 0（負債の差分 0）に固定する。
+const TECH_DEBT = 0;
+const DEBT_DELTA = techDebtMaliciousRateModifier(TECH_DEBT);
+
 const createScene = (refactoringRatio: number): SceneUnderTest => {
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
+  scene.techDebt = TECH_DEBT;
   scene.refactoringRatio = refactoringRatio;
   return scene;
 };
@@ -84,18 +91,18 @@ const RATIOS = [
 describe('MainScene.maliciousRateModifiersFor（リファクタリングの補正の接続, #41）', () => {
   it.each(RATIOS)('割合 %s: 担当者なしでもリファクタリングの差分が入る', (_label, ratio) => {
     const modifiers = createScene(ratio).maliciousRateModifiersFor(undefined);
-    expect(modifiers).toEqual([refactoringMaliciousRateModifier(ratio)]);
+    expect(modifiers).toEqual([DEBT_DELTA, refactoringMaliciousRateModifier(ratio)]);
   });
 
   it.each(RATIOS)('割合 %s: 休暇の差分（#39）と並んで入る', (_label, ratio) => {
     const modifiers = createScene(ratio).maliciousRateModifiersFor(makeEngineer('junior', 0.1));
-    expect(modifiers).toEqual([-0.1, refactoringMaliciousRateModifier(ratio)]);
+    expect(modifiers).toEqual([-0.1, DEBT_DELTA, refactoringMaliciousRateModifier(ratio)]);
   });
 
-  it.each(RATIOS)('割合 %s: 補正後の不正コード率は max(基礎率 − k × 割合, MIN)', (_label, ratio) => {
+  it.each(RATIOS)('割合 %s: 補正後の不正コード率は max(基礎率 + 負債の差分 − k × 割合, MIN)', (_label, ratio) => {
     const modifiers = createScene(ratio).maliciousRateModifiersFor(undefined);
     const expected = Math.max(
-      maliciousRateForRank(undefined, 0) - REFACTORING_MALICIOUS_RATE_REDUCTION_MAX * ratio,
+      maliciousRateForRank(undefined, 0) + DEBT_DELTA - REFACTORING_MALICIOUS_RATE_REDUCTION_MAX * ratio,
       CODE_MALICIOUS_RATE_MIN,
     );
     expect(effectiveMaliciousRate(undefined, 0, modifiers)).toBeCloseTo(expected, 12);
