@@ -27,6 +27,7 @@ import {
 import type { EngineerTendency } from './config';
 import type { AiAgentType } from './aiAgent';
 import { MS_PER_GAME_DAY } from './gameTime';
+import { getMessages } from './i18n';
 import { createRoutes } from './route';
 import type { Route } from './route';
 
@@ -166,8 +167,9 @@ export const pickRandomPersonality = (
   return pickByTarget(effective, target) ?? last;
 };
 
+// 性格の表示名。現在の言語のカタログから読む(#158)。
 export const getPersonalityLabel = (personality: EngineerPersonalityId): string =>
-  ENGINEER_PERSONALITIES.find((entry) => entry.id === personality)?.label ?? personality;
+  getMessages().engineer.personalities[personality];
 
 const clampToRange = (value: number): number =>
   Math.min(ENGINEER_PARAMETER_MAX, Math.max(ENGINEER_PARAMETER_MIN, value));
@@ -461,8 +463,8 @@ export const hireEngineer = (
   };
 };
 
-export const getRankLabel = (rank: EngineerRank): string =>
-  ENGINEER_RANKS.find((entry) => entry.id === rank)?.label ?? rank;
+// ランクの表示名。現在の言語のカタログから読む(#158)。
+export const getRankLabel = (rank: EngineerRank): string => getMessages().engineer.ranks[rank];
 
 // ランクで決まる月給の初期額（円）(#33)。雇ったとき・初期編成のときに Engineer.salary に入れる。雇用費(ENGINEER_HIRE_COST)とは別。
 export const getInitialSalary = (rank: EngineerRank): number => ENGINEER_MONTHLY_SALARY_BY_RANK[rank];

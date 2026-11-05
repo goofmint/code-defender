@@ -1,4 +1,6 @@
 // ゲーム設定の仮の値を一か所に集める。後続のゲームバランス用の値もここに追加する。
+// 表示する文言は言語カタログ（src/i18n/locales/）に置く(#158)。ここには座標・大きさなどのレイアウト値を残す。
+import { localizedRecord } from './i18n';
 
 // 仮: セルサイズ・列数・行数は CodeRabbit 実装計画(#2)の値。企画書には未記載。
 // CELL_SIZE はルートグリッド（出現セル・折れ点・リリースセル）と射程（ITEM_RANGE_RATIOS × CELL_SIZE）の基準。
@@ -329,17 +331,16 @@ export const PENALTY_TEXT_FONT_SIZE = '20px';
 // 半角文字（英数字など）はフォント px にこの比率を掛けた幅とする。sans-serif の英字の平均幅（約 0.5〜0.55 倍）より少し広く見積もり、はみ出しを防ぐ。
 export const HALF_WIDTH_CHAR_RATIO = 0.6;
 
-
 // 仮・要確認(#23): 企画書(6)は「ジュニア・ミドル・シニアの3ランクから雇える」とだけで、費用・人数・上限・操作は未記載。以下はすべて仮の値。
-// ランク表。表示名のほか、不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。
+// ランク表。不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。表示名は言語カタログ（engineer.ranks）に置く(#158)。
 // 仮・要確認(#12): maliciousRate は担当ルートの開始時の不正コード率、maliciousRateMax は時間が経った後の上限（どちらも 0〜1）。
 // 企画書(6)「不正なコードの割合」の叩き台（ジュニア 40%→60%・ミドル 25%→45%・シニア 10%→25%）。
 // 数値は docs/tasks.md の「各ランクの不正コード率（開始時・上限）を確定する」で調整する。
 // 増え方（増加量・間隔）は CODE_MALICIOUS_RATE_INCREMENT / MALICIOUS_RATE_STEP_MS(#150) を共用する。
 export const ENGINEER_RANKS = [
-  { id: 'junior', label: 'ジュニア', maliciousRate: 0.4, maliciousRateMax: 0.6 },
-  { id: 'middle', label: 'ミドル', maliciousRate: 0.25, maliciousRateMax: 0.45 },
-  { id: 'senior', label: 'シニア', maliciousRate: 0.1, maliciousRateMax: 0.25 },
+  { id: 'junior', maliciousRate: 0.4, maliciousRateMax: 0.6 },
+  { id: 'middle', maliciousRate: 0.25, maliciousRateMax: 0.45 },
+  { id: 'senior', maliciousRate: 0.1, maliciousRateMax: 0.25 },
 ] as const;
 // 仮・要確認(#25): 企画書(6)は「ランクによって、一定期間ごとの支払い（給料）が変わる」とだけで金額は未記載。以下はすべて仮の値。
 // ランク別の月給の初期額（円）(#33)。雇ったとき・初期編成のときに、この額がエンジニア個人の月給（Engineer.salary）になる。
@@ -395,16 +396,16 @@ export const ENGINEER_INITIAL_PARAMETERS: Readonly<
 };
 // 仮・要確認(#26): 企画書(6)の性格8種。順序は企画書の表どおり。雇ったときにランダムで1つ付く。
 // 性格ごとのパラメータの傾向は、この表とは別に ENGINEER_PERSONALITY_TENDENCIES に持つ(#29)。
-// 性格は画面には出さない（仮）。#59 の表示と衝突するため。
+// 性格は画面には出さない（仮）。#59 の表示と衝突するため。表示名は言語カタログ（engineer.personalities）に置く(#158)。
 export const ENGINEER_PERSONALITIES = [
-  { id: 'meticulous', label: '几帳面' },
-  { id: 'passive', label: '消極的' },
-  { id: 'careless', label: '適当' },
-  { id: 'slacker', label: 'サボりがち' },
-  { id: 'earnest', label: '真面目' },
-  { id: 'calm', label: '冷静沈着' },
-  { id: 'cheerful', label: '陽気' },
-  { id: 'gloomy', label: '根暗' },
+  { id: 'meticulous' },
+  { id: 'passive' },
+  { id: 'careless' },
+  { id: 'slacker' },
+  { id: 'earnest' },
+  { id: 'calm' },
+  { id: 'cheerful' },
+  { id: 'gloomy' },
 ] as const;
 // 仮・要確認(#26): 性格を選ぶ重み。企画書に偏りの記載はないので全部 1（均等）。Record なので過不足は型エラーになる。
 export const ENGINEER_PERSONALITY_WEIGHTS: Readonly<
@@ -544,7 +545,8 @@ export const AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE = { strong: 0, normal: 0.0
 // 仮・要確認(#53): 倍率を掛けた後のコード生成間隔の下限（ミリ秒）。倍率の調整で生成が速くなりすぎないようにする。
 export const CODE_SPAWN_INTERVAL_MIN_MS = 500;
 // 仮・要確認(#53): ボタン・メッセージ・選択中のエンジニアの情報行に使う短い名前。
-export const AI_AGENT_SHORT_NAMES = { strong: '強い', normal: '普通', cheap: '安い' } as const;
+// 文言は言語カタログ（aiAgents.shortNames）に置き、読むたびに現在の言語の値を返す(#158)。
+export const AI_AGENT_SHORT_NAMES = localizedRecord((messages) => messages.aiAgents.shortNames);
 // 仮・要確認(#53): 選択中のエンジニアの情報行で、AIエージェントを付けていないときの表示。
 export const AI_AGENT_NONE_LABEL = 'なし';
 // 仮・要確認(#53): AIエージェントを選択中のエンジニアに付けるキー（strong / normal / cheap）。Phaser の KeyCodes のキー名。
@@ -712,47 +714,9 @@ export const ITEM_PAGE_BUTTON_LABELS = {
   next: `${ITEM_PAGE_KEYS.next}▶`,
 } as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
-export const ITEM_SHORT_NAMES = {
-  codeRabbit: 'CodeRabbit',
-  linter: 'Linter',
-  testTool: 'Test',
-  ci: 'CI',
-  securityScanner: 'Scanner',
-  pairProgrammer: 'Pair',
-  cat: 'Cat',
-  rubberDuck: 'Duck',
-  codeFreeze: 'Freeze',
-  specChangeStorm: 'SpecStorm',
-  coffeeMachine: 'Coffee',
-  energyDrink: 'Energy',
-  pizza: 'Pizza',
-  documentation: 'Docs',
-  fridayDeploy: 'FriDeploy',
-  rollbackButton: 'Rollback',
-  worksFine: 'Yoshi!',
-  seniorNote: 'Senior',
-} as const;
-export const ITEM_MARKS = {
-  codeRabbit: 'CR',
-  linter: 'Lint',
-  testTool: 'Test',
-  ci: 'CI',
-  securityScanner: 'Sec',
-  pairProgrammer: 'Pair',
-  cat: 'Cat',
-  // 仮・要確認(#58): フィールドに置くのはラバーダック・コーヒーマシン・書き置きだけ。他は購入時に発動して置かないが、表の形を揃えるために持つ。
-  rubberDuck: 'Duck',
-  codeFreeze: 'Frz',
-  specChangeStorm: 'Spec',
-  coffeeMachine: 'Cof',
-  energyDrink: 'Enr',
-  pizza: 'Piz',
-  documentation: 'Doc',
-  fridayDeploy: 'Fri',
-  rollbackButton: 'RB',
-  worksFine: 'Yoshi',
-  seniorNote: 'Note',
-} as const;
+// 文言は言語カタログ（items.shortNames / items.marks）に置き、読むたびに現在の言語の値を返す(#158)。
+export const ITEM_SHORT_NAMES = localizedRecord((messages) => messages.items.shortNames);
+export const ITEM_MARKS = localizedRecord((messages) => messages.items.marks);
 // 仮・要確認(#48): アイテムの攻撃間隔（ミリ秒）。全アイテム共通。置いた直後はクールダウンなしで攻撃できる。
 export const ITEM_ATTACK_COOLDOWN_MS = 1000;
 // 仮・要確認(#54): テストツールが攻撃した不正コードを足止めする時間（ミリ秒）。企画書(8)は「足止め」とだけで、時間は未定。

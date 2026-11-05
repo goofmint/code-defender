@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import {
   CODE_SPAWN_INTERVAL_MS,
   ENGINEER_ATTACHMENT_CHANGE,
@@ -276,11 +277,11 @@ describe('isEngineerRank', () => {
 describe('ランク表', () => {
   it('3件で順序は ジュニア・ミドル・シニア', () => {
     expect(ENGINEER_RANKS.map((rank) => rank.id)).toEqual(['junior', 'middle', 'senior']);
-    expect(ENGINEER_RANKS.map((rank) => rank.label)).toEqual(['ジュニア', 'ミドル', 'シニア']);
+    expect(ENGINEER_RANKS.map((rank) => getRankLabel(rank.id))).toEqual(['ジュニア', 'ミドル', 'シニア']);
   });
   it('id・表示名に重複がない', () => {
     expect(new Set(ENGINEER_RANKS.map((rank) => rank.id)).size).toBe(ENGINEER_RANKS.length);
-    expect(new Set(ENGINEER_RANKS.map((rank) => rank.label)).size).toBe(ENGINEER_RANKS.length);
+    expect(new Set(ENGINEER_RANKS.map((rank) => getRankLabel(rank.id))).size).toBe(ENGINEER_RANKS.length);
   });
   it('全ランクに正の費用があり、ランクが上がるほど高い', () => {
     const costs = ENGINEER_RANKS.map((rank) => ENGINEER_HIRE_COST[rank.id]);
@@ -1058,7 +1059,7 @@ describe('性格の設定表', () => {
       'cheerful',
       'gloomy',
     ]);
-    expect(ENGINEER_PERSONALITIES.map((p) => p.label)).toEqual([
+    expect(ENGINEER_PERSONALITIES.map((p) => getPersonalityLabel(p.id))).toEqual([
       '几帳面',
       '消極的',
       '適当',
@@ -1071,7 +1072,7 @@ describe('性格の設定表', () => {
   });
   it('id・表示名に重複がない', () => {
     expect(new Set(PERSONALITY_IDS).size).toBe(COUNT);
-    expect(new Set(ENGINEER_PERSONALITIES.map((p) => p.label)).size).toBe(COUNT);
+    expect(new Set(ENGINEER_PERSONALITIES.map((p) => getPersonalityLabel(p.id))).size).toBe(COUNT);
   });
   it('重みが全性格にあり、均等で正の有限値', () => {
     expect(Object.keys(ENGINEER_PERSONALITY_WEIGHTS).sort()).toEqual([...PERSONALITY_IDS].sort());
@@ -2109,5 +2110,24 @@ describe('自主退職(#32): partitionResignedEngineers', () => {
 describe('自主退職(#32): formatResignedMessage', () => {
   it('id とランク名を出す', () => {
     expect(formatResignedMessage(makeEngineer(3, 'senior', 3))).toBe(`#3 ${getRankLabel('senior')}が退職しました`);
+  });
+});
+
+describe('ランク・性格の表示名（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('ランクの表示名', () => {
+    expect(ENGINEER_RANKS.map((rank) => getRankLabel(rank.id))).toEqual(['Junior', 'Mid', 'Senior']);
+  });
+
+  it('性格の表示名は8種で重複がない', () => {
+    const labels = ENGINEER_PERSONALITIES.map((p) => getPersonalityLabel(p.id));
+    expect(labels).toEqual(['Meticulous', 'Passive', 'Careless', 'Slacker', 'Earnest', 'Composed', 'Cheerful', 'Gloomy']);
+    expect(new Set(labels).size).toBe(ENGINEER_PERSONALITIES.length);
   });
 });

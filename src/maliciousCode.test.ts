@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import { CODE_STYLES } from './code';
 import {
   getMaliciousCodeAppearance,
+  getMaliciousCodeLabel,
   MALICIOUS_CODE_TYPE_DEFINITIONS,
   MALICIOUS_CODE_TYPES,
   pickMaliciousType,
@@ -26,7 +28,7 @@ describe('不正なコードの種類', () => {
   });
 
   it('各種類の label は空でなく、仕様書の9名称と一致する', () => {
-    const labels = MALICIOUS_CODE_TYPES.map((t) => MALICIOUS_CODE_TYPE_DEFINITIONS[t].label);
+    const labels = MALICIOUS_CODE_TYPES.map((t) => getMaliciousCodeLabel(t));
     labels.forEach((label) => expect(label).not.toBe(''));
     expect([...labels].sort()).toEqual([...SPEC_LABELS].sort());
   });
@@ -116,5 +118,21 @@ describe('pickMaliciousType（一様抽選・境界値）', () => {
       return 0;
     });
     expect(calls).toBe(1);
+  });
+});
+
+describe('不正なコードの表示名（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('9種類すべてにあり、重複しない', () => {
+    const labels = MALICIOUS_CODE_TYPES.map((t) => getMaliciousCodeLabel(t));
+    expect(labels.every((label) => label !== '')).toBe(true);
+    expect(new Set(labels).size).toBe(MALICIOUS_CODE_TYPES.length);
+    expect(getMaliciousCodeLabel('vulnerabilityCritical')).toBe('Vulnerability: Critical');
   });
 });

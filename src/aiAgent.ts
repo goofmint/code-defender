@@ -11,6 +11,7 @@ import {
   ITEM_PRICE_TIERS,
 } from './config';
 import type { Engineer } from './engineer';
+import { getMessages } from './i18n';
 import type { ItemPayment } from './item';
 
 export const AI_AGENT_TYPES = ['strong', 'normal', 'cheap'] as const;
@@ -19,17 +20,19 @@ export type AiAgentType = (typeof AI_AGENT_TYPES)[number];
 
 type PriceTier = keyof typeof ITEM_PRICE_TIERS;
 
-// 攻撃しないので range・power・strongAgainst は持たない。
+// 攻撃しないので range・power・strongAgainst は持たない。表示名は言語カタログ（aiAgents.names）に置き、getAiAgentLabel で読む(#158)。
 type AiAgentDefinition = {
-  readonly label: string;
   readonly payment: ItemPayment;
 };
 
 export const AI_AGENT_DEFINITIONS = {
-  strong: { label: 'AIコーディングエージェント（強い）', payment: 'monthly' },
-  normal: { label: 'AIコーディングエージェント（普通）', payment: 'monthly' },
-  cheap: { label: 'AIコーディングエージェント（安い）', payment: 'monthly' },
+  strong: { payment: 'monthly' },
+  normal: { payment: 'monthly' },
+  cheap: { payment: 'monthly' },
 } as const satisfies Record<AiAgentType, AiAgentDefinition>;
+
+// 表示名（正式名称）。現在の言語のカタログから読む(#158)。
+export const getAiAgentLabel = (agentType: AiAgentType): string => getMessages().aiAgents.names[agentType];
 
 // AIエージェントを付けたときに scene.events で発行するイベント名。
 export const AI_AGENT_EQUIPPED_EVENT = 'ai-agent-equipped';
