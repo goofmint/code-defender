@@ -1,31 +1,61 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ENGINEER_SPAWN_COL,
+  FIELD_ROWS,
+  INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
   INITIAL_PLACEMENT_PANEL_LINES,
+  INITIAL_PLACEMENT_REMOVE_BUTTON,
+  INITIAL_PLACEMENT_TEXT,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_SHORT_NAMES,
+  MAX_ENGINEER_ROUTES,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
   STAGE_POINT_COST_BY_TIER,
+  RELEASE_POINT_CELL,
   STAGE_POINTS_INITIAL,
 } from './config';
-import { FIELD_COLS } from './field';
+import { createInitialFleet } from './engineer';
+import type { Engineer } from './engineer';
+import { rectIntersectsCircle } from './geometry';
+import { CELL_SIZE, FIELD_COLS } from './field';
 import { getItemPlacement, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import {
+  canStartPlay,
+  countUnplacedEngineers,
   createInitialPlacementState,
+  ENGINEER_REMOVE_BUTTON_OFFSET,
+  engineerRemoveButtonCenter,
   finishInitialPlacement,
+  formatEngineerPlacementMessage,
+  formatInitialPlacementEngineerButton,
+  formatInitialPlacementItemButton,
   formatInitialPlacementMessage,
   formatInitialPlacementPanel,
   getStagePointCost,
+  isEngineerCandidateCell,
+  itemRemoveButtonCenter,
+  listEngineerCandidateCells,
+  placeInitialEngineer,
   placeInitialItem,
+  removeInitialEngineer,
   removeInitialItem,
 } from './initialPlacement';
-import type { InitialPlacementState } from './initialPlacement';
-import { itemFootprint, placementCellCenter, pointToPlacementCell, purchaseItem } from './itemPlacement';
+import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
+import {
+  isPlaceableCell,
+  itemFootprint,
+  placementCellCenter,
+  pointToPlacementCell,
+  purchaseItem,
+  SPAWN_CLEARANCE_RADIUS,
+} from './itemPlacement';
+import type { PlacedItem } from './itemPlacement';
 import { RELEASE_POINT_CENTER } from './releasePoint';
-import { cellCenter } from './route';
+import { addRouteAt, cellCenter, SPAWN_MARKER_STYLE } from './route';
 import type { GridCell, Route } from './route';
 
 // itemPlacement.test.ts と同じ単純なルート。行3（y=210）を水平に通り、col 5 で行5（y=330）へ曲がってリリース地点へ向かう。
@@ -416,11 +446,307 @@ describe('formatInitialPlacementMessage / formatInitialPlacementPanel', () => {
     expect(formatInitialPlacementMessage({ ok: false, reason: 'unknownItem' }, 'foo')).toBe('不明なアイテムです: foo');
   });
 
-  it('パネルは INITIAL_PLACEMENT_PANEL_LINES 行で、残ポイントと選択中のアイテム・コストを出す', () => {
-    const lines = formatInitialPlacementPanel(STAGE_POINTS_INITIAL, 'linter');
+  it('パネルは INITIAL_PLACEMENT_PANEL_LINES 行で、残ポイントと選択中のもの（アイテムとコスト・エンジニア・なし）とマウス操作の説明を出す(#157)', () => {
+    const lines = formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'item', itemType: 'linter' });
+    expect(INITIAL_PLACEMENT_PANEL_LINES).toBe(3);
     expect(lines).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
     expect(lines[0]).toContain(`${STAGE_POINTS_INITIAL}pt`);
     expect(lines[1]).toBe(`選択: ${ITEM_SHORT_NAMES.linter} ${linterCost}pt`);
-    expect(formatInitialPlacementPanel(0, 'cat')[0]).toContain('0pt');
+    expect(lines[2]).toBe(INITIAL_PLACEMENT_TEXT.instruction);
+    expect(formatInitialPlacementPanel(0, { kind: 'item', itemType: 'cat' })[0]).toContain('0pt');
+    expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'engineer' })[1]).toBe('選択: エンジニア');
+    expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'none' })[1]).toBe('選択: なし');
+  });
+
+  it('パネルにキーボード操作の説明（キー名・ENTER）を出さない(#157)', () => {
+    const selections: readonly InitialPlacementSelection[] = [
+      { kind: 'none' },
+      { kind: 'engineer' },
+      ...ITEM_TYPES.map((itemType): InitialPlacementSelection => ({ kind: 'item', itemType })),
+    ];
+    for (const selection of selections) {
+      for (const line of formatInitialPlacementPanel(STAGE_POINTS_INITIAL, selection)) {
+        expect(line).not.toMatch(/ENTER|\[|4〜9/);
+      }
+    }
+    expect(INITIAL_PLACEMENT_TEXT.startButton).not.toContain('ENTER');
+  });
+});
+
+// ---- エンジニアの初期配置(#157) ----
+// シード付き擬似乱数（mulberry32。route.test.ts と同じ）。0 以上 1 未満を返す。
+const seededRandom = (seed: number): (() => number) => {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+// 初期の3人（出現行 1・4・7、id 0〜2）とそのルート。
+const fleet = () => createInitialFleet(seededRandom(1));
+const spawnRow = (row: number): GridCell => ({ col: ENGINEER_SPAWN_COL, row });
+const itemAt = (id: number, cell: GridCell): PlacedItem => ({ id, itemType: 'linter', cell, lastAttackTime: null });
+// 出現行0のルートは必ず出現セルから右へ水平に出る（最初の曲がり列は ROUTE_TURN_COL_MIN 以上）。その線上（y=30）で、
+// 出現場所の円（中心 (30, 30)、半径 SPAWN_CLEARANCE_RADIUS）には重ならないアイテム。行0のどのルートとも重なる。
+const onRow0Line: GridCell = pointToPlacementCell({ x: 72, y: 24 });
+// 指定したエンジニアを外した名簿とルート。
+const withoutEngineers = (ids: readonly number[]): { readonly engineers: Engineer[]; readonly routes: Route[] } =>
+  ids.reduce(
+    (state, id) => {
+      const result = removeInitialEngineer(state.engineers, state.routes, id);
+      if (!result.ok) throw new Error(`外せませんでした: ${result.reason}`);
+      return { engineers: result.engineers, routes: result.routes };
+    },
+    { engineers: fleet().engineers, routes: fleet().routes },
+  );
+
+describe('isEngineerCandidateCell / listEngineerCandidateCells: エンジニアを置ける床(#157)', () => {
+  it('前提: onRow0Line は行0の出現場所の円に重ならず、行0から出るルートの最初の区間に重なる', () => {
+    expect(rectIntersectsCircle(itemFootprint(onRow0Line), cellCenter(spawnRow(0)), SPAWN_CLEARANCE_RADIUS)).toBe(false);
+    const route = addRouteAt([], spawnRow(0), seededRandom(3));
+    if (route === undefined) throw new Error('ルートを作れませんでした');
+    expect(isPlaceableCell(onRow0Line, { routes: [route], placedItems: [], blockedRects: [] })).toBe(false);
+  });
+
+  it('境界値: 出現列の行0と最終行（FIELD_ROWS - 1）は置け、範囲外（-1・FIELD_ROWS）と小数の行は置けない', () => {
+    const { routes } = fleet();
+    expect(isEngineerCandidateCell(spawnRow(0), routes, [])).toBe(true);
+    expect(isEngineerCandidateCell(spawnRow(FIELD_ROWS - 1), routes, [])).toBe(true);
+    expect(isEngineerCandidateCell(spawnRow(-1), routes, [])).toBe(false);
+    expect(isEngineerCandidateCell(spawnRow(FIELD_ROWS), routes, [])).toBe(false);
+    expect(isEngineerCandidateCell(spawnRow(0.5), routes, [])).toBe(false);
+  });
+
+  it('境界値: 出現列の右隣（列 ENGINEER_SPAWN_COL + 1）は置けない。リリースセルも置けない', () => {
+    const { routes } = fleet();
+    expect(isEngineerCandidateCell({ col: ENGINEER_SPAWN_COL + 1, row: 0 }, routes, [])).toBe(false);
+    expect(isEngineerCandidateCell(RELEASE_POINT_CELL, routes, [])).toBe(false);
+  });
+
+  it('使用中の出現セルは置けず、外すと置けるようになる', () => {
+    const { routes } = fleet();
+    expect(isEngineerCandidateCell(spawnRow(4), routes, [])).toBe(false);
+    expect(isEngineerCandidateCell(spawnRow(4), withoutEngineers([1]).routes, [])).toBe(true);
+  });
+
+  it('境界値: アイテムの見た目の四角が出現場所の外側リングに重なると置けず、重ならない最初の位置なら置ける', () => {
+    const { routes } = fleet();
+    const center = cellCenter(spawnRow(0));
+    const row = pointToPlacementCell(center).row;
+    // 行0の中心と同じ高さで、左から右へずらして最初に重ならなくなる列を探す（ITEM_BOX_SIZE が変わっても成り立つ）。
+    const firstClear = Array.from({ length: PLACEMENT_COLS }, (_, col) => col).find(
+      (col) => !rectIntersectsCircle(itemFootprint({ col, row }), center, SPAWN_CLEARANCE_RADIUS),
+    );
+    if (firstClear === undefined || firstClear === 0) throw new Error('境界の列が見つかりません');
+    expect(isEngineerCandidateCell(spawnRow(0), routes, [itemAt(0, { col: firstClear - 1, row })])).toBe(false);
+    expect(isEngineerCandidateCell(spawnRow(0), routes, [itemAt(0, { col: firstClear, row })])).toBe(true);
+  });
+
+  it('一覧は出現列の空いた行を上から返す（初期の行 1・4・7 を除く）', () => {
+    const { routes } = fleet();
+    expect(listEngineerCandidateCells(routes, [])).toEqual([0, 2, 3, 5, 6, 8].map(spawnRow));
+    expect(listEngineerCandidateCells([], [])).toHaveLength(FIELD_ROWS);
+    expect(listEngineerCandidateCells(withoutEngineers([0, 1, 2]).routes, [])).toHaveLength(FIELD_ROWS);
+  });
+});
+
+describe('placeInitialEngineer: エンジニアを置いてルートを自動で作る(#157)', () => {
+  it('未配置の最初のエンジニアに、指定セルから出るルートを割り当てる。id は既存の最大 + 1', () => {
+    const { engineers, routes } = withoutEngineers([1]);
+    const result = placeInitialEngineer(engineers, routes, [], spawnRow(0), seededRandom(5));
+    if (!result.ok) throw new Error(`置けませんでした: ${result.reason}`);
+    expect(result.engineerId).toBe(1);
+    expect(result.route.spawn).toEqual(spawnRow(0));
+    expect(result.route.waypoints[0]).toEqual(spawnRow(0));
+    expect(result.route.waypoints[result.route.waypoints.length - 1]).toEqual(RELEASE_POINT_CELL);
+    expect(result.route.id).toBe(Math.max(...routes.map((route) => route.id)) + 1);
+    expect(result.routes).toEqual([...routes, result.route]);
+    expect(result.engineers.find((engineer) => engineer.id === 1)?.routeId).toBe(result.route.id);
+    expect(countUnplacedEngineers(result.engineers)).toBe(0);
+  });
+
+  it('未配置が複数なら名簿の並びで最初の人から置く', () => {
+    const { engineers, routes } = withoutEngineers([2, 0]);
+    const first = placeInitialEngineer(engineers, routes, [], spawnRow(8), seededRandom(5));
+    if (!first.ok) throw new Error(`置けませんでした: ${first.reason}`);
+    expect(first.engineerId).toBe(0);
+    const second = placeInitialEngineer(first.engineers, first.routes, [], spawnRow(0), seededRandom(6));
+    if (!second.ok) throw new Error(`置けませんでした: ${second.reason}`);
+    expect(second.engineerId).toBe(2);
+  });
+
+  it('判定順: 置けないセル → 未配置のエンジニアがいない → アイテムと重なる', () => {
+    const full = fleet();
+    // 全員配置済みでも、置けないセルなら notCandidate。
+    expect(placeInitialEngineer(full.engineers, full.routes, [], { col: 1, row: 0 }, seededRandom(1))).toEqual({
+      ok: false,
+      reason: 'notCandidate',
+    });
+    expect(placeInitialEngineer(full.engineers, full.routes, [], spawnRow(0), seededRandom(1))).toEqual({
+      ok: false,
+      reason: 'noUnplacedEngineer',
+    });
+    const { engineers, routes } = withoutEngineers([0]);
+    expect(placeInitialEngineer(engineers, routes, [], spawnRow(4), seededRandom(1))).toEqual({
+      ok: false,
+      reason: 'notCandidate',
+    });
+    expect(placeInitialEngineer(engineers, routes, [itemAt(0, onRow0Line)], spawnRow(0), seededRandom(1))).toEqual({
+      ok: false,
+      reason: 'overlapsItem',
+    });
+  });
+
+  it('作ったルートは配置済みアイテムの見た目の四角に重ならない（多数のシード）', () => {
+    const { engineers, routes } = withoutEngineers([0]);
+    // 行0から出て、下りる列によっては通る位置（x=200 付近、行0の線上）のアイテム。
+    const items = [itemAt(0, pointToPlacementCell({ x: 200, y: 24 }))];
+    for (let seed = 1; seed <= 50; seed++) {
+      const result = placeInitialEngineer(engineers, routes, items, spawnRow(0), seededRandom(seed));
+      if (!result.ok) continue;
+      expect(isPlaceableCell(items[0].cell, { routes: [result.route], placedItems: [], blockedRects: [] })).toBe(true);
+    }
+  });
+
+  it('境界値: 作り直しの上限回数ちょうどで重ならないルートが出れば置け、上限が1回少なければ overlapsItem', () => {
+    const { engineers, routes } = withoutEngineers([0]);
+    const items = [itemAt(0, pointToPlacementCell({ x: 200, y: 24 }))];
+    // 同じ乱数列で何回目に重ならないルートが出るかを数え、2回目以降に出るシードを使う。
+    const firstAvoidingAttempt = (seed: number): number | undefined => {
+      const random = seededRandom(seed);
+      for (let attempt = 1; attempt <= INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS; attempt++) {
+        const route = addRouteAt(routes, spawnRow(0), random);
+        if (route === undefined) throw new Error('ルートを作れませんでした');
+        if (isPlaceableCell(items[0].cell, { routes: [route], placedItems: [], blockedRects: [] })) return attempt;
+      }
+      return undefined;
+    };
+    const seed = Array.from({ length: 200 }, (_, i) => i + 1).find((candidate) => (firstAvoidingAttempt(candidate) ?? 0) >= 2);
+    if (seed === undefined) throw new Error('2回目以降に重ならないルートが出るシードが見つかりません');
+    const attempts = firstAvoidingAttempt(seed);
+    if (attempts === undefined) throw new Error('回数が数えられません');
+    expect(placeInitialEngineer(engineers, routes, items, spawnRow(0), seededRandom(seed), attempts).ok).toBe(true);
+    expect(placeInitialEngineer(engineers, routes, items, spawnRow(0), seededRandom(seed), attempts - 1)).toEqual({
+      ok: false,
+      reason: 'overlapsItem',
+    });
+  });
+
+  it('既定の上限（INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS）まで毎回重なれば overlapsItem で、入力を変更しない', () => {
+    const { engineers, routes } = withoutEngineers([0]);
+    const items = [itemAt(0, onRow0Line)];
+    const snapshot = structuredClone({ engineers, routes, items });
+    let calls = 0;
+    const random = seededRandom(9);
+    const counting = (): number => {
+      calls += 1;
+      return random();
+    };
+    expect(placeInitialEngineer(engineers, routes, items, spawnRow(0), counting)).toEqual({ ok: false, reason: 'overlapsItem' });
+    expect(calls).toBeGreaterThanOrEqual(INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS);
+    expect({ engineers, routes, items }).toEqual(snapshot);
+  });
+
+  it('出現列の全行に置ける（ルートの上限 MAX_ENGINEER_ROUTES = 行数に収まる）', () => {
+    const engineers: Engineer[] = Array.from({ length: MAX_ENGINEER_ROUTES }, (_, id) => ({
+      ...fleet().engineers[0],
+      id,
+      routeId: null,
+    }));
+    const final = Array.from({ length: FIELD_ROWS }, (_, row) => row).reduce(
+      (state, row) => {
+        const result = placeInitialEngineer(state.engineers, state.routes, [], spawnRow(row), seededRandom(row + 1));
+        if (!result.ok) throw new Error(`行${row}に置けませんでした: ${result.reason}`);
+        return { engineers: result.engineers, routes: result.routes };
+      },
+      { engineers, routes: [] as Route[] },
+    );
+    expect(final.routes).toHaveLength(MAX_ENGINEER_ROUTES);
+    expect(canStartPlay(final.engineers)).toBe(true);
+  });
+});
+
+describe('removeInitialEngineer / canStartPlay: エンジニアを外す・開始の条件(#157)', () => {
+  it('外すとルートを除き routeId を null に戻す。名簿からは外さず、他の人とルートは変えない', () => {
+    const { engineers, routes } = fleet();
+    const result = removeInitialEngineer(engineers, routes, 1);
+    if (!result.ok) throw new Error(`外せませんでした: ${result.reason}`);
+    expect(result.routeId).toBe(engineers[1].routeId);
+    expect(result.engineers).toHaveLength(engineers.length);
+    expect(result.engineers[1].routeId).toBeNull();
+    expect(result.engineers[0]).toBe(engineers[0]);
+    expect(result.routes).toEqual(routes.filter((route) => route.id !== engineers[1].routeId));
+    expect(engineers[1].routeId).not.toBeNull();
+  });
+
+  it('いない id は notFound、配置していない人は notPlaced', () => {
+    const { engineers, routes } = withoutEngineers([1]);
+    expect(removeInitialEngineer(engineers, routes, 99)).toEqual({ ok: false, reason: 'notFound' });
+    expect(removeInitialEngineer(engineers, routes, 1)).toEqual({ ok: false, reason: 'notPlaced' });
+  });
+
+  it('境界値: 全員（N 人）配置なら開始でき、N-1 人なら開始できない', () => {
+    const { engineers } = fleet();
+    expect(countUnplacedEngineers(engineers)).toBe(0);
+    expect(canStartPlay(engineers)).toBe(true);
+    const missingOne = withoutEngineers([2]).engineers;
+    expect(countUnplacedEngineers(missingOne)).toBe(1);
+    expect(canStartPlay(missingOne)).toBe(false);
+    expect(canStartPlay(withoutEngineers([0, 1, 2]).engineers)).toBe(false);
+  });
+});
+
+describe('初期配置の文言と×ボタンの位置(#157)', () => {
+  it('購入バーの文言はステージポイントのコストで、キーと金額を出さない', () => {
+    expect(formatInitialPlacementItemButton('linter')).toBe(`${ITEM_SHORT_NAMES.linter} ${linterCost}pt`);
+    for (const itemType of ITEM_TYPES) {
+      expect(formatInitialPlacementItemButton(itemType)).toBe(`${ITEM_SHORT_NAMES[itemType]} ${getStagePointCost(itemType)}pt`);
+    }
+  });
+
+  it('エンジニアの選択ボタンは未配置の人数を出す', () => {
+    expect(formatInitialPlacementEngineerButton(0)).toBe('エンジニア 残り0人');
+    expect(formatInitialPlacementEngineerButton(3)).toBe('エンジニア 残り3人');
+  });
+
+  it('エンジニアの配置の結果メッセージ', () => {
+    const { engineers, routes } = withoutEngineers([0]);
+    expect(formatEngineerPlacementMessage(placeInitialEngineer(engineers, routes, [], spawnRow(0), seededRandom(1)))).toBe(
+      'エンジニアを置きました',
+    );
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'notCandidate' })).toBe('エンジニアはここに置けません');
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('置けるエンジニアがいません');
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'overlapsItem' })).toBe('アイテムと重なるため置けません');
+  });
+
+  it('アイテムの×ボタンは見た目の四角（フットプリント）の右上の角が中心', () => {
+    const { x, y, width } = itemFootprint(free);
+    expect(itemRemoveButtonCenter(free)).toEqual({ x: x + width, y });
+  });
+
+  it('境界値: エンジニアの×ボタンは休暇マーカーの当たり判定（半径 SPAWN_MARKER_STYLE.radius）の外で、1px 内側に寄せると重なる。出現セルに収まる', () => {
+    const { size } = INITIAL_PLACEMENT_REMOVE_BUTTON;
+    const buttonRect = (offset: number, spawn: GridCell) => {
+      const center = cellCenter(spawn);
+      return { x: center.x + offset - size / 2, y: center.y - offset - size / 2, width: size, height: size };
+    };
+    for (let row = 0; row < FIELD_ROWS; row++) {
+      const spawn = spawnRow(row);
+      const center = engineerRemoveButtonCenter(spawn);
+      expect(center).toEqual({ x: cellCenter(spawn).x + ENGINEER_REMOVE_BUTTON_OFFSET, y: cellCenter(spawn).y - ENGINEER_REMOVE_BUTTON_OFFSET });
+      const rect = buttonRect(ENGINEER_REMOVE_BUTTON_OFFSET, spawn);
+      expect(rectIntersectsCircle(rect, cellCenter(spawn), SPAWN_MARKER_STYLE.radius)).toBe(false);
+      expect(rectIntersectsCircle(buttonRect(ENGINEER_REMOVE_BUTTON_OFFSET - 1, spawn), cellCenter(spawn), SPAWN_MARKER_STYLE.radius)).toBe(
+        true,
+      );
+      const cellLeft = cellCenter(spawn).x - CELL_SIZE / 2;
+      const cellTop = cellCenter(spawn).y - CELL_SIZE / 2;
+      expect(rect.x).toBeGreaterThanOrEqual(cellLeft);
+      expect(rect.y).toBeGreaterThanOrEqual(cellTop);
+      expect(rect.x + rect.width).toBeLessThanOrEqual(cellLeft + CELL_SIZE);
+    }
   });
 });

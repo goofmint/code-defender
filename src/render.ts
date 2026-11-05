@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { FIELD_HEIGHT, FIELD_WIDTH, GRID_LINE_WIDTH } from './field';
+import { CELL_SIZE, FIELD_HEIGHT, FIELD_WIDTH, GRID_LINE_WIDTH } from './field';
 import { burstParticleOffsets, RELEASE_POINT_CENTER, RELEASE_POINT_STYLE } from './releasePoint';
 import {
   cellCenter,
@@ -8,7 +8,7 @@ import {
   SPAWN_MARKER_STYLE,
   VACATION_MARKER_STYLE,
 } from './route';
-import type { Point, Route, RouteChevron } from './route';
+import type { GridCell, Point, Route, RouteChevron } from './route';
 import {
   CODE_CORNER_RADIUS_RATIO,
   CODE_SIZE,
@@ -117,12 +117,17 @@ import {
   ITEM_MESSAGE_COLOR,
   ITEM_MESSAGE_DURATION_MS,
   ITEM_MESSAGE_POSITION,
+  ENGINEER_CANDIDATE_OVERLAY,
+  INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION,
+  INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE,
   INITIAL_PLACEMENT_FONT_SIZE,
   INITIAL_PLACEMENT_LINE_SPACING,
   INITIAL_PLACEMENT_MESSAGE_COLOR,
   INITIAL_PLACEMENT_MESSAGE_DURATION_MS,
   INITIAL_PLACEMENT_MESSAGE_POSITION,
   INITIAL_PLACEMENT_PANEL_POSITION,
+  INITIAL_PLACEMENT_REMOVE_BUTTON,
+  INITIAL_PLACEMENT_SELECTED_COLORS,
   INITIAL_PLACEMENT_START_BUTTON_POSITION,
   INITIAL_PLACEMENT_START_BUTTON_SIZE,
   INITIAL_PLACEMENT_TEXT,
@@ -1067,7 +1072,8 @@ const ITEM_BUTTON_DEPTH = 0.45;
 // アイテム購入バー(#58)。ページ内の枠の操作を MainScene に返す。
 export type ItemBar = {
   // 枠ごとのボタンの文言（空の枠は null で隠す）とページ表示を差し替える。
-  readonly showPage: (labels: readonly (string | null)[], pageLabel: string) => void;
+  // selectedSlot は強調する枠の番号（初期配置で選んでいるアイテム #157）。強調しないなら null（プレイ中は常に null）。
+  readonly showPage: (labels: readonly (string | null)[], pageLabel: string, selectedSlot: number | null) => void;
 };
 
 // 購入バーのボタン1つ（Rectangle と Text の Container）。drawHireButtons と同じく、表示範囲と当たり判定を一致させるため矩形を半分ずらす。
@@ -1077,7 +1083,11 @@ const drawItemBarButton = (
   rect: ItemBarRect,
   text: string,
   onPress: () => void,
-): { readonly container: Phaser.GameObjects.Container; readonly label: Phaser.GameObjects.Text } => {
+): {
+  readonly container: Phaser.GameObjects.Container;
+  readonly label: Phaser.GameObjects.Text;
+  readonly background: Phaser.GameObjects.Rectangle;
+} => {
   const { width, height } = rect;
   const background = scene.add
     .rectangle(0, 0, width, height, ITEM_BUTTON_COLORS.fill, ITEM_BUTTON_FILL_ALPHA)
@@ -1099,7 +1109,7 @@ const drawItemBarButton = (
     Phaser.Geom.Rectangle.Contains,
   );
   container.on('pointerdown', onPress);
-  return { container, label };
+  return { container, label, background };
 };
 
 // アイテム購入バー（画面下端）。ページ内の枠（ITEM_PAGE_SIZE 個）と、ページ切替UI（前・ページ表示・次）を描く(#58)。
@@ -1135,12 +1145,17 @@ export const drawItemButtons = (
     .setOrigin(0.5)
     .setDepth(ITEM_BUTTON_DEPTH);
   return {
-    showPage: (labels, pageLabel) => {
+    showPage: (labels, pageLabel, selectedSlot) => {
       slots.forEach((slot, index) => {
         const text = labels[index] ?? null;
         // 隠した枠は当たり判定もなくなる（Phaser は非表示のオブジェクトを入力の対象にしない）。
         slot.container.setVisible(text !== null);
         slot.label.setText(text ?? '');
+        // 選んでいる枠だけ塗りと枠線を強調色にする(#157)。
+        const selected = index === selectedSlot;
+        slot.background
+          .setFillStyle(selected ? INITIAL_PLACEMENT_SELECTED_COLORS.fill : ITEM_BUTTON_COLORS.fill, ITEM_BUTTON_FILL_ALPHA)
+          .setStrokeStyle(2, selected ? INITIAL_PLACEMENT_SELECTED_COLORS.stroke : ITEM_BUTTON_COLORS.stroke);
       });
       pageText.setText(pageLabel);
     },
@@ -1209,4 +1224,103 @@ export const drawInitialPlacementMessage = (scene: Phaser.Scene, message: string
     .setDepth(ELAPSED_DAYS_DEPTH);
   scene.time.delayedCall(INITIAL_PLACEMENT_MESSAGE_DURATION_MS, () => text.destroy());
   return text;
+};
+
+// 初期配置(#157)のエンジニアの選択ボタン。クリックで onSelect() を呼ぶ。見た目・当たり判定・深さは開始ボタンと同じ。
+// 文言（残りの人数）は setLabel、選んでいる間の強調は setSelected で切り替える。プレイ開始時に MainScene が container を destroy() する。
+export type EngineerSelectButton = {
+  readonly container: Phaser.GameObjects.Container;
+  readonly setLabel: (text: string) => void;
+  readonly setSelected: (selected: boolean) => void;
+};
+
+export const drawInitialPlacementEngineerButton = (
+  scene: Phaser.Scene,
+  text: string,
+  onSelect: () => void,
+): EngineerSelectButton => {
+  const { width, height } = INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE;
+  const background = scene.add
+    .rectangle(0, 0, width, height, HIRE_BUTTON_COLORS.fill)
+    .setOrigin(0)
+    .setStrokeStyle(2, HIRE_BUTTON_COLORS.stroke);
+  const label = scene.add
+    .text(width / 2, height / 2, text, {
+      fontSize: INITIAL_PLACEMENT_FONT_SIZE,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: HIRE_BUTTON_COLORS.text,
+    })
+    .setOrigin(0.5);
+  const container = scene.add
+    .container(INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION.x, INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION.y, [background, label])
+    .setSize(width, height)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  container.setInteractive(
+    new Phaser.Geom.Rectangle(width / 2, height / 2, width, height),
+    Phaser.Geom.Rectangle.Contains,
+  );
+  // stopPropagation はしない（main.ts が currentlyOver で配置を止める）。
+  container.on('pointerdown', () => onSelect());
+  return {
+    container,
+    setLabel: (next) => {
+      label.setText(next);
+    },
+    setSelected: (selected) => {
+      background
+        .setFillStyle(selected ? INITIAL_PLACEMENT_SELECTED_COLORS.fill : HIRE_BUTTON_COLORS.fill)
+        .setStrokeStyle(2, selected ? INITIAL_PLACEMENT_SELECTED_COLORS.stroke : HIRE_BUTTON_COLORS.stroke);
+    },
+  };
+};
+
+// 初期配置(#157)でエンジニアを置ける床（ルートグリッド 60px のセル）を半透明で塗る。入力は持たない。
+// 置く・外すたびに MainScene が destroy() して描き直し、プレイ開始時に destroy() する（drawField は変えない）。
+export const drawEngineerCandidateOverlay = (
+  scene: Phaser.Scene,
+  cells: readonly GridCell[],
+): Phaser.GameObjects.Graphics => {
+  const g = scene.add.graphics();
+  g.setDepth(ENGINEER_CANDIDATE_OVERLAY.depth);
+  const { fillColor, fillAlpha, strokeColor, strokeWidth, strokeAlpha } = ENGINEER_CANDIDATE_OVERLAY;
+  // 枠線はセルの内側に収める（隣のセルの枠と重ならないよう、線幅の半分だけ内側に描く）。
+  const inset = strokeWidth / 2;
+  cells.forEach((cell) => {
+    const x = cell.col * CELL_SIZE;
+    const y = cell.row * CELL_SIZE;
+    g.fillStyle(fillColor, fillAlpha);
+    g.fillRect(x, y, CELL_SIZE, CELL_SIZE);
+    g.lineStyle(strokeWidth, strokeColor, strokeAlpha);
+    g.strokeRect(x + inset, y + inset, CELL_SIZE - strokeWidth, CELL_SIZE - strokeWidth);
+  });
+  return g;
+};
+
+// 初期配置(#157)の取消（×）ボタン。center を中心とする一辺 INITIAL_PLACEMENT_REMOVE_BUTTON.size の正方形で、クリックで onRemove() を呼ぶ。
+// 当たり判定は見た目の正方形と同じ（drawItemBarButton と同じく setSize と半分ずらした矩形）。
+// stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で配置を止める。撤去時・プレイ開始時に MainScene が destroy() する。
+export const drawRemoveButton = (
+  scene: Phaser.Scene,
+  center: Point,
+  onRemove: () => void,
+): Phaser.GameObjects.Container => {
+  const { size, fillColor, strokeColor, strokeWidth, label, fontSize, labelColor, depth } = INITIAL_PLACEMENT_REMOVE_BUTTON;
+  const background = scene.add
+    .rectangle(0, 0, size, size, fillColor)
+    .setOrigin(0)
+    .setStrokeStyle(strokeWidth, strokeColor);
+  const mark = scene.add
+    .text(size / 2, size / 2, label, {
+      fontSize,
+      fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+      color: labelColor,
+    })
+    .setOrigin(0.5);
+  const container = scene.add
+    .container(center.x - size / 2, center.y - size / 2, [background, mark])
+    .setSize(size, size)
+    .setDepth(depth);
+  container.setInteractive(new Phaser.Geom.Rectangle(size / 2, size / 2, size, size), Phaser.Geom.Rectangle.Contains);
+  container.on('pointerdown', () => onRemove());
+  return container;
 };

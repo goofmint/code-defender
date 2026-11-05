@@ -14,10 +14,14 @@ import {
   HIRE_KEYS,
   HIRE_MESSAGE_POSITION,
   HIRE_UI_POSITION,
+  MAX_ENGINEERS,
   ENGINEER_SALARY_MAX,
+  INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION,
+  INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE,
   INITIAL_PLACEMENT_FONT_SIZE,
   INITIAL_PLACEMENT_LINE_HEIGHT,
   INITIAL_PLACEMENT_MESSAGE_POSITION,
+  INITIAL_PLACEMENT_MESSAGES,
   INITIAL_PLACEMENT_PANEL_LINES,
   INITIAL_PLACEMENT_PANEL_POSITION,
   INITIAL_PLACEMENT_START_BUTTON_POSITION,
@@ -67,7 +71,8 @@ import {
 import { createEngineerParameters, formatSelectedEngineer, formatVacationHint, getInitialSalary } from './engineer';
 import { CELL_SIZE, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import { ITEM_TYPES } from './item';
-import { formatInitialPlacementPanel } from './initialPlacement';
+import { formatInitialPlacementEngineerButton, formatInitialPlacementPanel } from './initialPlacement';
+import type { InitialPlacementSelection } from './initialPlacement';
 import { getItemPageCount, getItemsOnPage, itemButtonRect, itemPageControlRects } from './itemBar';
 import { formatItemButton } from './itemPlacement';
 import { formatRefactoringAllocation } from './refactoringRatioControl';
@@ -622,8 +627,13 @@ describe('購入バーのレイアウト（ページ切替 #58）', () => {
 
 describe('初期配置UIのレイアウト(#47)', () => {
   const fontPx = parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10);
-  // 最長想定のパネルの行。残ポイントは初期値より増えない（撤去しても初期値まで）ので、初期値で全アイテムを選んだときの最長。
-  const panelLines = ITEM_TYPES.flatMap((itemType) => formatInitialPlacementPanel(STAGE_POINTS_INITIAL, itemType));
+  // 最長想定のパネルの行。残ポイントは初期値より増えない（撤去しても初期値まで）ので、初期値で全アイテム・エンジニア・未選択を選んだときの最長(#157)。
+  const selections: readonly InitialPlacementSelection[] = [
+    { kind: 'none' },
+    { kind: 'engineer' },
+    ...ITEM_TYPES.map((itemType): InitialPlacementSelection => ({ kind: 'item', itemType })),
+  ];
+  const panelLines = selections.flatMap((selection) => formatInitialPlacementPanel(STAGE_POINTS_INITIAL, selection));
   const longestPanelChars = Math.max(...panelLines.map((line) => line.length));
   const panelRect: Rect = {
     x: INITIAL_PLACEMENT_PANEL_POSITION.x,
@@ -636,15 +646,28 @@ describe('初期配置UIのレイアウト(#47)', () => {
     width: INITIAL_PLACEMENT_START_BUTTON_SIZE.width,
     height: INITIAL_PLACEMENT_START_BUTTON_SIZE.height,
   };
-  // メッセージの最長想定は「〇〇を撤去しました」（最長の短い名前）と固定の失敗メッセージ。
+  // エンジニアの選択ボタン(#157)。開始ボタンの左に同じ高さで並ぶ。
+  const engineerButtonRect: Rect = {
+    ...INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION,
+    width: INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE.width,
+    height: INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE.height,
+  };
+  // メッセージの最長想定は「〇〇を撤去しました」（最長の短い名前）と固定の失敗メッセージ、エンジニアのメッセージ(#157)。
   const longestName = Math.max(...ITEM_TYPES.map((itemType) => ITEM_SHORT_NAMES[itemType].length));
   const messageRect = textRect(
     INITIAL_PLACEMENT_MESSAGE_POSITION,
-    'あ'.repeat(Math.max(longestName + 'を撤去しました'.length, 'そこにはアイテムがありません'.length)),
+    'あ'.repeat(
+      Math.max(
+        longestName + 'を撤去しました'.length,
+        'そこにはアイテムがありません'.length,
+        ...Object.values(INITIAL_PLACEMENT_MESSAGES).map((message) => message.length),
+      ),
+    ),
     fontPx,
   );
   const setupRects: readonly { readonly name: string; readonly rect: Rect }[] = [
     { name: 'パネル', rect: panelRect },
+    { name: 'エンジニアの選択ボタン', rect: engineerButtonRect },
     { name: '開始ボタン', rect: startButtonRect },
     { name: 'メッセージ', rect: messageRect },
   ];
@@ -657,10 +680,19 @@ describe('初期配置UIのレイアウト(#47)', () => {
       REFACTORING_RATIO_BUTTON_SIZE.width * 2 + REFACTORING_RATIO_LABEL_WIDTH + REFACTORING_RATIO_UI_GAP * 2 + ratioStroke * 2,
     height: REFACTORING_RATIO_BUTTON_SIZE.height + ratioStroke * 2,
   };
-  it('境界値: パネル・開始ボタン・メッセージは上から順に重ならず並び、開始ボタンの文字はボタン幅に収まる', () => {
+  it('境界値: パネル・ボタンの行・メッセージは上から順に重ならず並び、開始ボタンの文字はボタン幅に収まる', () => {
     expect(panelRect.y + panelRect.height).toBeLessThanOrEqual(startButtonRect.y);
     expect(startButtonRect.y + startButtonRect.height).toBeLessThanOrEqual(messageRect.y);
     expect(INITIAL_PLACEMENT_TEXT.startButton.length * fontPx).toBeLessThanOrEqual(INITIAL_PLACEMENT_START_BUTTON_SIZE.width);
+  });
+
+  it('境界値: エンジニアの選択ボタンは開始ボタンの左に同じ行で重ならず並び、人数が最大（MAX_ENGINEERS）の文言もボタン幅に収まる(#157)', () => {
+    expect(engineerButtonRect.y).toBe(startButtonRect.y);
+    expect(engineerButtonRect.x + engineerButtonRect.width).toBeLessThanOrEqual(startButtonRect.x);
+    expect(intersects(engineerButtonRect, startButtonRect)).toBe(false);
+    expect(formatInitialPlacementEngineerButton(MAX_ENGINEERS).length * fontPx).toBeLessThanOrEqual(engineerButtonRect.width);
+    // 右端の開始ボタンは初期配置UIの範囲の右端ちょうどまで。
+    expect(startButtonRect.x + startButtonRect.width).toBe(INITIAL_PLACEMENT_UI_BOUNDS.x + INITIAL_PLACEMENT_UI_BOUNDS.width);
   });
 
   it.each(setupRects)('$name は初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS）とフィールドの内側に収まる', ({ rect }) => {
