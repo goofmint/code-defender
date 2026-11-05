@@ -266,6 +266,9 @@ import {
 } from './itemEffect';
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
 import type { Point, Route } from './route';
+import { setLocale } from './i18n';
+import { applyDocumentLang, getBrowserLanguages, getLocationSearch } from './i18n/browserEnvironment';
+import { resolveLocale } from './i18n/resolveLocale';
 
 // revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま。
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics; readonly revealed?: boolean };
@@ -1575,5 +1578,11 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   scene: MainScene,
 };
+
+// 表示言語(#158)。URL の ?locale= → ブラウザーの言語設定 → 既定（日本語）の順に決め、ゲームを作る前に1回だけ設定する。
+// 文言は呼び出し時にカタログから読むので、ここで設定すれば scene.restart() 後も同じ言語のまま。
+const locale = resolveLocale(getLocationSearch(), getBrowserLanguages());
+setLocale(locale);
+applyDocumentLang(locale);
 
 new Phaser.Game(config);

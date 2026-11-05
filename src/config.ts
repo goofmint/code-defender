@@ -328,6 +328,11 @@ export const PENALTY_TEXT_DURATION_MS = 800;
 export const PENALTY_TEXT_RISE_PX = 40;
 export const PENALTY_TEXT_FONT_SIZE = '20px';
 
+// 仮・要確認(#158): 文字列の幅の見積もり（textMetrics.ts の estimateTextWidth）。全角文字は 1 文字 = フォント px、
+// 半角文字（英数字など）はフォント px にこの比率を掛けた幅とする。sans-serif の英字の平均幅（約 0.5〜0.55 倍）より少し広く見積もり、はみ出しを防ぐ。
+export const HALF_WIDTH_CHAR_RATIO = 0.6;
+
+
 // 仮・要確認(#23): 企画書(6)は「ジュニア・ミドル・シニアの3ランクから雇える」とだけで、費用・人数・上限・操作は未記載。以下はすべて仮の値。
 // ランク表。表示名のほか、不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。
 // 仮・要確認(#12): maliciousRate は担当ルートの開始時の不正コード率、maliciousRateMax は時間が経った後の上限（どちらも 0〜1）。
