@@ -196,6 +196,11 @@ export const DEFAULT_REFACTORING_RATIO = 0.2;
 // 企画書(7)「技術的負債が増えると、不具合率（不正コード率）が徐々に増えていく」(docs/game_plan.md) に対応する。関数形（線形）と数値は企画書に記載がなく叩き台。
 // 補正後の割合は [CODE_MALICIOUS_RATE_MIN, 1] に収める（difficulty.ts の effectiveMaliciousRate）。
 export const TECH_DEBT_MALICIOUS_RATE_MAX_BONUS = 0.2;
+// 仮・要確認(#41): リファクタリングの割合 1（すべてリファクタリング）のときに不正コード率を下げる最大量
+// （0〜1 のパーセントポイントの差分。0.2 で -20 ポイント）。割合 r のときの差分は −r × この値（techDebt.ts の refactoringMaliciousRateModifier）。
+// 企画書(7)「リファクタリングを強化するとプロダクトの品質は良くなる」(docs/game_plan.md) に対応する。数値は企画書に記載がなく叩き台。0 以上 1 以下にする。
+// 補正後の割合の下限 CODE_MALICIOUS_RATE_MIN は difficulty.ts の effectiveMaliciousRate で適用する。
+export const REFACTORING_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 // 仮・要確認(#44): 企画書(7)は「技術的負債が増えると、開発スピードが低下する」とだけで、下がり方は未定。
 // 開発スピードはコードの生成頻度と解釈し、生成間隔（CODE_SPAWN_INTERVAL_MS）に倍率を掛けて延ばす。コードの移動速度には掛けない。
 // 倍率は負債に比例し、負債0で1（既存の挙動と同じ）、負債が上限（TECH_DEBT_MAX）でこの値。2 なら上限で生成間隔が2倍（2000ms→4000ms）。

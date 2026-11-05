@@ -3,6 +3,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   CODE_MALICIOUS_RATE_MIN,
+  DEFAULT_REFACTORING_RATIO,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
   TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
@@ -10,6 +11,7 @@ import {
 import { effectiveMaliciousRate, maliciousRateForRank, vacationMaliciousRateModifiers } from './difficulty';
 import { createEngineerParameters } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
+import { refactoringMaliciousRateModifier } from './techDebt';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -35,8 +37,10 @@ vi.mock('phaser', () => {
 });
 
 // maliciousRateModifiersFor() が触る MainScene の private メンバーだけを表す型。キャストはこのテストファイルの中に閉じる。
+// 補正一覧は [休暇の差分…, 負債の差分, リファクタリングの差分(#41)] の順に並ぶ。
 type SceneUnderTest = {
   techDebt: number;
+  refactoringRatio: number;
   maliciousRateModifiersFor(engineer: Engineer | undefined): readonly number[];
 };
 
@@ -60,6 +64,9 @@ const ELAPSED_MS = 0;
 const VACATION_REDUCTION = 0.05;
 const HALF_DEBT = TECH_DEBT_MAX / 2;
 const HALF_BONUS = TECH_DEBT_MALICIOUS_RATE_MAX_BONUS / 2;
+// このファイルでは負債だけを動かし、リファクタリングの割合(#41)は既定値に固定する。
+const REFACTORING_RATIO = DEFAULT_REFACTORING_RATIO;
+const REFACTORING_DELTA = refactoringMaliciousRateModifier(REFACTORING_RATIO);
 
 // effectiveMaliciousRate と同じく合計後に [CODE_MALICIOUS_RATE_MIN, 1] へ収める。
 const clampRate = (rate: number): number => Math.min(1, Math.max(CODE_MALICIOUS_RATE_MIN, rate));
@@ -82,57 +89,75 @@ beforeAll(async () => {
 const createScene = (techDebt: number): SceneUnderTest => {
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
   scene.techDebt = techDebt;
+  scene.refactoringRatio = REFACTORING_RATIO;
   return scene;
 };
 
+// 負債の差分だけを除いた補正一覧（休暇とリファクタリングの差分）。
+const modifiersWithoutDebt = (engineer: Engineer | undefined): readonly number[] => [
+  ...vacationMaliciousRateModifiers(engineer),
+  REFACTORING_DELTA,
+];
+
 describe('MainScene.maliciousRateModifiersFor（技術的負債の補正が生成経路に届く）', () => {
-  it.each(RANKS)('%s: 負債 0 なら負債の差分は 0 で、基礎率のまま', (rank) => {
+  it.each(RANKS)('%s: 負債 0 なら負債の差分は 0 で、負債を除いた率のまま', (rank) => {
     const engineer = makeEngineer(rank, 0);
     const modifiers = createScene(0).maliciousRateModifiersFor(engineer);
-    expect(modifiers).toEqual([0]);
-    expect(effectiveMaliciousRate(rank, ELAPSED_MS, modifiers)).toBe(maliciousRateForRank(rank, ELAPSED_MS));
-  });
-
-  it.each(RANKS)('%s: 負債 TECH_DEBT_MAX なら基礎率 + TECH_DEBT_MALICIOUS_RATE_MAX_BONUS（1 で頭打ち）', (rank) => {
-    const engineer = makeEngineer(rank, 0);
-    const modifiers = createScene(TECH_DEBT_MAX).maliciousRateModifiersFor(engineer);
-    expect(modifiers).toHaveLength(1);
-    expect(modifiers[0]).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
-    expect(effectiveMaliciousRate(rank, ELAPSED_MS, modifiers)).toBeCloseTo(
-      Math.min(1, maliciousRateForRank(rank, ELAPSED_MS) + TECH_DEBT_MALICIOUS_RATE_MAX_BONUS),
-      12,
+    expect(modifiers).toEqual([0, REFACTORING_DELTA]);
+    expect(effectiveMaliciousRate(rank, ELAPSED_MS, modifiers)).toBe(
+      effectiveMaliciousRate(rank, ELAPSED_MS, modifiersWithoutDebt(engineer)),
     );
   });
 
-  it.each(RANKS)('%s: 負債 TECH_DEBT_MAX / 2 なら基礎率 + 最大加算量の半分', (rank) => {
+  it.each(RANKS)('%s: 負債 TECH_DEBT_MAX なら基礎率 + TECH_DEBT_MALICIOUS_RATE_MAX_BONUS + リファクタリングの差分', (rank) => {
     const engineer = makeEngineer(rank, 0);
-    const modifiers = createScene(HALF_DEBT).maliciousRateModifiersFor(engineer);
-    expect(modifiers).toHaveLength(1);
-    expect(modifiers[0]).toBeCloseTo(HALF_BONUS, 12);
-    expect(effectiveMaliciousRate(rank, ELAPSED_MS, modifiers)).toBeCloseTo(
-      Math.min(1, maliciousRateForRank(rank, ELAPSED_MS) + HALF_BONUS),
-      12,
-    );
-  });
-
-  it.each(RANKS)('%s: 休暇の低下量があれば休暇（負）と負債（正）の両方の差分を合算する', (rank) => {
-    const engineer = makeEngineer(rank, VACATION_REDUCTION);
     const modifiers = createScene(TECH_DEBT_MAX).maliciousRateModifiersFor(engineer);
     expect(modifiers).toHaveLength(2);
-    expect(modifiers[0]).toBe(-VACATION_REDUCTION);
-    expect(modifiers[1]).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
+    expect(modifiers[0]).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
+    expect(modifiers[1]).toBe(REFACTORING_DELTA);
     expect(effectiveMaliciousRate(rank, ELAPSED_MS, modifiers)).toBeCloseTo(
-      clampRate(maliciousRateForRank(rank, ELAPSED_MS) - VACATION_REDUCTION + TECH_DEBT_MALICIOUS_RATE_MAX_BONUS),
+      clampRate(maliciousRateForRank(rank, ELAPSED_MS) + TECH_DEBT_MALICIOUS_RATE_MAX_BONUS + REFACTORING_DELTA),
       12,
     );
   });
 
-  it('担当エンジニアがいない（undefined）なら負債の差分だけ', () => {
+  it.each(RANKS)('%s: 負債 TECH_DEBT_MAX / 2 なら基礎率 + 最大加算量の半分 + リファクタリングの差分', (rank) => {
+    const engineer = makeEngineer(rank, 0);
+    const modifiers = createScene(HALF_DEBT).maliciousRateModifiersFor(engineer);
+    expect(modifiers).toHaveLength(2);
+    expect(modifiers[0]).toBeCloseTo(HALF_BONUS, 12);
+    expect(modifiers[1]).toBe(REFACTORING_DELTA);
+    expect(effectiveMaliciousRate(rank, ELAPSED_MS, modifiers)).toBeCloseTo(
+      clampRate(maliciousRateForRank(rank, ELAPSED_MS) + HALF_BONUS + REFACTORING_DELTA),
+      12,
+    );
+  });
+
+  it.each(RANKS)('%s: 休暇の低下量があれば休暇（負）・負債（正）・リファクタリング（負）の差分を合算する', (rank) => {
+    const engineer = makeEngineer(rank, VACATION_REDUCTION);
+    const modifiers = createScene(TECH_DEBT_MAX).maliciousRateModifiersFor(engineer);
+    expect(modifiers).toHaveLength(3);
+    expect(modifiers[0]).toBe(-VACATION_REDUCTION);
+    expect(modifiers[1]).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
+    expect(modifiers[2]).toBe(REFACTORING_DELTA);
+    expect(effectiveMaliciousRate(rank, ELAPSED_MS, modifiers)).toBeCloseTo(
+      clampRate(
+        maliciousRateForRank(rank, ELAPSED_MS) -
+          VACATION_REDUCTION +
+          TECH_DEBT_MALICIOUS_RATE_MAX_BONUS +
+          REFACTORING_DELTA,
+      ),
+      12,
+    );
+  });
+
+  it('担当エンジニアがいない（undefined）なら負債とリファクタリングの差分だけ', () => {
     const modifiers = createScene(TECH_DEBT_MAX).maliciousRateModifiersFor(undefined);
-    expect(modifiers).toHaveLength(1);
+    expect(modifiers).toHaveLength(2);
     expect(modifiers[0]).toBeCloseTo(TECH_DEBT_MALICIOUS_RATE_MAX_BONUS, 12);
+    expect(modifiers[1]).toBe(REFACTORING_DELTA);
     expect(effectiveMaliciousRate(undefined, ELAPSED_MS, modifiers)).toBeCloseTo(
-      Math.min(1, maliciousRateForRank(undefined, ELAPSED_MS) + TECH_DEBT_MALICIOUS_RATE_MAX_BONUS),
+      clampRate(maliciousRateForRank(undefined, ELAPSED_MS) + TECH_DEBT_MALICIOUS_RATE_MAX_BONUS + REFACTORING_DELTA),
       12,
     );
   });
@@ -145,7 +170,7 @@ describe('MainScene.maliciousRateModifiersFor（技術的負債の補正が生�
       const engineer = makeEngineer(rank, reduction);
       for (const debt of [HALF_DEBT, TECH_DEBT_MAX]) {
         const withDebt = effectiveMaliciousRate(rank, ELAPSED_MS, createScene(debt).maliciousRateModifiersFor(engineer));
-        const withoutDebt = effectiveMaliciousRate(rank, ELAPSED_MS, vacationMaliciousRateModifiers(engineer));
+        const withoutDebt = effectiveMaliciousRate(rank, ELAPSED_MS, modifiersWithoutDebt(engineer));
         expect(withDebt).toBeGreaterThan(withoutDebt);
       }
     }
@@ -155,7 +180,7 @@ describe('MainScene.maliciousRateModifiersFor（技術的負債の補正が生�
     for (const rank of RANKS) {
       const engineer = makeEngineer(rank, VACATION_REDUCTION);
       expect(effectiveMaliciousRate(rank, ELAPSED_MS, createScene(0).maliciousRateModifiersFor(engineer))).toBe(
-        effectiveMaliciousRate(rank, ELAPSED_MS, vacationMaliciousRateModifiers(engineer)),
+        effectiveMaliciousRate(rank, ELAPSED_MS, modifiersWithoutDebt(engineer)),
       );
     }
   });

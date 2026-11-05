@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { initialSpawnElapsed, stepSpawnTimer } from './codeFlow';
+import { initialSpawnElapsed, pickCodeKind, stepSpawnTimer } from './codeFlow';
 import {
+  CODE_MALICIOUS_RATE_MIN,
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_REFACTORING_RATIO,
+  DIFFICULTY_STEP_MS,
+  ENGINEER_RANKS,
+  REFACTORING_MALICIOUS_RATE_REDUCTION_MAX,
   TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
   TECH_DEBT_PER_FEATURE_WORK,
@@ -14,6 +18,7 @@ import {
   clampTechDebt,
   createTechDebtChangedEvent,
   formatTechDebt,
+  refactoringMaliciousRateModifier,
   repayTechDebt,
   resolveWorkTechDebt,
   sanitizeRefactoringRatio,
@@ -21,6 +26,8 @@ import {
   techDebtMaliciousRateModifier,
   techDebtSpawnIntervalMs,
 } from './techDebt';
+import { effectiveMaliciousRate, maliciousRateForRank } from './difficulty';
+import type { EngineerRank } from './engineer';
 
 // テストは引数で上限を渡して config の仮の値に依存しないようにする。
 const MAX = 100;
@@ -448,5 +455,147 @@ describe('技術的負債と生成タイマーの合成（main.ts の updateCode
     const step = frame(0, 1_000_000, debt);
     expect(step.spawn).toBe(true);
     expect(step.elapsedMs).toBeLessThan(techDebtSpawnIntervalMs(debt, BASE, opts));
+  });
+});
+
+// リファクタリングの割合による不正コード率の補正(#41)。係数は引数で渡し、config の仮の値に依存しない。
+describe('refactoringMaliciousRateModifier（割合 → 不正コード率の差分・境界値）', () => {
+  const K = 0.2;
+  const EPS = 1e-9;
+
+  it.each([
+    ['範囲外 -0.01（0 と同じ）', -0.01, 0],
+    ['0', 0, 0],
+    ['0 + ε', EPS, -K * EPS],
+    ['0.5', 0.5, -K * 0.5],
+    ['1 - ε', 1 - EPS, -K * (1 - EPS)],
+    ['1', 1, -K],
+    ['範囲外 1.01（1 と同じ）', 1.01, -K],
+  ])('割合 %s の差分', (_label, ratio, expected) => {
+    expect(refactoringMaliciousRateModifier(ratio, K)).toBeCloseTo(expected, 12);
+  });
+
+  it('範囲外の割合は端の値と同じ結果になる', () => {
+    expect(refactoringMaliciousRateModifier(-0.01, K)).toBe(refactoringMaliciousRateModifier(0, K));
+    expect(refactoringMaliciousRateModifier(1.01, K)).toBe(refactoringMaliciousRateModifier(1, K));
+  });
+
+  it.each([0, -0, -0.01, -Infinity])('割合 %s では -0 ではなく 0 を返す', (ratio) => {
+    expect(Object.is(refactoringMaliciousRateModifier(ratio, K), 0)).toBe(true);
+  });
+
+  it('0 + ε は 0 より厳密に小さい（0 と区別される）', () => {
+    expect(refactoringMaliciousRateModifier(EPS, K)).toBeLessThan(0);
+  });
+
+  it('+Infinity は −k、-Infinity は 0', () => {
+    expect(refactoringMaliciousRateModifier(Infinity, K)).toBe(-K);
+    expect(refactoringMaliciousRateModifier(-Infinity, K)).toBe(0);
+  });
+
+  it('NaN は既定の割合（DEFAULT_REFACTORING_RATIO）と同じ結果', () => {
+    expect(refactoringMaliciousRateModifier(NaN, K)).toBe(refactoringMaliciousRateModifier(DEFAULT_REFACTORING_RATIO, K));
+  });
+
+  it.each([0, 0.5, 1, NaN, Infinity])('k = 0 なら割合 %s でも 0', (ratio) => {
+    expect(Object.is(refactoringMaliciousRateModifier(ratio, 0), 0)).toBe(true);
+  });
+
+  const RATIOS = [-0.01, 0, EPS, 0.25, 0.5, 1 - EPS, 1, 1.01];
+
+  it.each(RATIOS)('割合 %s の差分は 0 以下', (ratio) => {
+    expect(refactoringMaliciousRateModifier(ratio, K)).toBeLessThanOrEqual(0);
+  });
+
+  it('割合が増えると差分は単調に減る（0〜1 の範囲では厳密に減る）', () => {
+    for (let i = 1; i < RATIOS.length; i += 1) {
+      const prev = RATIOS[i - 1];
+      const next = RATIOS[i];
+      if (prev === undefined || next === undefined) throw new Error('割合の一覧の添字が範囲外です');
+      const a = refactoringMaliciousRateModifier(prev, K);
+      const b = refactoringMaliciousRateModifier(next, K);
+      expect(b).toBeLessThanOrEqual(a);
+      if (prev >= 0 && next <= 1) {
+        expect(b).toBeLessThan(a);
+      }
+    }
+  });
+
+  it('省略時の係数は REFACTORING_MALICIOUS_RATE_REDUCTION_MAX', () => {
+    expect(refactoringMaliciousRateModifier(1)).toBe(-REFACTORING_MALICIOUS_RATE_REDUCTION_MAX);
+  });
+});
+
+// effectiveMaliciousRate（#13）との接続。difficulty.test.ts と同じく、ランク表と下限は config から取る。
+describe('リファクタリングの差分と補正後の不正コード率（effectiveMaliciousRate・pickCodeKind との接続）', () => {
+  const K = 0.2;
+  const EPS = 1e-9;
+  const MIN = CODE_MALICIOUS_RATE_MIN;
+  const STEP = DIFFICULTY_STEP_MS;
+  const RANK_OR_NONE: readonly (EngineerRank | undefined)[] = [...ENGINEER_RANKS.map((rank) => rank.id), undefined];
+  // 十分長い経過時間（全ランクが上限に達した後）。
+  const LONG_MS = STEP * 1000;
+  const ELAPSED_CASES = [
+    ['0ms', 0],
+    ['STEP', STEP],
+    ['上限到達後', LONG_MS],
+  ] as const;
+  const CASES = RANK_OR_NONE.flatMap((rank) => ELAPSED_CASES.map(([label, ms]) => [String(rank), label, rank, ms] as const));
+  const rateAt = (rank: EngineerRank | undefined, ms: number, ratio: number): number =>
+    effectiveMaliciousRate(rank, ms, [refactoringMaliciousRateModifier(ratio, K)]);
+
+  it.each(CASES)('割合 0: %s / %s は補正なしの確率と同じ', (_id, _label, rank, ms) => {
+    expect(rateAt(rank, ms, 0)).toBe(maliciousRateForRank(rank, ms));
+  });
+
+  it.each(CASES)('割合 1: %s / %s は max(基礎率 − k, MIN)', (_id, _label, rank, ms) => {
+    expect(rateAt(rank, ms, 1)).toBeCloseTo(Math.max(maliciousRateForRank(rank, ms) - K, MIN), 12);
+  });
+
+  it('下限の境界: 基礎率 − k × r = MIN となる r の前後（r − ε は下限より上、r と r + ε は MIN）', () => {
+    // 0 < r < 1 になるランクと経過時間を固定する（基礎率 − MIN が k より小さい）。
+    const fixed = CASES.find(([, , rank, ms]) => {
+      const base = maliciousRateForRank(rank, ms);
+      return base > MIN && base - MIN < K;
+    });
+    if (fixed === undefined) throw new Error('基礎率 − MIN が k より小さいランク・経過時間がありません');
+    const [, , rank, ms] = fixed;
+    const r = (maliciousRateForRank(rank, ms) - MIN) / K;
+    expect(r).toBeGreaterThan(0);
+    expect(r).toBeLessThan(1);
+    expect(rateAt(rank, ms, r - EPS)).toBeGreaterThan(MIN);
+    expect(rateAt(rank, ms, r)).toBeCloseTo(MIN, 12);
+    expect(rateAt(rank, ms, r + EPS)).toBe(MIN);
+  });
+
+  it.each(RANK_OR_NONE)('%s: 他の差分（+0.1）と合計どおりに合成され、順序に依存しない', (rank) => {
+    const refactoring = refactoringMaliciousRateModifier(0.5, K);
+    const base = maliciousRateForRank(rank, STEP);
+    const a = effectiveMaliciousRate(rank, STEP, [refactoring, 0.1]);
+    const b = effectiveMaliciousRate(rank, STEP, [0.1, refactoring]);
+    expect(a).toBeCloseTo(Math.min(Math.max(base - K * 0.5 + 0.1, MIN), 1), 12);
+    expect(b).toBeCloseTo(a, 12);
+  });
+
+  it.each(RANK_OR_NONE)('%s: 割合 1 の rate で rate − ε は不正、rate は正常', (rank) => {
+    const rate = rateAt(rank, STEP * 2, 1);
+    expect(pickCodeKind(() => rate - EPS, rate)).toBe('malicious');
+    expect(pickCodeKind(() => rate, rate)).toBe('normal');
+  });
+
+  it('基礎率が MIN + k 以上なら、割合 1 の確率は割合 0 より厳密に小さい', () => {
+    const targets = CASES.filter(([, , rank, ms]) => maliciousRateForRank(rank, ms) >= MIN + K);
+    expect(targets.length).toBeGreaterThan(0);
+    for (const [, , rank, ms] of targets) {
+      expect(rateAt(rank, ms, 1)).toBeLessThan(rateAt(rank, ms, 0));
+    }
+  });
+});
+
+describe('config の整合性（リファクタリングによる不正コード率の減少）', () => {
+  it('REFACTORING_MALICIOUS_RATE_REDUCTION_MAX は有限で 0 以上 1 以下', () => {
+    expect(Number.isFinite(REFACTORING_MALICIOUS_RATE_REDUCTION_MAX)).toBe(true);
+    expect(REFACTORING_MALICIOUS_RATE_REDUCTION_MAX).toBeGreaterThanOrEqual(0);
+    expect(REFACTORING_MALICIOUS_RATE_REDUCTION_MAX).toBeLessThanOrEqual(1);
   });
 });
