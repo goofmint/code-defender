@@ -13,6 +13,7 @@ import {
   ENGINEER_SALARY_MAX,
   ITEM_BLOCKED_CELLS,
   ITEM_BUTTON_SIZE,
+  ITEM_BUY_KEY_LABELS,
   ITEM_BUY_KEYS,
   ITEM_MESSAGE_POSITION,
   ITEM_UI_POSITION,
@@ -411,6 +412,58 @@ describe('昇給・減給パネルのレイアウト(#34)', () => {
             expect(ITEM_BLOCKED_CELLS).toContainEqual({ col, row });
           }
         }
+      }
+    }
+  });
+});
+
+describe('購入ボタン7個のレイアウト（猫 #57）', () => {
+  it('購入キー・キー表示・アイテムの数はすべて7で一致する', () => {
+    expect(ITEM_TYPES).toHaveLength(7);
+    expect(ITEM_BUY_KEYS).toHaveLength(ITEM_TYPES.length);
+    expect(ITEM_BUY_KEY_LABELS).toHaveLength(ITEM_TYPES.length);
+    expect(itemButtonRects).toHaveLength(ITEM_TYPES.length);
+  });
+
+  it('境界値: 先頭は x=60 から、7個目の右端は x=952 でフィールド幅以内', () => {
+    expect(itemButtonRects[0].x).toBe((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
+    const last = itemButtonRects[itemButtonRects.length - 1];
+    expect(last.x + last.width).toBe(952);
+    expect(last.x + last.width).toBeLessThanOrEqual(FIELD_WIDTH);
+  });
+
+  it.each(itemButtonRects.map((rect, index) => ({ index, rect })))('$index 番目のボタンはフィールド内に収まる', ({ rect }) => {
+    expect(rect.x).toBeGreaterThanOrEqual(0);
+    expect(rect.y).toBeGreaterThanOrEqual(0);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(FIELD_WIDTH);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(FIELD_HEIGHT);
+  });
+
+  it('ボタンどうしが交差しない', () => {
+    for (let i = 0; i < itemButtonRects.length; i += 1) {
+      for (let j = i + 1; j < itemButtonRects.length; j += 1) {
+        expect(intersects(itemButtonRects[i], itemButtonRects[j])).toBe(false);
+      }
+    }
+  });
+
+  it.each(spawnRows)('行%i の休暇マーカーと交差しない', (row) => {
+    for (const button of itemButtonRects) {
+      expect(intersects(vacationMarkerRect(row), button)).toBe(false);
+    }
+  });
+
+  it('HUD の4行（技術的負債を含む）・昇給減給パネル・雇用UI・購入メッセージと交差しない', () => {
+    const others = [
+      ...hudRects.map((entry) => entry.rect),
+      ...salaryRects.map((entry) => entry.rect),
+      ...hireButtonRects,
+      ...hireTextRects,
+      itemMessageRect,
+    ];
+    for (const button of itemButtonRects) {
+      for (const other of others) {
+        expect(intersects(button, other)).toBe(false);
       }
     }
   });
