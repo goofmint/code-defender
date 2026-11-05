@@ -194,4 +194,7 @@ export const VACATION_MARKER_STYLE = {
   label: '休',
   labelFontSize: '18px',
   labelColor: '#ffffff',
+  // 仮・要確認(#143): 「休」の不透明度。勤務中も薄く出し、出現場所の円で休暇を切り替えられることを示す。休暇中は不透明にする。
+  workingLabelAlpha: 0.4,
+  vacationLabelAlpha: 1,
 } as const;

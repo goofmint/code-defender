@@ -191,7 +191,7 @@ const VACATION_MARKER_DEPTH = -0.4;
 
 export type VacationMarker = {
   readonly container: Phaser.GameObjects.Container;
-  // 休暇中なら灰色の円と「休」を表示し、そうでなければ隠して通常の出現場所マーカーを見せる。
+  // 休暇中なら灰色の円と「休」を表示する。勤務中は灰色の円を隠して通常の出現場所マーカーを見せ、「休」だけを薄く重ねる(#143)。
   readonly setOnVacation: (onVacation: boolean) => void;
 };
 
@@ -223,9 +223,10 @@ export const drawVacationMarker = (
   // stopPropagation はしない。シーンの pointerdown も発行させ、main.ts が currentlyOver で移動・攻撃を止める。
   container.on('pointerdown', onToggle);
   // コンテナ自体は表示したまま（非表示にすると当たり判定もなくなる）、中身の表示だけ切り替える。
+  // 勤務中も「休」を薄く出し、出現場所の円を押すと休暇になることが分かるようにする(#143)。
   const setOnVacation = (onVacation: boolean): void => {
     circle.setVisible(onVacation);
-    label.setVisible(onVacation);
+    label.setAlpha(onVacation ? VACATION_MARKER_STYLE.vacationLabelAlpha : VACATION_MARKER_STYLE.workingLabelAlpha);
   };
   setOnVacation(false);
   return { container, setOnVacation };
