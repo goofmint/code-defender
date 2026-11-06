@@ -38,6 +38,7 @@ import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlace
 import type { PlacedItem } from './itemPlacement';
 import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
+import type { ItemMenuView } from './render';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -104,11 +105,7 @@ vi.mock('./render', () => {
     drawDefeatEffect: vi.fn(),
     drawElapsedDays: vi.fn(object),
     drawField: vi.fn(),
-    drawCumulativeSales: vi.fn(object),
-    drawFunds: vi.fn(object),
-    drawEngineerCount: vi.fn(object),
     drawGameOver: vi.fn(),
-    drawHireButtons: vi.fn(() => []),
     drawHireMessage: vi.fn(object),
     // エンジニアを置ける床の色分け(#157)。置く・外すたびに描き直す。
     drawEngineerCandidateOverlay: vi.fn(object),
@@ -122,15 +119,25 @@ vi.mock('./render', () => {
     drawInitialPlacementPanel: vi.fn(object),
     drawInitialPlacementStartButton: vi.fn(object),
     drawItemAttackEffect: vi.fn(),
-    // 購入バー。枠のコールバックは mock.calls の2番目、ページ切替は3番目の引数。showPage の呼び出しも記録する。
-    drawItemButtons: vi.fn(() => ({ showPage: vi.fn() })),
-    drawAiAgentButtons: vi.fn(() => []),
+    // 右上のアイコン(#156)。押したときのコールバックは mock.calls の2番目の引数。
+    drawMenuIcons: vi.fn(() => ({ setOpen: vi.fn(), setDimmed: vi.fn() })),
+    // アイテムのメニュー(#156)。中身（文言・ページ・強調する枠）は mock.calls の2番目、枠・ページ切替のコールバックは3番目の引数。
+    drawItemMenu: vi.fn(object),
+    drawEngineerMenu: vi.fn(object),
+    drawBalanceMenu: vi.fn(object),
+    drawEngineerPopover: vi.fn(object),
+    // 右下の指標(#156)。
+    drawStatusPanel: vi.fn(() => ({
+      setFunds: vi.fn(),
+      setScore: vi.fn(),
+      setMonthEndPayment: vi.fn(),
+      setTechDebtLevel: vi.fn(),
+    })),
     drawItemMessage: vi.fn(object),
     drawOutageText: vi.fn(),
     drawPlacedItem: vi.fn(object),
     drawPenaltyText: vi.fn(),
     drawPlayer: vi.fn(object),
-    drawRefactoringRatioControl: vi.fn(object),
     drawReleasePoint: vi.fn(),
     // 取消（×）ボタン(#157)。中心とコールバックは mock.calls の2・3番目の引数から読む。
     drawRemoveButton: vi.fn(object),
@@ -140,11 +147,6 @@ vi.mock('./render', () => {
           routes.map((route) => [route.id, { line: fakes.make(), spawnMarker: fakes.make(), spawnDecoration: fakes.make() }]),
         ),
     ),
-    drawSalaryButtons: vi.fn(() => []),
-    drawSelectedEngineer: vi.fn(object),
-    drawTechDebt: vi.fn(object),
-    // 休暇の案内文(#150)。create() で1回描く。
-    drawVacationHint: vi.fn(object),
     drawVacationMarker: vi.fn(() => ({ container: fakes.make(), setOnVacation: () => undefined })),
     flashCode: vi.fn(),
   };
@@ -165,6 +167,7 @@ type SceneUnderTest = {
   placedItems: readonly PlacedItem[];
   nextItemId: number;
   itemPage: number;
+  openMenu: 'engineer' | 'item' | 'balance' | null;
   followItemViews: Map<number, object>;
   elapsedMs: number;
   funds: number;
@@ -301,26 +304,33 @@ const centerOf = (cell: GridCell): { readonly x: number; readonly y: number } =>
 
 const startKey = INITIAL_PLACEMENT_START_KEYS[0];
 
-// 最後に描いた購入バー（create() ごとに1回）の枠・ページ切替のコールバックと showPage。
-const lastItemBar = (): {
-  readonly onBuySlot: (slot: number) => void;
-  readonly onPage: (direction: 'previous' | 'next') => void;
-  readonly showPage: Mock<(labels: readonly (string | null)[], pageLabel: string, selectedSlot: number | null) => void>;
-} => {
-  const call = vi.mocked(render.drawItemButtons).mock.calls.at(-1);
-  const result = vi.mocked(render.drawItemButtons).mock.results.at(-1);
-  if (call === undefined || result === undefined || result.type !== 'return') throw new Error('購入バーが描かれていません');
-  return { onBuySlot: call[1], onPage: call[2], showPage: vi.mocked(result.value.showPage) };
+// 右上のアイコン(#156)を押す（最後に描いたアイコンのコールバックを呼ぶ）。
+const pressIcon = (kind: 'engineer' | 'item' | 'balance'): void => {
+  const call = vi.mocked(render.drawMenuIcons).mock.calls.at(-1);
+  if (call === undefined) throw new Error('アイコンが描かれていません');
+  call[1](kind);
 };
 
-// 購入バーをマウスで操作してアイテムの種類を選ぶ（ページを送ってから枠を押す）。
+// 最後に描いたアイテムのメニュー(#156)の中身と、枠・ページ切替のコールバック。
+const lastItemMenu = (): {
+  readonly view: ItemMenuView;
+  readonly onBuySlot: (slot: number) => void;
+  readonly onPage: (direction: 'previous' | 'next') => void;
+} => {
+  const call = vi.mocked(render.drawItemMenu).mock.calls.at(-1);
+  if (call === undefined) throw new Error('アイテムのメニューが描かれていません');
+  return { view: call[1], onBuySlot: call[2].onBuySlot, onPage: call[2].onPage };
+};
+
+// 右上のアイテムのアイコンでメニューを開き（開いていなければ）、ページを送ってから枠を押してアイテムの種類を選ぶ(#156)。
+// メニューはページを送るたびに描き直すので、毎回最後に描いたメニューを使う。
 const selectItem = (scene: SceneUnderTest, itemType: ItemType): void => {
+  if (scene.openMenu !== 'item') pressIcon('item');
   const index = ITEM_TYPES.indexOf(itemType);
   const page = Math.floor(index / ITEM_PAGE_SIZE);
-  const bar = lastItemBar();
-  while (scene.itemPage < page) bar.onPage('next');
-  while (scene.itemPage > page) bar.onPage('previous');
-  bar.onBuySlot(index % ITEM_PAGE_SIZE);
+  while (scene.itemPage < page) lastItemMenu().onPage('next');
+  while (scene.itemPage > page) lastItemMenu().onPage('previous');
+  lastItemMenu().onBuySlot(index % ITEM_PAGE_SIZE);
 };
 
 // 最後に描いたエンジニアの選択ボタン(#157)。
@@ -384,10 +394,13 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     scene.engineers.forEach((engineer) => {
       expect(() => removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn))).not.toThrow();
     });
-    // 購入バーは setup の文言（ステージポイント）で、強調なし。
-    const [labels, , selectedSlot] = lastItemBar().showPage.mock.calls.at(-1) ?? [];
-    expect(labels?.[0]).toBe(formatInitialPlacementItemButton(ITEM_TYPES[0]));
-    expect(selectedSlot).toBeNull();
+    // アイテムのメニューは閉じた状態で始まり、開くと setup の文言（ステージポイント）で、強調なし(#156)。
+    expect(scene.openMenu).toBeNull();
+    expect(render.drawItemMenu).not.toHaveBeenCalled();
+    pressIcon('item');
+    const { view } = lastItemMenu();
+    expect(view.labels[0]).toBe(formatInitialPlacementItemButton(ITEM_TYPES[0]));
+    expect(view.selectedSlot).toBeNull();
   });
 
   it('未選択のまま床を押すと置かず、「先に置くものを選んでください」を出す(#157)', () => {
@@ -443,7 +456,7 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(scene.events.emit).not.toHaveBeenCalled();
   });
 
-  it('選んだアイテムは置いたあとも選んだままで、続けて置ける。購入バーの選んだ枠を強調する(#157)', () => {
+  it('選んだアイテムは置いたあとも選んだままで、続けて置ける。アイテムのメニューの選んだ枠を強調し、床を押してもメニューは閉じない(#157, #156)', () => {
     const { scene, pointerDown } = createHarness();
     const [first, second] = placeableCells(scene.routes, 2);
     selectItem(scene, 'linter');
@@ -451,8 +464,8 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     pointerDown(centerOf(second));
     expect(scene.initialPlacement.itemState.placedItems.map((item) => item.cell)).toEqual([first, second]);
     expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'linter' });
-    const [, , selectedSlot] = lastItemBar().showPage.mock.calls.at(-1) ?? [];
-    expect(selectedSlot).toBe(ITEM_TYPES.indexOf('linter') % ITEM_PAGE_SIZE);
+    expect(scene.openMenu).toBe('item');
+    expect(lastItemMenu().view.selectedSlot).toBe(ITEM_TYPES.indexOf('linter') % ITEM_PAGE_SIZE);
   });
 
   it('ボタン・マーカー上の押下（currentlyOver あり）では置かない', () => {
@@ -479,7 +492,12 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
 
   it('置いたアイテムの上（フットプリント内）を押しても撤去しない（撤去は×だけ #157）。右端ちょうど（右隣のセル #154）は隣に新しく置く', () => {
     const { scene, pointerDown } = createHarness();
-    const [cell] = placeableCells(scene.routes, 1);
+    // 右隣のセルも置けるセル（初期配置UIの範囲の左隣などは右隣が置けないので除く）。
+    const setupContext = { routes: scene.routes, placedItems: [], blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS] };
+    const cell = placeableCells(scene.routes, PLACEMENT_COLS).find((candidate) =>
+      isPlaceableCell({ col: candidate.col + 1, row: candidate.row }, setupContext),
+    );
+    if (cell === undefined) throw new Error('右隣も置けるセルがありません');
     selectItem(scene, 'linter');
     pointerDown(centerOf(cell));
     expect(scene.initialPlacement.itemState.placedItems).toHaveLength(1);
@@ -732,7 +750,7 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     );
   });
 
-  it('開始時に置ける床・すべての×ボタン・エンジニアの選択ボタンを消し、購入バーを通常の表示（金額・強調なし）に戻す', () => {
+  it('開始時に置ける床・すべての×ボタン・エンジニアの選択ボタンを消し、開いているアイテムのメニューを通常の表示（金額・強調なし）に戻す', () => {
     const { scene, pointerDown, pressKey } = createHarness();
     const [cell] = placeableCells(scene.routes, 1);
     selectItem(scene, 'linter');
@@ -752,10 +770,10 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     expect(overlayDestroy).toHaveBeenCalledOnce();
     removeButtons.forEach((spy) => expect(spy).toHaveBeenCalledOnce());
     expect(engineerButtonDestroy).toHaveBeenCalledOnce();
-    const [labels, , selectedSlot] = lastItemBar().showPage.mock.calls.at(-1) ?? [];
-    expect(labels?.[0]).not.toBe(formatInitialPlacementItemButton(ITEM_TYPES[0]));
-    expect(labels?.[0]).toContain('万');
-    expect(selectedSlot).toBeNull();
+    const { view } = lastItemMenu();
+    expect(view.labels[0]).not.toBe(formatInitialPlacementItemButton(ITEM_TYPES[0]));
+    expect(view.labels[0]).toContain('万');
+    expect(view.selectedSlot).toBeNull();
     // 開始後は床を押してもエンジニア・アイテムを置かない。
     const routes = scene.routes.length;
     pointerDown({ x: CELL_SIZE / 2, y: CELL_SIZE / 2 });

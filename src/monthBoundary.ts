@@ -1,11 +1,12 @@
 import { getMonthlyAiAgentFees } from './aiAgent';
+import { MONTH_END_PAYMENT_FORMAT } from './config';
 import type { Engineer } from './engineer';
 import { subtractFunds } from './funds';
 import { isBankrupt } from './gameOver';
 import { getMonthlyItemFees, shouldChargeItemFees } from './itemFee';
 import type { ItemFeePaidEvent } from './itemFee';
 import type { PlacedItem } from './itemPlacement';
-import { settleMonthlySalary } from './salary';
+import { getEngineerSalaries, getMonthlyPayroll, settleMonthlySalary } from './salary';
 import type { SalaryPaidEvent } from './salary';
 
 // 月の境界の精算（給料 → 月額アイテム費）。Phaser に依存しない純粋関数。main.ts の onMonthElapsed が使う。
@@ -44,3 +45,18 @@ export const settleMonthBoundary = (
     : null;
   return { salary, itemFee };
 };
+
+// 次の月の境界で引く額の予告(#156、右下の指標)。settleMonthBoundary と同じ計算（給料 getMonthlyPayroll・月額アイテム getMonthlyItemFees・
+// AIエージェント getMonthlyAiAgentFees）を足した額面の合計で、資金・倒産は見ない（給料で倒産した月は実際にはアイテム費を引かないが、予告には含める）。
+// 給料と AIエージェントは engineers の全員（休暇中・ルート未割当も含む #37）、アイテムは月額払いの置いたものだけ（1回払いは数えない）。
+export const getMonthEndPaymentForecast = (
+  engineers: readonly Pick<Engineer, 'salary' | 'aiAgent'>[],
+  placedItems: readonly PlacedItem[],
+): number =>
+  getMonthlyPayroll(getEngineerSalaries(engineers)) +
+  getMonthlyItemFees(placedItems).amount +
+  getMonthlyAiAgentFees(engineers).amount;
+
+// 「月末支払: 900,000円」。数値部分は3桁区切り（formatFunds と同じ）。
+export const formatMonthEndPayment = (amount: number): string =>
+  `${MONTH_END_PAYMENT_FORMAT.prefix}${amount.toLocaleString('ja-JP')}${MONTH_END_PAYMENT_FORMAT.suffix}`;

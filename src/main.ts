@@ -27,6 +27,7 @@ import {
   ITEM_BLOCKED_RECTS,
   ITEM_BUY_KEYS,
   ITEM_PAGE_KEYS,
+  ITEM_PAGE_SIZE,
   MAX_ENGINEERS,
   PIZZA_DURATION_MS,
   PIZZA_TECH_DEBT,
@@ -62,17 +63,15 @@ import {
   movePlayerToward,
 } from './player';
 import {
-  drawAiAgentButtons,
   drawAttackEffect,
+  drawBalanceMenu,
   drawCode,
   drawDefeatEffect,
   drawElapsedDays,
+  drawEngineerMenu,
+  drawEngineerPopover,
   drawField,
-  drawCumulativeSales,
-  drawFunds,
-  drawEngineerCount,
   drawGameOver,
-  drawHireButtons,
   drawHireMessage,
   drawEngineerCandidateOverlay,
   drawInitialPlacementEngineerButton,
@@ -80,26 +79,31 @@ import {
   drawInitialPlacementPanel,
   drawInitialPlacementStartButton,
   drawItemAttackEffect,
-  drawItemButtons,
+  drawItemMenu,
   drawItemMessage,
+  drawMenuIcons,
   drawOutageText,
   drawPlacedItem,
   drawPenaltyText,
   drawPlayer,
-  drawRefactoringRatioControl,
   drawReleaseBurst,
   drawReleasePoint,
   drawRemoveButton,
   drawRoutes,
-  drawSalaryButtons,
-  drawSelectedEngineer,
-  drawTechDebt,
-  drawVacationHint,
+  drawStatusPanel,
   drawVacationMarker,
   flashCode,
   setPlayerFacing,
 } from './render';
-import type { EngineerSelectButton, ItemBar, RouteDrawing, VacationMarker } from './render';
+import type {
+  EngineerSelectButton,
+  FloatingPanel,
+  ItemMenuView,
+  MenuIcons,
+  RouteDrawing,
+  StatusPanel,
+  VacationMarker,
+} from './render';
 import {
   CODE_RELEASED_EVENT,
   advanceCode,
@@ -124,9 +128,9 @@ import {
 import type { MonthElapsedEvent } from './gameTime';
 import { applyHit, CODE_DEFEATED_EVENT, getInitialHp, isDefeated, resolveCodeFate } from './defeat';
 import type { CodeDefeatedPayload } from './defeat';
-import { addFunds, createFundsChangedEvent, formatFunds, FUNDS_CHANGED_EVENT } from './funds';
+import { addFunds, createFundsChangedEvent, FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
-import { accumulateScore, formatCumulativeSales, INITIAL_SCORE } from './score';
+import { accumulateScore, INITIAL_SCORE } from './score';
 import {
   canRestart,
   checkBankruptcy,
@@ -148,7 +152,7 @@ import {
   formatAiAgentMessage,
 } from './aiAgent';
 import type { AiAgentEquippedPayload, AiAgentType } from './aiAgent';
-import { settleMonthBoundary } from './monthBoundary';
+import { getMonthEndPaymentForecast, settleMonthBoundary } from './monthBoundary';
 import {
   calculateDamage,
   INCIDENT_EVENT,
@@ -162,7 +166,7 @@ import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
   accumulateTechDebt,
   createTechDebtChangedEvent,
-  formatTechDebt,
+  getTechDebtLevel,
   refactoringMaliciousRateModifier,
   resolveWorkTechDebt,
   TECH_DEBT_CHANGED_EVENT,
@@ -170,7 +174,7 @@ import {
   techDebtSpawnIntervalMs,
 } from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
-import { formatRefactoringAllocation, stepRefactoringRatio } from './refactoringRatioControl';
+import { getRefactoringRatioOptions, stepRefactoringRatio } from './refactoringRatioControl';
 import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import {
   adjustEngineerSalary,
@@ -181,11 +185,9 @@ import {
   ENGINEER_RANKS,
   ENGINEER_RESIGNED_EVENT,
   findEngineerByRoute,
-  formatEngineerCount,
   formatHireMessage,
   formatResignedMessage,
   formatSalaryMessage,
-  formatSelectedEngineer,
   hireEngineer,
   isAssigneeOnVacation,
   selectAdjacentEngineerId,
@@ -225,8 +227,8 @@ import {
   createItemState,
   findCodesToReveal,
   findItemTarget,
-  formatItemButton,
   formatItemMessage,
+  formatItemOption,
   getItemAttackCooldownMs,
   getItemOrigin,
   isIncidentPreventedByNote,
@@ -279,6 +281,8 @@ import {
   takeDueIncidents,
 } from './itemEffect';
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
+import { toggleMenu } from './floatingMenu';
+import type { MenuKind } from './floatingMenu';
 import type { Point, Route } from './route';
 
 // revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま。
@@ -305,34 +309,35 @@ class MainScene extends Phaser.Scene {
   private elapsedDaysText?: Phaser.GameObjects.Text;
   private displayedDays = 0;
   private funds = 0;
-  private fundsText?: Phaser.GameObjects.Text;
   private score = INITIAL_SCORE;
-  private salesText?: Phaser.GameObjects.Text;
   // 技術的負債（0〜TECH_DEBT_MAX）。資金とは別。変更は changeTechDebt に集約する。
   private techDebt = TECH_DEBT_INITIAL;
-  private techDebtText?: Phaser.GameObjects.Text;
+  // 右下の小さな指標（資金・累計売上・月末に支払うお金・技術的負債の段階）(#156)。左の HUD の文字表示に代わるもの。
+  private statusPanel?: StatusPanel;
   // 技術的負債が閾値を超えたまま続けて放置された時間（ミリ秒）(#46)。閾値以下に下がる・大障害が起きると 0 に戻る。
   private techDebtNeglectMs = 0;
-  // リファクタリングの割合（0〜1）。割合を指定するUI（docs/tasks.md 8）が変更する想定。今は初期値のまま。
+  // リファクタリングの割合（0〜1）。開発バランスのメニュー(#156)と Z/X キー(#40)で変える。
   private refactoringRatio = DEFAULT_REFACTORING_RATIO;
-  // 割合UI(#40)の割合表示。割合の値そのものは refactoringRatio だけに持つ。
-  private refactoringRatioText?: Phaser.GameObjects.Text;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
   private engineers: Engineer[] = [];
   private nextEngineerId = 0;
-  private engineerCountText?: Phaser.GameObjects.Text;
   private hireMessageText?: Phaser.GameObjects.Text;
   // 昇給・減給(#34)の対象。名簿の並びではなく id で持つ（assignEngineerRoute などで配列が置き換わっても選択を保つ）。
   private selectedEngineerId: number | null = null;
-  private selectedEngineerText?: Phaser.GameObjects.Text;
   private placedItems: readonly PlacedItem[] = [];
   private nextItemId = 0;
   // 主人公についてまわるアイテム（ペアプロ相棒 #58）の表示（アイテム id がキー）。毎フレーム主人公の位置 + ずれへ動かす。
   private followItemViews = new Map<number, Phaser.GameObjects.Container>();
   private itemMessageText?: Phaser.GameObjects.Text;
-  // 購入バーの現在のページ（0 始まり）(#58)。キー 4〜9 はこのページの枠を買う。
+  // アイテムのメニューの現在のページ（0 始まり）(#58)。キー 4〜9 はこのページの枠を買う。メニューを閉じても保つ(#156)。
   private itemPage = 0;
-  private itemBar?: ItemBar;
+  // 右上のアイコン(#156)と、開いているメニュー（一度に1つだけ。閉じていれば null）。メニューは開くときに作り、閉じるときに destroy() する。
+  private menuIcons?: MenuIcons;
+  private openMenu: MenuKind | null = null;
+  private menuPanel?: FloatingPanel;
+  // エンジニアのポップオーバー(#156)と、開いている出現地点のルートの id（閉じていれば null）。メニューとは同時に開かない。
+  private engineerPopover?: FloatingPanel;
+  private popoverRouteId: number | null = null;
   // 購入時に発動したアイテムの時限効果(#58)。時刻は elapsedMs。
   private activeEffects: readonly ActiveEffect[] = [];
   // 金曜日の夕方デプロイ(#58)で予約した障害。
@@ -341,14 +346,14 @@ class MainScene extends Phaser.Scene {
   private lastIncident: IncidentRecord | null = null;
   // ドキュメント(#58)を最初に買った時刻（elapsedMs）。買っていなければ null。
   private documentationPurchasedAtMs: number | null = null;
-  // 休暇の切り替えマーカー（routeId がキー）(#35)。
+  // 休暇マーカー（routeId がキー）(#35)。押すとエンジニアのポップオーバーを開く(#156)。
   private vacationMarkers = new Map<number, VacationMarker>();
   // ルートの線と出現場所の円（routeId がキー）(#32)。退職でルートが消えるときに destroy() する。
   private routeDrawings = new Map<number, RouteDrawing>();
   // 初期配置(#47)。setup の間は時間を止め、ステージポイントでアイテムを置く。開始操作で playing に移る。create() で毎回 setup に戻す。
   private phase: 'setup' | 'playing' = 'setup';
   private initialPlacement: InitialPlacementState = createInitialPlacementState();
-  // 初期配置で次に置くもの（購入バーでアイテム、エンジニアの選択ボタンでエンジニアを選ぶ #157）。最初は未選択。
+  // 初期配置で次に置くもの（アイテムのメニューでアイテム #156、エンジニアの選択ボタンでエンジニアを選ぶ #157）。最初は未選択。
   private initialPlacementSelection: InitialPlacementSelection = { kind: 'none' };
   // 初期配置で置いたアイテムの描画（アイテム id がキー）。撤去で destroy() する。プレイ開始後は使わない。
   private initialPlacementDrawings = new Map<number, Phaser.GameObjects.Container>();
@@ -377,18 +382,10 @@ class MainScene extends Phaser.Scene {
     drawField(this);
     this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
     this.funds = INITIAL_FUNDS;
-    this.fundsText = drawFunds(this, this.funds);
     this.score = INITIAL_SCORE;
-    this.salesText = drawCumulativeSales(this, this.score);
     this.techDebt = TECH_DEBT_INITIAL;
     this.techDebtNeglectMs = 0;
     this.refactoringRatio = DEFAULT_REFACTORING_RATIO;
-    this.techDebtText = drawTechDebt(this, this.techDebt);
-    this.refactoringRatioText = drawRefactoringRatioControl(
-      this,
-      formatRefactoringAllocation(this.refactoringRatio),
-      (direction) => this.changeRefactoringRatio(direction),
-    );
     this.events.on(MONTH_ELAPSED_EVENT, this.onMonthElapsed, this);
     this.events.on(FUNDS_CHANGED_EVENT, this.onFundsChanged, this);
     this.events.on(CODE_HIT_EVENT, this.onCodeHit, this);
@@ -416,23 +413,8 @@ class MainScene extends Phaser.Scene {
     this.engineers = fleet.engineers;
     this.nextEngineerId = fleet.nextEngineerId;
     this.hireMessageText = undefined;
-    this.engineerCountText = drawEngineerCount(this, this.engineers.length, MAX_ENGINEERS);
-    drawHireButtons(
-      this,
-      ENGINEER_RANKS.map((entry) => ({ rank: entry.id, cost: ENGINEER_HIRE_COST[entry.id] })),
-      (rank) => this.hire(rank),
-    );
     // scene.restart() でも前回の選択を残さない。初期値は先頭のエンジニア（名簿が空なら null）。
     this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, null, 'next');
-    this.selectedEngineerText = drawSelectedEngineer(this, this.findSelectedEngineer());
-    drawSalaryButtons(
-      this,
-      (direction) => this.selectEngineer(direction),
-      (direction) => this.adjustSalary(direction),
-    );
-    drawAiAgentButtons(this, (agentType) => this.buyAiAgent(agentType));
-    // 休暇の案内文(#150)。setup 中・プレイ中とも常時表示し、文言は変わらないので参照は持たない（雇うボタンと同じ）。
-    drawVacationHint(this);
     const itemState = createItemState();
     this.placedItems = itemState.placedItems;
     this.nextItemId = itemState.nextId;
@@ -443,18 +425,26 @@ class MainScene extends Phaser.Scene {
     this.lastIncident = null;
     this.documentationPurchasedAtMs = null;
     this.itemPage = 0;
-    this.itemBar = drawItemButtons(
-      this,
-      (slot) => this.buyItemSlot(slot),
-      (direction) => this.changeItemPage(direction),
-    );
-    this.refreshItemBar();
     // 初期配置(#47)。scene.restart() でも毎回 STAGE_POINTS_INITIAL・配置なしの setup から始める。
     this.phase = 'setup';
     this.initialPlacement = createInitialPlacementState();
     this.initialPlacementSelection = { kind: 'none' };
     this.initialPlacementDrawings = new Map();
     this.initialPlacementMessageText = undefined;
+    // 右下の指標(#156)。月末に支払うお金は setup の配置（initialPlacement）から求めるので、phase と初期配置を戻したあとに描く。
+    this.statusPanel = drawStatusPanel(this, {
+      funds: this.funds,
+      score: this.score,
+      monthEndPayment: this.getMonthEndPaymentForecast(),
+      techDebtLevel: getTechDebtLevel(this.techDebt),
+    });
+    // 右上のアイコン(#156)。scene.restart() でも閉じた状態から始める（前回のパネルは Phaser が破棄済みなので参照だけ捨てる）。
+    this.openMenu = null;
+    this.menuPanel = undefined;
+    this.engineerPopover = undefined;
+    this.popoverRouteId = null;
+    this.menuIcons = drawMenuIcons(this, (kind) => this.onMenuIconPressed(kind));
+    this.refreshMenuIcons();
     this.initialPlacementPanelText = drawInitialPlacementPanel(
       this,
       formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementSelection),
@@ -470,7 +460,6 @@ class MainScene extends Phaser.Scene {
     this.engineerRemoveButtons = new Map();
     this.engineers.forEach((engineer) => this.addEngineerRemoveButton(engineer));
     this.engineerCandidateOverlay = undefined;
-    // 購入バーは上の refreshItemBar() の時点では前回の phase のままなので、setup の文言で描き直す。
     this.refreshInitialPlacementControls();
     drawReleasePoint(this);
     this.player = drawPlayer(this);
@@ -514,8 +503,14 @@ class MainScene extends Phaser.Scene {
         this.onInitialPlacementPointerDown({ x: pointer.worldX, y: pointer.worldY }, currentlyOver);
         return;
       }
-      // 雇うボタン・休暇マーカー上の押下では、離すまで主人公の移動・攻撃をしない。
+      // アイコン・メニュー・ポップオーバー（背景を含む）・休暇マーカー上の押下では、離すまで主人公の移動・攻撃をしない。
       if (currentlyOver.length > 0) {
+        this.attackPointerHeld = true;
+        return;
+      }
+      // メニュー・ポップオーバーが開いている間のフィールドの押下は、閉じるだけにして消費する（離すまで移動・攻撃をしない）(#156)。
+      if (this.openMenu !== null || this.popoverRouteId !== null) {
+        this.closeFloatingUi();
         this.attackPointerHeld = true;
         return;
       }
@@ -535,7 +530,7 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  // 初期配置(#47)で置くアイテムの種類を選び、パネルと購入バーの表示を更新する。
+  // 初期配置(#47)で置くアイテムの種類を選び、パネルとアイテムのメニューの表示を更新する。
   private selectInitialPlacementItem(itemType: ItemType): void {
     this.initialPlacementSelection = { kind: 'item', itemType };
     this.refreshInitialPlacementControls();
@@ -550,7 +545,7 @@ class MainScene extends Phaser.Scene {
     this.refreshInitialPlacementControls();
   }
 
-  // 初期配置UIの表示を今の状態に合わせる(#157)。パネル・エンジニアの選択ボタン・購入バーの強調・エンジニアを置ける床・開始ボタンの見た目。
+  // 初期配置UIの表示を今の状態に合わせる(#157)。パネル・エンジニアの選択ボタン・アイテムのメニューの強調・エンジニアを置ける床・開始ボタンの見た目。
   // 選ぶ・置く・外すたびに呼ぶ（アイテムを置くとエンジニアを置ける床が変わるため、床も毎回描き直す）。
   private refreshInitialPlacementControls(): void {
     this.initialPlacementPanelText?.setText([
@@ -566,7 +561,7 @@ class MainScene extends Phaser.Scene {
     this.initialPlacementStartButton?.setAlpha(
       canStartPlay(this.engineers) ? INITIAL_PLACEMENT_START_BUTTON_ALPHA.enabled : INITIAL_PLACEMENT_START_BUTTON_ALPHA.disabled,
     );
-    this.refreshItemBar();
+    this.refreshItemMenu();
   }
 
   private showInitialPlacementMessage(message: string): void {
@@ -608,6 +603,8 @@ class MainScene extends Phaser.Scene {
     this.initialPlacementDrawings.set(result.item.id, drawPlacedItem(this, result.item));
     this.addItemRemoveButton(result.item);
     this.refreshInitialPlacementControls();
+    // 月額アイテムを置くと月末に支払うお金が増える(#156)。
+    this.refreshMonthEndPayment();
   }
 
   // 初期配置で置いたアイテムの右上に取消（×）ボタンを付ける(#157)。
@@ -639,6 +636,7 @@ class MainScene extends Phaser.Scene {
     this.itemRemoveButtons.delete(item.id);
     this.showInitialPlacementMessage(formatInitialPlacementMessage(removal, item.itemType));
     this.refreshInitialPlacementControls();
+    this.refreshMonthEndPayment();
   }
 
   // 押した点を含むルートグリッド（60px）のセルに、未配置の初期エンジニアを1人置いてルートを自動で作る(#157)。
@@ -709,7 +707,8 @@ class MainScene extends Phaser.Scene {
 
   // 初期配置(#47)を終えてプレイを始める。配置ゼロ・残ポイントありでも始められる（残ポイントは破棄）。
   // 未配置の初期エンジニアがいるときは始めず、メッセージを出して setup のままにする(#157)。
-  // 順序: 配置を引き継ぐ → 初期配置UIを消す → playing にする → 購入バーを通常の表示に戻す → 押したままのポインターで主人公が動かないようにする。
+  // 順序: 配置を引き継ぐ → 初期配置UIを消す → playing にする → アイコンの薄い表示を戻し、アイテムのメニューを通常の表示（金額）に戻す
+  // → 月末に支払うお金をプレイ中の配置で求め直す → 押したままのポインターで主人公が動かないようにする。
   private startPlay(): void {
     if (this.phase !== 'setup' || this.gameOver.over) {
       return;
@@ -750,7 +749,9 @@ class MainScene extends Phaser.Scene {
     // アイテムの描画はプレイ中も残す（撤去はもうしないので参照だけ捨てる）。
     this.initialPlacementDrawings = new Map();
     this.phase = 'playing';
-    this.refreshItemBar();
+    this.refreshMenuIcons();
+    this.refreshItemMenu();
+    this.refreshMonthEndPayment();
     this.attackPointerHeld = this.input.activePointer.isDown;
   }
 
@@ -906,34 +907,47 @@ class MainScene extends Phaser.Scene {
   private changeFunds(next: number, reason: FundsChangeReason): void {
     const previous = this.funds;
     this.funds = next;
-    this.fundsText?.setText(formatFunds(next));
+    this.statusPanel?.setFunds(next);
     this.events.emit(FUNDS_CHANGED_EVENT, createFundsChangedEvent(previous, next, reason));
   }
 
-  // 技術的負債を変更して、表示更新と TECH_DEBT_CHANGED_EVENT の発行を一か所で行う（changeFunds と同じ形）。
+  // 技術的負債を変更して、表示更新（右下の段階 #156）と TECH_DEBT_CHANGED_EVENT の発行を一か所で行う（changeFunds と同じ形）。
   // 変化がないとき（上限・0 で止まったときなど）はイベントを発行しない。後続タスク（開発スピード低下・大障害など）はこのイベントを購読する。
   private changeTechDebt(result: WorkTechDebtResult, reason: TechDebtChangeReason): void {
     const previous = this.techDebt;
     this.techDebt = result.current;
-    this.techDebtText?.setText(formatTechDebt(result.current));
+    this.statusPanel?.setTechDebtLevel(getTechDebtLevel(result.current));
     const event = createTechDebtChangedEvent(previous, result.current, reason);
     if (event.delta !== 0) {
       this.events.emit(TECH_DEBT_CHANGED_EVENT, event);
     }
   }
 
-  // 機能開発とリファクタリングの割合を1段階寄せる(#40)。ゲームオーバー中と、両端で値が変わらないときは何もしない。
+  // 機能開発とリファクタリングの割合を1段階寄せる(#40、Z/X キー)。ゲームオーバー中・初期配置の間と、両端で値が変わらないときは何もしない（applyRefactoringRatio）。
   // 次のリリースから resolveWorkTechDebt に新しい割合が使われる。
   private changeRefactoringRatio(direction: RefactoringRatioDirection): void {
+    this.applyRefactoringRatio(stepRefactoringRatio(this.refactoringRatio, direction));
+  }
+
+  // 開発バランスのメニュー(#156)で選んだ割合（getRefactoringRatioOptions の値）にする。0〜1 の外・NaN は設定の誤りなので例外にする。
+  private setRefactoringRatio(value: number): void {
+    if (!(value >= 0 && value <= 1)) {
+      throw new RangeError(`リファクタリングの割合は 0〜1 にする: ${value}`);
+    }
+    this.applyRefactoringRatio(value);
+  }
+
+  // changeRefactoringRatio と setRefactoringRatio の共通処理。ゲームオーバー中・初期配置の間・同じ値なら何もしない。
+  // 変えたら開発バランスのメニューが開いていれば描き直す（現在値の強調を移す）。
+  private applyRefactoringRatio(next: number): void {
     if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
-    const next = stepRefactoringRatio(this.refactoringRatio, direction);
     if (next === this.refactoringRatio) {
       return;
     }
     this.refactoringRatio = next;
-    this.refactoringRatioText?.setText(formatRefactoringAllocation(next));
+    this.refreshMenu('balance');
   }
 
   // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
@@ -954,12 +968,13 @@ class MainScene extends Phaser.Scene {
     }
     this.engineers = [...result.engineers];
     this.nextEngineerId = result.engineer.id + 1;
-    this.engineerCountText?.setText(formatEngineerCount(this.engineers.length, MAX_ENGINEERS));
     // 選択中のエンジニアがいなければ（0人から雇ったときなど）、雇ったエンジニアを選ぶ。
     if (this.findSelectedEngineer() === null) {
       this.selectedEngineerId = result.engineer.id;
     }
+    // エンジニアのメニューの人数・選択中の表示と、月末に支払うお金（雇った人の月給）を更新する(#156)。
     this.refreshSelectedEngineer();
+    this.refreshMonthEndPayment();
     this.changeFunds(result.fundsAfter, 'hire');
     const payload: EngineerHiredPayload = { engineer: result.engineer, cost: result.cost };
     this.events.emit(ENGINEER_HIRED_EVENT, payload);
@@ -970,8 +985,9 @@ class MainScene extends Phaser.Scene {
     return this.engineers.find((engineer) => engineer.id === this.selectedEngineerId) ?? null;
   }
 
+  // 選択中のエンジニア・人数の表示を更新する。#156 からはエンジニアのメニューの中にあるので、開いていれば描き直す（閉じていれば何もしない）。
   private refreshSelectedEngineer(): void {
-    this.selectedEngineerText?.setText(formatSelectedEngineer(this.findSelectedEngineer()));
+    this.refreshMenu('engineer');
   }
 
   // 昇給・減給の対象を前・次のエンジニアに切り替える。ゲームオーバー中は何もしない。
@@ -998,9 +1014,10 @@ class MainScene extends Phaser.Scene {
     }
     this.engineers = [...result.engineers];
     this.refreshSelectedEngineer();
+    this.refreshMonthEndPayment();
   }
 
-  // 購入バーの現在ページの枠 slot のアイテムを買う(#58)。空の枠なら何もしない。
+  // アイテムのメニューの現在ページの枠 slot のアイテムを買う(#58)。空の枠なら何もしない。
   private buyItemSlot(slot: number): void {
     const itemType = getItemOnPageSlot(ITEM_TYPES, this.itemPage, slot);
     if (itemType === undefined) {
@@ -1009,36 +1026,180 @@ class MainScene extends Phaser.Scene {
     this.buyItem(itemType);
   }
 
-  // 購入バーのページを切り替える(#58)。ゲームオーバー中も切り替えられる（購入は buyItem が止める）。
+  // アイテムのメニューのページを切り替える(#58)。ゲームオーバー中も切り替えられる（購入は buyItem が止める）。
   private changeItemPage(direction: ItemPageDirection): void {
     this.itemPage = stepItemPage(this.itemPage, direction, getItemPageCount(ITEM_TYPES.length));
-    this.refreshItemBar();
+    this.refreshItemMenu();
   }
 
-  // 購入バーの文言を今のページで描き直す。初期配置の間は金額の代わりにステージポイントのコストを出し、選んでいるアイテムの枠を強調する(#157)。
-  private refreshItemBar(): void {
+  // アイテムのメニューが開いていれば今のページ・phase で描き直す（閉じていれば何もしない）(#156)。
+  private refreshItemMenu(): void {
+    this.refreshMenu('item');
+  }
+
+  // アイテムのメニューの中身。初期配置の間は金額の代わりにステージポイントのコストを出し、選んでいるアイテムの枠を強調する(#157)。
+  // 最後のページの空いた枠は null（ボタンを出さない）。
+  private itemMenuView(): ItemMenuView {
     const setup = this.phase === 'setup';
     const items = getItemsOnPage(ITEM_TYPES, this.itemPage);
-    const labels = items.map((itemType, slot) =>
-      setup ? formatInitialPlacementItemButton(itemType) : formatItemButton(slot, itemType),
-    );
+    const labels = Array.from({ length: ITEM_PAGE_SIZE }, (_, slot): string | null => {
+      const itemType: ItemType | undefined = items[slot];
+      if (itemType === undefined) return null;
+      return setup ? formatInitialPlacementItemButton(itemType) : formatItemOption(itemType);
+    });
     const selection = this.initialPlacementSelection;
     const selectedSlot = setup && selection.kind === 'item' ? items.indexOf(selection.itemType) : -1;
-    this.itemBar?.showPage(
+    return {
       labels,
-      formatItemPage(this.itemPage, getItemPageCount(ITEM_TYPES.length)),
-      selectedSlot === -1 ? null : selectedSlot,
-    );
+      pageLabel: formatItemPage(this.itemPage, getItemPageCount(ITEM_TYPES.length)),
+      selectedSlot: selectedSlot === -1 ? null : selectedSlot,
+    };
   }
 
-  // 仮・要確認(#53): 選択中のエンジニアに AIエージェントを付ける（付けていれば付け替える。前の種類の返金はしない）。ゲームオーバー中は何もしない。
-  // 費用は changeFunds を通して引く（倒産判定もここで動く）。月額は次の月次精算（onMonthElapsed → settleMonthBoundary）から引く。
-  // メッセージは昇給・減給と同じく雇用メッセージの場所に出し、直前の雇用・給与メッセージは消す。
-  private buyAiAgent(agentType: AiAgentType): void {
+  // 右上のアイコンを押したとき(#156)。ゲームオーバー中は何もしない。初期配置の間はアイテムだけ開ける（置くアイテムを選ぶため。他は薄く表示）。
+  // 開いているのと同じアイコンなら閉じ、別のアイコンなら切り替える（toggleMenu）。メニューを開くときはエンジニアのポップオーバーを閉じる（一度に1つだけ）。
+  private onMenuIconPressed(kind: MenuKind): void {
+    if (this.gameOver.over || (this.phase === 'setup' && kind !== 'item')) {
+      return;
+    }
+    this.closeEngineerPopover();
+    this.openMenu = toggleMenu(this.openMenu, kind);
+    this.redrawMenu();
+  }
+
+  // 初期配置の間は開けないアイコン（エンジニア・開発バランス）を薄くする。プレイ開始で戻す(#156)。
+  private refreshMenuIcons(): void {
+    const setup = this.phase === 'setup';
+    this.menuIcons?.setDimmed('engineer', setup);
+    this.menuIcons?.setDimmed('balance', setup);
+  }
+
+  // kind のメニューが開いていれば、今の状態で描き直す(#156)。
+  private refreshMenu(kind: MenuKind): void {
+    if (this.openMenu === kind) {
+      this.redrawMenu();
+    }
+  }
+
+  // 開いているメニュー（openMenu）を作り直す。前のパネルは destroy() し、閉じていれば作らない。アイコンの強調も合わせる。
+  // ページ（itemPage）・初期配置の選択は開閉では初期化しない。
+  private redrawMenu(): void {
+    this.menuPanel?.destroy();
+    this.menuPanel = undefined;
+    this.menuIcons?.setOpen(this.openMenu);
+    switch (this.openMenu) {
+      case null:
+        return;
+      case 'engineer':
+        this.menuPanel = drawEngineerMenu(
+          this,
+          {
+            count: this.engineers.length,
+            max: MAX_ENGINEERS,
+            hireOptions: ENGINEER_RANKS.map((entry) => ({ rank: entry.id, cost: ENGINEER_HIRE_COST[entry.id] })),
+            selected: this.findSelectedEngineer(),
+          },
+          {
+            onHire: (rank) => this.hire(rank),
+            onSelect: (direction) => this.selectEngineer(direction),
+            onAdjust: (direction) => this.adjustSalary(direction),
+          },
+        );
+        return;
+      case 'item':
+        this.menuPanel = drawItemMenu(this, this.itemMenuView(), {
+          onBuySlot: (slot) => this.buyItemSlot(slot),
+          onPage: (direction) => this.changeItemPage(direction),
+        });
+        return;
+      case 'balance':
+        this.menuPanel = drawBalanceMenu(
+          this,
+          { options: getRefactoringRatioOptions(), current: this.refactoringRatio },
+          (ratio) => this.setRefactoringRatio(ratio),
+        );
+        return;
+    }
+  }
+
+  private closeMenu(): void {
+    this.openMenu = null;
+    this.redrawMenu();
+  }
+
+  // メニューとエンジニアのポップオーバーをどちらも閉じる（フィールドの押下・ゲームオーバー）(#156)。
+  private closeFloatingUi(): void {
+    this.closeMenu();
+    this.closeEngineerPopover();
+  }
+
+  // 出現地点（休暇マーカー）を押したとき、そのルートを担当するエンジニアのポップオーバーを開く(#156)。休暇・AIエージェントはここから操作する。
+  // 初期配置の間・ゲームオーバー中・担当がいないときは何もしない。同じ出現地点をもう一度押すと閉じる。
+  // 開くときは担当エンジニアを選択中にして（Q/E/R/F・V/B/N のキー操作もこの人が対象になる）、メニューを閉じる（一度に1つだけ）。
+  private openEngineerPopover(routeId: number): void {
     if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
-    const engineerId = this.findSelectedEngineer()?.id ?? null;
+    if (this.popoverRouteId === routeId) {
+      this.closeEngineerPopover();
+      return;
+    }
+    const engineer = findEngineerByRoute(this.engineers, routeId);
+    if (engineer === undefined) {
+      return;
+    }
+    this.selectedEngineerId = engineer.id;
+    this.closeMenu();
+    this.popoverRouteId = routeId;
+    this.redrawEngineerPopover();
+  }
+
+  // 開いているポップオーバー（popoverRouteId）を今の状態で作り直す。前のものは destroy() し、閉じていれば作らない。
+  // AIエージェントは描いた時点の担当エンジニアの id に付ける（routeId と engineerId は同じとは限らない。選択中のエンジニアが変わっても対象は変わらない）。
+  private redrawEngineerPopover(): void {
+    this.engineerPopover?.destroy();
+    this.engineerPopover = undefined;
+    const routeId = this.popoverRouteId;
+    if (routeId === null) {
+      return;
+    }
+    const engineer = findEngineerByRoute(this.engineers, routeId);
+    const route = this.routes.find((candidate) => candidate.id === routeId);
+    if (engineer === undefined || route === undefined) {
+      throw new Error(`ポップオーバーのエンジニアまたはルートが見つかりません: routeId=${routeId}`);
+    }
+    const engineerId = engineer.id;
+    this.engineerPopover = drawEngineerPopover(this, cellCenter(route.spawn), engineer, {
+      onToggleVacation: () => this.toggleVacation(routeId),
+      onBuyAiAgent: (agentType) => this.buyAiAgent(agentType, engineerId),
+    });
+  }
+
+  private closeEngineerPopover(): void {
+    this.popoverRouteId = null;
+    this.redrawEngineerPopover();
+  }
+
+  // 月末に支払うお金の予告（給料＋月額アイテム＋AIエージェントの月額）(#156)。初期配置の間は置いたアイテム（initialPlacement）、プレイ中は placedItems で求める。
+  private getMonthEndPaymentForecast(): number {
+    const placedItems = this.phase === 'setup' ? this.initialPlacement.itemState.placedItems : this.placedItems;
+    return getMonthEndPaymentForecast(this.engineers, placedItems);
+  }
+
+  // 右下の指標の月末支払を更新する(#156)。雇用・退職・昇給減給・AIエージェントの装着・アイテムの配置（初期配置の配置・撤去を含む）・プレイ開始で呼ぶ。
+  private refreshMonthEndPayment(): void {
+    this.statusPanel?.setMonthEndPayment(this.getMonthEndPaymentForecast());
+  }
+
+  // 仮・要確認(#53): エンジニアに AIエージェントを付ける（付けていれば付け替える。前の種類の返金はしない）。ゲームオーバー中は何もしない。
+  // 対象は engineerId（エンジニアのポップオーバー #156 が担当エンジニアの id を渡す）。省略したとき（V/B/N キー）は選択中のエンジニア。
+  // 費用は changeFunds を通して引く（倒産判定もここで動く）。月額は次の月次精算（onMonthElapsed → settleMonthBoundary）から引く。
+  // メッセージは昇給・減給と同じく雇用メッセージの場所に出し、直前の雇用・給与メッセージは消す。
+  private buyAiAgent(agentType: AiAgentType, targetEngineerId?: number): void {
+    if (this.gameOver.over || this.phase === 'setup') {
+      return;
+    }
+    const engineerId = targetEngineerId === undefined ? (this.findSelectedEngineer()?.id ?? null) : targetEngineerId;
     const result = equipAiAgent(this.engineers, engineerId, agentType, {
       funds: this.funds,
       gameOver: this.gameOver.over,
@@ -1050,7 +1211,10 @@ class MainScene extends Phaser.Scene {
     }
     this.engineers = [...result.engineers];
     this.changeFunds(result.fundsAfter, 'aiAgent');
+    // メニュー・ポップオーバーの AIエージェントの表示と、月末に支払うお金（AIエージェントの月額）を更新する(#156)。倒産して閉じていれば描き直さない。
     this.refreshSelectedEngineer();
+    this.redrawEngineerPopover();
+    this.refreshMonthEndPayment();
     const payload: AiAgentEquippedPayload = {
       engineerId,
       agentType,
@@ -1061,7 +1225,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // 主人公がいる配置グリッド（16px #151）のセルにアイテムを買って置く。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
-  // 初期配置(#47)の間は買わず、置くアイテムの種類を選ぶだけにする（購入バーのページ切り替えは changeItemPage がそのまま動く）。
+  // 初期配置(#47)の間は買わず、置くアイテムの種類を選ぶだけにする（アイテムのメニューのページ切り替えは changeItemPage がそのまま動く）。
   // 置かないアイテム（placement: none #58）は useInstantItem で買って、その場で効果を発動する。
   private buyItem(itemType: ItemType): void {
     if (this.phase === 'setup') {
@@ -1095,6 +1259,7 @@ class MainScene extends Phaser.Scene {
       view.setPosition(origin.x, origin.y);
       this.followItemViews.set(result.item.id, view);
     }
+    this.refreshMonthEndPayment();
     this.changeFunds(result.fundsAfter, 'item');
     const payload: ItemPlacedPayload = { item: result.item, price: result.price };
     this.events.emit(ITEM_PLACED_EVENT, payload);
@@ -1339,12 +1504,16 @@ class MainScene extends Phaser.Scene {
   // 流れているコードは精算せずに消す（撃破エフェクト・資金・売上・技術的負債・障害・CODE_DEFEATED/CODE_RELEASED イベントなし）。
   // 全員が退職してもゲームは続ける（0人から雇い直せる）。
   private onEngineerResigned(payload: EngineerResignedPayload): void {
-    this.engineerCountText?.setText(formatEngineerCount(this.engineers.length, MAX_ENGINEERS));
+    // 退職者の出現地点のポップオーバーを開いていれば閉じる(#156)。ルート・マーカーを消す前に閉じる（描き直しでルートを探さない）。
+    if (payload.routeId !== null && payload.routeId === this.popoverRouteId) {
+      this.closeEngineerPopover();
+    }
     // 昇給・減給の選択中の人が退職したら、残る先頭の人を選ぶ（いなければ null）。
     if (this.findSelectedEngineer() === null) {
       this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, null, 'next');
     }
     this.refreshSelectedEngineer();
+    this.refreshMonthEndPayment();
     this.hireMessageText?.destroy();
     this.hireMessageText = drawHireMessage(this, formatResignedMessage(payload.engineer));
     const { routeId } = payload;
@@ -1407,7 +1576,7 @@ class MainScene extends Phaser.Scene {
   // 資金の変化ごとに倒産を判定する。倒産したら Tween を止めてゲームオーバー表示を出す。
   private onFundsChanged(event: FundsChangedEvent): void {
     this.score = accumulateScore(this.score, event, this.gameOver.over);
-    this.salesText?.setText(formatCumulativeSales(this.score));
+    this.statusPanel?.setScore(this.score);
     const result = checkBankruptcy(this.gameOver, event.current, this.time.now);
     this.gameOver = result.state;
     if (!result.triggered) {
@@ -1415,6 +1584,8 @@ class MainScene extends Phaser.Scene {
     }
     // 予約した障害(#58)はゲームオーバーで捨てる（リスタートでも create で空にする）。
     this.scheduledIncidents = [];
+    // 開いているメニュー・ポップオーバーは閉じる(#156)。ゲームオーバー中はアイコンもマーカーも開かない。
+    this.closeFloatingUi();
     this.tweens.pauseAll();
     drawGameOver(this, this.score, getElapsedDays(this.elapsedMs));
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
@@ -1715,15 +1886,15 @@ class MainScene extends Phaser.Scene {
     this.addVacationMarker(route);
   }
 
-  // ルートの出現場所に休暇の切り替えマーカーを重ねる(#35)。
+  // ルートの出現場所に休暇マーカーを重ねる(#35)。押すとエンジニアのポップオーバーを開く（休暇はポップオーバーのボタンで切り替える #156）。
   private addVacationMarker(route: Route): void {
     this.vacationMarkers.set(
       route.id,
-      drawVacationMarker(this, route, () => this.toggleVacation(route.id)),
+      drawVacationMarker(this, route, () => this.openEngineerPopover(route.id)),
     );
   }
 
-  // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
+  // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示（と開いていればポップオーバー #156）を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
   // 資金・スコアは変えない。新規生成の停止(#36, #163)は次の updateCodes で onVacation から反映する。
   // 休暇中も給料は引く(#37): onMonthElapsed は this.engineers 全員の給料を引くので、ここでは給料の処理をしない。
   // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
@@ -1746,6 +1917,9 @@ class MainScene extends Phaser.Scene {
       throw new Error(`休暇を切り替えたエンジニアが見つかりません: routeId=${routeId}`);
     }
     marker.setOnVacation(isEngineerOnVacation(updated));
+    if (this.popoverRouteId === routeId) {
+      this.redrawEngineerPopover();
+    }
   }
 }
 
