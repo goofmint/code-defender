@@ -6,13 +6,13 @@ import {
   ITEM_ATTACK_COOLDOWN_MS,
   ITEM_BLOCKED_RECTS,
   ITEM_BOX_SIZE,
-  ITEM_BUY_KEY_LABELS,
   ITEM_MONTHLY_FEE_RATIO,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_PRICE_TIERS,
   ITEM_ROUTE_CLEARANCE,
   ITEM_SHORT_NAMES,
   LINTER_HESITATION_PROBABILITY,
+  MENU_TEXT,
   PAIR_PROGRAMMER_FOLLOW_OFFSET,
   PLACEMENT_CELL_SIZE,
   PLACEMENT_COLS,
@@ -316,19 +316,12 @@ export const getItemMonthlyFee = (
   return Math.round(getItemPrice(itemType) * safeRatio);
 };
 
-// 購入ボタンの文言。「[5] Linter 5万円」。月額払いは「[4] CodeRabbit 20万/月」（ボタン幅に収めるため「円」を省く）。
-// index は購入バーのページ内の枠番号(#58)。キーの文字は ITEM_BUY_KEY_LABELS の index 番目（4〜9）。
+// アイテムのメニュー(#156)の枠の文言。「Linter 2.5万円」。月額払いは「CodeRabbit 10万/月」（幅に収めるため「円」を省く）。キー名（4〜9）は出さない。
 // 月額払いは精算と同じ月額（getItemMonthlyFee）を表示する。
-export const formatItemButton = (
-  index: number,
-  itemType: ItemType,
-  ratio: number = ITEM_MONTHLY_FEE_RATIO,
-): string => {
-  const keyLabel: string | undefined = ITEM_BUY_KEY_LABELS[index];
-  if (keyLabel === undefined) throw new Error(`購入キーの表示がありません: index ${index}`);
-  const head = `[${keyLabel}] ${ITEM_SHORT_NAMES[itemType]}`;
-  if (isMonthlyItem(itemType)) return `${head} ${getItemMonthlyFee(itemType, ratio) / 10000}万/月`;
-  return `${head} ${getItemPrice(itemType) / 10000}万円`;
+export const formatItemOption = (itemType: ItemType, ratio: number = ITEM_MONTHLY_FEE_RATIO): string => {
+  const head = ITEM_SHORT_NAMES[itemType];
+  if (isMonthlyItem(itemType)) return `${head} ${getItemMonthlyFee(itemType, ratio) / 10000}${MENU_TEXT.monthlyUnit}`;
+  return `${head} ${getItemPrice(itemType) / 10000}${MENU_TEXT.oneTimeUnit}`;
 };
 
 // 攻撃対象の候補。設定が false なら不正なコードだけ、true なら正常も含む。入力は変更しない。

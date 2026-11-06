@@ -7,6 +7,7 @@ import {
   ENGINEER_RANKS,
   MALICIOUS_RATE_STEP_MS,
   REFACTORING_MALICIOUS_RATE_REDUCTION_MAX,
+  TECH_DEBT_LEVELS,
   TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
   TECH_DEBT_PER_FEATURE_WORK,
@@ -18,6 +19,7 @@ import {
   clampTechDebt,
   createTechDebtChangedEvent,
   formatTechDebt,
+  getTechDebtLevel,
   refactoringMaliciousRateModifier,
   repayTechDebt,
   resolveWorkTechDebt,
@@ -628,5 +630,48 @@ describe('config の整合性（リファクタリングによる不正コード
     expect(Number.isFinite(REFACTORING_MALICIOUS_RATE_REDUCTION_MAX)).toBe(true);
     expect(REFACTORING_MALICIOUS_RATE_REDUCTION_MAX).toBeGreaterThanOrEqual(0);
     expect(REFACTORING_MALICIOUS_RATE_REDUCTION_MAX).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('getTechDebtLevel: 右下の指標の段階(#156)', () => {
+  it('段階の上限は 正常 30・注意 60・要解消 TECH_DEBT_MAX（100）', () => {
+    expect(TECH_DEBT_LEVELS.normal.max).toBe(30);
+    expect(TECH_DEBT_LEVELS.caution.max).toBe(60);
+    expect(TECH_DEBT_LEVELS.critical.max).toBe(TECH_DEBT_MAX);
+    expect(TECH_DEBT_MAX).toBe(100);
+  });
+
+  it.each([
+    [0, 'normal'],
+    [30, 'normal'],
+    [30.4, 'normal'], // 四捨五入で 30
+    [30.5, 'caution'], // 四捨五入で 31
+    [31, 'caution'],
+    [60, 'caution'],
+    [60.4, 'caution'],
+    [60.5, 'critical'],
+    [61, 'critical'],
+    [100, 'critical'],
+  ] as const)('境界値: %d → %s', (value, expected) => {
+    expect(getTechDebtLevel(value)).toBe(expected);
+  });
+
+  it.each([
+    [-1, 'normal'], // 0 に寄せる
+    [-0.4, 'normal'],
+    [101, 'critical'], // 100 に寄せる
+    [Number.POSITIVE_INFINITY, 'critical'],
+    [Number.NEGATIVE_INFINITY, 'normal'],
+    [Number.NaN, 'normal'], // 負債なしとみなす
+  ] as const)('範囲外・NaN: %d → %s', (value, expected) => {
+    expect(getTechDebtLevel(value)).toBe(expected);
+  });
+
+  it('段階ごとに色と語がある（緑・オレンジ・赤／正常・注意・要解消）', () => {
+    expect(TECH_DEBT_LEVELS.normal.label).toBe('正常');
+    expect(TECH_DEBT_LEVELS.caution.label).toBe('注意');
+    expect(TECH_DEBT_LEVELS.critical.label).toBe('要解消');
+    const colors = [TECH_DEBT_LEVELS.normal.color, TECH_DEBT_LEVELS.caution.color, TECH_DEBT_LEVELS.critical.color];
+    expect(new Set(colors).size).toBe(3);
   });
 });

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_REFACTORING_RATIO, REFACTORING_RATIO_STEP_PERCENT } from './config';
-import { formatRefactoringAllocation, stepRefactoringRatio } from './refactoringRatioControl';
+import {
+  formatRefactoringAllocation,
+  getRefactoringRatioOptions,
+  isSameRefactoringOption,
+  stepRefactoringRatio,
+} from './refactoringRatioControl';
 import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import { sanitizeRefactoringRatio } from './techDebt';
 
@@ -125,5 +130,38 @@ describe('設定の整合性', () => {
 
   it('100 は刻みで割り切れる', () => {
     expect(100 % REFACTORING_RATIO_STEP_PERCENT).toBe(0);
+  });
+});
+
+describe('getRefactoringRatioOptions: 開発バランスのメニューの選択肢(#156)', () => {
+  it('既定の刻み（10%）では 0 から 1 までの 11 個で、端点は 0 と 1', () => {
+    const options = getRefactoringRatioOptions();
+    expect(options).toHaveLength(11);
+    expect(options[0]).toBe(0);
+    expect(options[options.length - 1]).toBe(1);
+    expect(options).toEqual(gridValues);
+  });
+
+  it('値は刻みの倍数をちょうど 100 で割った値（0.1 を足していく誤差がない）', () => {
+    expect(getRefactoringRatioOptions()[3]).toBe(0.3);
+    expect(getRefactoringRatioOptions()[7]).toBe(0.7);
+  });
+
+  it('既定の割合（DEFAULT_REFACTORING_RATIO）は選択肢のどれかと同じ', () => {
+    expect(getRefactoringRatioOptions().some((option) => isSameRefactoringOption(option, DEFAULT_REFACTORING_RATIO))).toBe(true);
+  });
+
+  it('刻みを変えると数が変わる（50% なら 0・0.5・1 の 3 個、100% なら 0・1 の 2 個）', () => {
+    expect(getRefactoringRatioOptions(50)).toEqual([0, 0.5, 1]);
+    expect(getRefactoringRatioOptions(100)).toEqual([0, 1]);
+  });
+
+  it.each([0, -10, 3, 7.5, 101])('100 を割り切らない・正の整数でない刻み（%d）は例外', (step) => {
+    expect(() => getRefactoringRatioOptions(step)).toThrow(RangeError);
+  });
+
+  it('isSameRefactoringOption は整数パーセントで比べる（0.1 + 0.2 と 0.3 は同じ、0.3 と 0.4 は違う）', () => {
+    expect(isSameRefactoringOption(0.1 + 0.2, 0.3)).toBe(true);
+    expect(isSameRefactoringOption(0.3, 0.4)).toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import {
   DEFAULT_REFACTORING_RATIO,
   REFACTORING_MALICIOUS_RATE_REDUCTION_MAX,
   TECH_DEBT_FORMAT,
+  TECH_DEBT_LEVELS,
   TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
   TECH_DEBT_PER_FEATURE_WORK,
@@ -165,3 +166,16 @@ export const createTechDebtChangedEvent = (
 // 四捨五入した整数で表示する。「技術的負債: 40」の形。
 export const formatTechDebt = (debt: number): string =>
   `${TECH_DEBT_FORMAT.prefix}${Math.round(debt)}${TECH_DEBT_FORMAT.suffix}`;
+
+// 右下の指標(#156)に出す技術的負債の段階。normal（0〜30）・caution（31〜60）・critical（61〜100）。
+export type TechDebtLevel = keyof typeof TECH_DEBT_LEVELS;
+
+// 技術的負債の段階(#156)。formatTechDebt と同じく四捨五入した整数で判定し（30.4 は normal、30.5 は caution）、0〜max の外は端に寄せる。
+// NaN は負債なしとみなして normal にする（clampTechDebt と同じ扱い）。
+export const getTechDebtLevel = (value: number, max: number = TECH_DEBT_MAX): TechDebtLevel => {
+  if (Number.isNaN(value)) return 'normal';
+  const rounded = Math.min(max, Math.max(0, Math.round(value)));
+  if (rounded <= TECH_DEBT_LEVELS.normal.max) return 'normal';
+  if (rounded <= TECH_DEBT_LEVELS.caution.max) return 'caution';
+  return 'critical';
+};
