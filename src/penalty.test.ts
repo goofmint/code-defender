@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import { ATTACK_COOLDOWN_MS, ATTACK_RANGE } from './attack';
 import type { AttackTarget } from './attack';
 import { INITIAL_GAME_OVER_STATE, checkBankruptcy } from './gameOver';
@@ -179,6 +180,24 @@ describe('formatPenalty', () => {
     [50000, '-50,000円'],
     [1, '-1円'],
   ])('%d → %s', (amount, expected) => {
+    expect(formatPenalty(amount)).toBe(expected);
+  });
+});
+
+describe('formatPenalty（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it.each([
+    [50000, '-¥50,000'],
+    [1000, '-¥1,000'],
+    [999, '-¥999'],
+    [1, '-¥1'],
+  ])('%d → %s（負の符号は通貨記号の前）', (amount, expected) => {
     expect(formatPenalty(amount)).toBe(expected);
   });
 });

@@ -1,12 +1,6 @@
-import {
-  BANKRUPT_INCLUDES_ZERO,
-  GAME_OVER_LAYOUT,
-  GAME_OVER_RESTART_DELAY_MS,
-  GAME_OVER_RESTART_TEXT,
-  GAME_OVER_TEXT,
-} from './config';
+import { BANKRUPT_INCLUDES_ZERO, GAME_OVER_LAYOUT, GAME_OVER_RESTART_DELAY_MS } from './config';
 import { FIELD_HEIGHT } from './field';
-import { formatElapsedDays } from './gameTime';
+import { getMessages, interpolate } from './i18n';
 import { formatScore } from './score';
 
 // ゲームオーバー（倒産）の判定。Phaser に依存しない純粋関数だけを置く。
@@ -72,8 +66,9 @@ export type GameOverLine = {
   readonly y: number;
 };
 
-// ゲームオーバー画面の行（タイトル→スコア→経過日数→案内）を上から順に返す。
+// ゲームオーバー画面の行（タイトル→スコア→経過日数→案内）を上から順に返す。文言は現在の言語のカタログの4行(#158)。
 export const buildGameOverLines = (score: number, elapsedDays: number): GameOverLine[] => {
+  const messages = getMessages().gameOver;
   const centerY = FIELD_HEIGHT / 2;
   const line = (text: string, layout: { readonly fontSize: number; readonly offsetY: number }): GameOverLine => ({
     text,
@@ -81,9 +76,9 @@ export const buildGameOverLines = (score: number, elapsedDays: number): GameOver
     y: centerY + layout.offsetY,
   });
   return [
-    line(GAME_OVER_TEXT, GAME_OVER_LAYOUT.title),
+    line(messages.title, GAME_OVER_LAYOUT.title),
     line(formatScore(score), GAME_OVER_LAYOUT.score),
-    line(formatElapsedDays(elapsedDays), GAME_OVER_LAYOUT.elapsedDays),
-    line(GAME_OVER_RESTART_TEXT, GAME_OVER_LAYOUT.restart),
+    line(interpolate(messages.elapsedDays, { days: elapsedDays }), GAME_OVER_LAYOUT.elapsedDays),
+    line(messages.restart, GAME_OVER_LAYOUT.restart),
   ];
 };

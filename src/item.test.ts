@@ -1,8 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import {
   DEFAULT_MALICIOUS_CODE_HP,
+  ITEM_MARKS,
   ITEM_POWER_DAMAGE,
   ITEM_RANGE_RATIOS,
+  ITEM_SHORT_NAMES,
   ITEM_STRONG_AGAINST_MULTIPLIER,
   LINTER_ATTACK_COOLDOWN_MS,
 } from './config';
@@ -10,6 +13,7 @@ import {
   calculateItemDamage,
   getItemActivation,
   getItemDamage,
+  getItemLabel,
   getItemRange,
   ITEM_DEFINITIONS,
   ITEM_TYPES,
@@ -54,7 +58,7 @@ describe('アイテムのデータ', () => {
 
   it('IDも表示名も重複しない', () => {
     expect(new Set(ITEM_TYPES).size).toBe(ITEM_TYPES.length);
-    const labels = ITEM_TYPES.map((t) => ITEM_DEFINITIONS[t].label);
+    const labels = ITEM_TYPES.map((t) => getItemLabel(t));
     expect(new Set(labels).size).toBe(labels.length);
   });
 
@@ -85,7 +89,7 @@ describe('アイテムのデータ', () => {
     ['pairProgrammer', 'ペアプロ相棒', 'short', 'medium', ['spaghetti']],
   ])('%s は企画書どおりの表示名・範囲・攻撃力・得意を持つ', (itemType, label, range, power, strong) => {
     const def = ITEM_DEFINITIONS[itemType];
-    expect(def.label).toBe(label);
+    expect(getItemLabel(itemType)).toBe(label);
     expect(def.range).toBe(range);
     expect(def.power).toBe(power);
     if (strong === 'all') {
@@ -97,8 +101,8 @@ describe('アイテムのデータ', () => {
   });
 
   it('猫は1回払いで、得意・攻撃力なし、範囲 random、正常なコードも対象、ランダムに消す効果', () => {
+    expect(getItemLabel('cat')).toBe('猫');
     expect(ITEM_DEFINITIONS.cat).toEqual({
-      label: '猫',
       payment: 'oneTime',
       strongAgainst: { kind: 'none' },
       range: 'random',
@@ -125,8 +129,8 @@ describe('アイテムのデータ', () => {
     ['worksFine', '「動いてるからヨシ！」', 'none', 'worksFine', 'none'],
     ['seniorNote', '伝説のシニアの書き置き', 'middle', 'seniorNote', 'cell'],
   ])('#58 の %s（%s）は1回払い・攻撃力と得意なし・範囲 %s・効果 %s・置き方 %s', (itemType, label, range, effect, placement) => {
+    expect(getItemLabel(itemType)).toBe(label);
     expect(ITEM_DEFINITIONS[itemType]).toEqual({
-      label,
       payment: 'oneTime',
       strongAgainst: { kind: 'none' },
       range,
@@ -475,5 +479,28 @@ describe('CodeRabbit(#52): 撃破に必要な攻撃回数', () => {
   it('撃破済みへの 3 回目は hp を変えず defeated も false', () => {
     const second = applyHit(applyHit(getInitialHp(undefined), damage).hp, damage);
     expect(applyHit(second.hp, damage)).toEqual({ hp: second.hp, defeated: false });
+  });
+});
+
+describe('アイテムの表示名（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('正式名称は全アイテムにあり、重複しない', () => {
+    const labels = ITEM_TYPES.map((t) => getItemLabel(t));
+    expect(labels.every((label) => label !== '')).toBe(true);
+    expect(new Set(labels).size).toBe(ITEM_TYPES.length);
+    expect(getItemLabel('linter')).toBe('Static analysis tool (Linter)');
+  });
+
+  it('短い名前・配置記号の表は英語のカタログの値を返す（キーは全アイテム）', () => {
+    expect(Object.keys(ITEM_SHORT_NAMES)).toEqual([...ITEM_TYPES]);
+    expect(Object.keys(ITEM_MARKS)).toEqual([...ITEM_TYPES]);
+    expect(ITEM_SHORT_NAMES.securityScanner).toBe('Scanner');
+    expect(ITEM_MARKS.securityScanner).toBe('Sec');
   });
 });

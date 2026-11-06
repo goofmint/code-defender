@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import {
   CODE_SPAWN_INTERVAL_MS,
   ENGINEER_ATTACHMENT_CHANGE,
@@ -47,6 +48,7 @@ import {
   formatHireOption,
   formatSelectedEngineerLines,
   formatVacationButton,
+  formatVacationHint,
   formatSalaryMessage,
   getInitialSalary,
   hireEngineer,
@@ -277,11 +279,11 @@ describe('isEngineerRank', () => {
 describe('ランク表', () => {
   it('3件で順序は ジュニア・ミドル・シニア', () => {
     expect(ENGINEER_RANKS.map((rank) => rank.id)).toEqual(['junior', 'middle', 'senior']);
-    expect(ENGINEER_RANKS.map((rank) => rank.label)).toEqual(['ジュニア', 'ミドル', 'シニア']);
+    expect(ENGINEER_RANKS.map((rank) => getRankLabel(rank.id))).toEqual(['ジュニア', 'ミドル', 'シニア']);
   });
   it('id・表示名に重複がない', () => {
     expect(new Set(ENGINEER_RANKS.map((rank) => rank.id)).size).toBe(ENGINEER_RANKS.length);
-    expect(new Set(ENGINEER_RANKS.map((rank) => rank.label)).size).toBe(ENGINEER_RANKS.length);
+    expect(new Set(ENGINEER_RANKS.map((rank) => getRankLabel(rank.id))).size).toBe(ENGINEER_RANKS.length);
   });
   it('全ランクに正の費用があり、ランクが上がるほど高い', () => {
     const costs = ENGINEER_RANKS.map((rank) => ENGINEER_HIRE_COST[rank.id]);
@@ -1067,7 +1069,7 @@ describe('性格の設定表', () => {
       'cheerful',
       'gloomy',
     ]);
-    expect(ENGINEER_PERSONALITIES.map((p) => p.label)).toEqual([
+    expect(ENGINEER_PERSONALITIES.map((p) => getPersonalityLabel(p.id))).toEqual([
       '几帳面',
       '消極的',
       '適当',
@@ -1080,7 +1082,7 @@ describe('性格の設定表', () => {
   });
   it('id・表示名に重複がない', () => {
     expect(new Set(PERSONALITY_IDS).size).toBe(COUNT);
-    expect(new Set(ENGINEER_PERSONALITIES.map((p) => p.label)).size).toBe(COUNT);
+    expect(new Set(ENGINEER_PERSONALITIES.map((p) => getPersonalityLabel(p.id))).size).toBe(COUNT);
   });
   it('重みが全性格にあり、均等で正の有限値', () => {
     expect(Object.keys(ENGINEER_PERSONALITY_WEIGHTS).sort()).toEqual([...PERSONALITY_IDS].sort());
@@ -2131,5 +2133,87 @@ describe('自主退職(#32): partitionResignedEngineers', () => {
 describe('自主退職(#32): formatResignedMessage', () => {
   it('id とランク名を出す', () => {
     expect(formatResignedMessage(makeEngineer(3, 'senior', 3))).toBe(`#3 ${getRankLabel('senior')}が退職しました`);
+  });
+});
+
+describe('ランク・性格の表示名（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('ランクの表示名', () => {
+    expect(ENGINEER_RANKS.map((rank) => getRankLabel(rank.id))).toEqual(['Junior', 'Mid', 'Senior']);
+  });
+
+  it('性格の表示名は8種で重複がない', () => {
+    const labels = ENGINEER_PERSONALITIES.map((p) => getPersonalityLabel(p.id));
+    expect(labels).toEqual(['Meticulous', 'Passive', 'Careless', 'Slacker', 'Earnest', 'Composed', 'Cheerful', 'Gloomy']);
+    expect(new Set(labels).size).toBe(ENGINEER_PERSONALITIES.length);
+  });
+});
+
+describe('エンジニアの文言（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('人数・雇うボタン・雇用メッセージ', () => {
+    expect(formatEngineerCount(3, 9)).toBe('Engineers: 3/9');
+    expect(formatHireOption('junior', 100000)).toBe('Hire Junior ¥100K');
+    expect(formatHireOption('senior', 300000)).toBe('Hire Senior ¥300K');
+    const state = { engineers: makeEngineers(3), funds: RICH, nextId: 3 };
+    expect(formatHireMessage(hireEngineer(state, 'junior', rules), 'junior')).toBe('Hired a Junior');
+    expect(formatHireMessage(hireEngineer({ ...state, engineers: makeEngineers(9) }, 'junior', rules), 'junior')).toBe(
+      "Can't hire any more",
+    );
+    expect(formatHireMessage(hireEngineer({ ...state, funds: 0 }, 'junior', rules), 'junior')).toBe('Not enough funds');
+    expect(formatHireMessage(hireEngineer(state, 'lead', rules), 'lead')).toBe('Unknown rank: lead');
+  });
+
+  it('退職のメッセージ', () => {
+    expect(formatResignedMessage(makeEngineer(3, 'senior', 3))).toBe('#3 Senior resigned');
+  });
+
+  it.each<[string, SalaryAdjustResult, string]>([
+    ['昇給', adjustEngineerSalary([makeEngineer(3, 'junior', 0)], 3, 'raise'), '#3 Raise: ¥300,000→¥350,000'],
+    ['減給', adjustEngineerSalary([makeEngineer(3, 'junior', 0)], 3, 'cut'), '#3 Cut: ¥300,000→¥250,000'],
+    ['上限', { ok: false, direction: 'raise', engineerId: 3, reason: 'at-max' }, "Can't raise any further (max ¥1,000,000)"],
+    ['下限', { ok: false, direction: 'cut', engineerId: 3, reason: 'at-min' }, "Can't cut any further (min ¥100,000)"],
+    ['不正な月給', { ok: false, direction: 'raise', engineerId: 3, reason: 'invalid-salary' }, "#3's salary is invalid"],
+    ['対象なし', { ok: false, direction: 'raise', engineerId: null, reason: 'not-found' }, 'No engineer selected'],
+  ])('昇給・減給の結果: %s', (_name, result, expected) => {
+    expect(formatSalaryMessage(result)).toBe(expected);
+  });
+
+  it('選択中のエンジニアの2行と、対象なしの1行', () => {
+    expect(formatSelectedEngineerLines(makeEngineer(3, 'junior', 0))).toEqual(['Selected: #3 Junior', 'Salary ¥300,000 AI: None']);
+    expect(formatSelectedEngineerLines({ ...makeEngineer(3, 'junior', 0), aiAgent: 'strong' })[1]).toBe(
+      'Salary ¥300,000 AI: Strong',
+    );
+    expect(formatSelectedEngineerLines(null)).toEqual(['Selected: none']);
+  });
+
+  it('ポップオーバーの見出し・状態・休暇ボタン', () => {
+    expect(formatEngineerPopoverLines(makeEngineer(5, 'middle', 0))).toEqual(['#5 Mid AI: None', 'Status: Working']);
+    const resting: Engineer = { ...makeEngineer(5, 'middle', 0), aiAgent: 'cheap', onVacation: true };
+    expect(formatEngineerPopoverLines(resting)).toEqual(['#5 Mid AI: Budget', 'Status: On vacation']);
+    expect(formatVacationButton(makeEngineer(0, 'junior', 0))).toBe('Send on vacation');
+    expect(formatVacationButton(resting)).toBe('Back to work');
+  });
+
+  it('休暇の案内文は3行で、数値は四捨五入した整数（0.004 → 0、0.005 → 1）', () => {
+    expect(formatVacationHint()).toEqual([
+      'Vacation button: leave/return (paid)',
+      'Bad code -10pts each, max -20, min 5%',
+      'Effect stays; no code while on leave',
+    ]);
+    expect(formatVacationHint(0.004, 0.004, 0.004)[1]).toBe('Bad code -0pts each, max -0, min 0%');
+    expect(formatVacationHint(0.005, 0.005, 0.005)[1]).toBe('Bad code -1pts each, max -1, min 1%');
   });
 });

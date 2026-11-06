@@ -13,6 +13,7 @@ import {
   ROUTE_TURN_COUNT_MIN,
 } from './config';
 import { CELL_SIZE } from './field';
+import { getMessages } from './i18n';
 
 export type GridCell = { readonly col: number; readonly row: number };
 export type Point = { readonly x: number; readonly y: number };
@@ -233,7 +234,10 @@ export const SPAWN_MARKER_STYLE = {
 export const VACATION_MARKER_STYLE = {
   fillColor: 0x8a8f98,
   strokeColor: 0xffffff,
-  label: '休',
+  // 文字は言語カタログ（vacation.marker）に置き、読むたびに現在の言語の値を返す(#158)。
+  get label(): string {
+    return getMessages().vacation.marker;
+  },
   labelFontSize: '18px',
   labelColor: '#ffffff',
   // 仮・要確認(#143): 「休」の不透明度。勤務中も薄く出し、出現場所の円で休暇を切り替えられることを示す。休暇中は不透明にする。

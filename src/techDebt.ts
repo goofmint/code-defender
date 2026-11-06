@@ -1,7 +1,6 @@
 import {
   DEFAULT_REFACTORING_RATIO,
   REFACTORING_MALICIOUS_RATE_REDUCTION_MAX,
-  TECH_DEBT_FORMAT,
   TECH_DEBT_LEVELS,
   TECH_DEBT_MALICIOUS_RATE_MAX_BONUS,
   TECH_DEBT_MAX,
@@ -9,6 +8,7 @@ import {
   TECH_DEBT_REPAY_PER_REFACTORING_WORK,
   TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER,
 } from './config';
+import { getMessages, interpolate } from './i18n';
 
 // 技術的負債の状態。Phaser に依存しない純粋関数だけを置く（funds.ts と同じ構成）。
 // 負債は 0〜上限の数値。資金や借入ではない（資金には影響しない）。
@@ -163,9 +163,8 @@ export const createTechDebtChangedEvent = (
   reason: TechDebtChangeReason,
 ): TechDebtChangedEvent => ({ previous, current, delta: current - previous, reason });
 
-// 四捨五入した整数で表示する。「技術的負債: 40」の形。
-export const formatTechDebt = (debt: number): string =>
-  `${TECH_DEBT_FORMAT.prefix}${Math.round(debt)}${TECH_DEBT_FORMAT.suffix}`;
+// 四捨五入した整数で表示する。「技術的負債: 40」（英語は「Tech debt: 40」#158）の形。
+export const formatTechDebt = (debt: number): string => interpolate(getMessages().hud.techDebt, { debt: Math.round(debt) });
 
 // 右下の指標(#156)に出す技術的負債の段階。normal（0〜30）・caution（31〜60）・critical（61〜100）。
 export type TechDebtLevel = keyof typeof TECH_DEBT_LEVELS;
@@ -178,4 +177,10 @@ export const getTechDebtLevel = (value: number, max: number = TECH_DEBT_MAX): Te
   if (rounded <= TECH_DEBT_LEVELS.normal.max) return 'normal';
   if (rounded <= TECH_DEBT_LEVELS.caution.max) return 'caution';
   return 'critical';
+};
+
+// 右下の指標(#156)の段階の語。「負債 正常」（英語は「Debt OK」#158）。
+export const formatTechDebtLevel = (level: TechDebtLevel): string => {
+  const { techDebtLevel, techDebtLevels } = getMessages().hud;
+  return interpolate(techDebtLevel, { level: techDebtLevels[level] });
 };

@@ -20,7 +20,6 @@ import {
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
-  INITIAL_PLACEMENT_MESSAGES,
   INITIAL_PLACEMENT_START_BUTTON_ALPHA,
   INITIAL_PLACEMENT_START_KEYS,
   INITIAL_PLACEMENT_UI_BOUNDS,
@@ -35,7 +34,6 @@ import {
   PLAYER_POINTER_DEAD_ZONE,
   PLAYER_SPEED,
   REFACTORING_RATIO_KEYS,
-  SENIOR_NOTE_PREVENTED_MESSAGE,
   REVENUE_PER_NORMAL_CODE,
   SALARY_ADJUST_KEYS,
   SALARY_SELECT_KEYS,
@@ -284,6 +282,9 @@ import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffe
 import { toggleMenu } from './floatingMenu';
 import type { MenuKind } from './floatingMenu';
 import type { Point, Route } from './route';
+import { getMessages, setLocale } from './i18n';
+import { applyDocumentLang, getBrowserLanguages, getLocationSearch } from './i18n/browserEnvironment';
+import { resolveLocale } from './i18n/resolveLocale';
 
 // revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま。
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics; readonly revealed?: boolean };
@@ -581,7 +582,7 @@ class MainScene extends Phaser.Scene {
     }
     const selection = this.initialPlacementSelection;
     if (selection.kind === 'none') {
-      this.showInitialPlacementMessage(INITIAL_PLACEMENT_MESSAGES.selectFirst);
+      this.showInitialPlacementMessage(getMessages().initialPlacement.selectFirst);
       return;
     }
     if (selection.kind === 'engineer') {
@@ -701,7 +702,7 @@ class MainScene extends Phaser.Scene {
     this.destroyRouteDrawing(result.routeId);
     this.engineerRemoveButtons.get(engineerId)?.destroy();
     this.engineerRemoveButtons.delete(engineerId);
-    this.showInitialPlacementMessage(INITIAL_PLACEMENT_MESSAGES.engineerRemoved);
+    this.showInitialPlacementMessage(getMessages().initialPlacement.engineerRemoved);
     this.refreshInitialPlacementControls();
   }
 
@@ -714,7 +715,7 @@ class MainScene extends Phaser.Scene {
       return;
     }
     if (!canStartPlay(this.engineers)) {
-      this.showInitialPlacementMessage(INITIAL_PLACEMENT_MESSAGES.placeAllEngineers);
+      this.showInitialPlacementMessage(getMessages().initialPlacement.placeAllEngineers);
       return;
     }
     const itemState = finishInitialPlacement(this.initialPlacement);
@@ -1614,7 +1615,7 @@ class MainScene extends Phaser.Scene {
     // 伝説のシニアの書き置き(#58): リリース地点が範囲内なら、資金を変える前に障害を防ぐ（損害・演出・INCIDENT_EVENT・直前の障害の記録なし）。
     if (isIncidentPreventedByNote(this.placedItems)) {
       this.itemMessageText?.destroy();
-      this.itemMessageText = drawItemMessage(this, SENIOR_NOTE_PREVENTED_MESSAGE);
+      this.itemMessageText = drawItemMessage(this, getMessages().items.seniorNotePrevented);
       const prevented: IncidentPreventedPayload = {
         codeId: payload.id,
         maliciousType: incident.maliciousType,
@@ -1935,5 +1936,11 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   scene: MainScene,
 };
+
+// 表示言語(#158)。URL の ?locale= → ブラウザーの言語設定 → 既定（日本語）の順に決め、ゲームを作る前に1回だけ設定する。
+// 文言は呼び出し時にカタログから読むので、ここで設定すれば scene.restart() 後も同じ言語のまま。
+const locale = resolveLocale(getLocationSearch(), getBrowserLanguages());
+setLocale(locale);
+applyDocumentLang(locale);
 
 new Phaser.Game(config);

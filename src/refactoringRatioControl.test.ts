@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import { DEFAULT_REFACTORING_RATIO, REFACTORING_RATIO_STEP_PERCENT } from './config';
 import {
   formatRefactoringAllocation,
@@ -163,5 +164,22 @@ describe('getRefactoringRatioOptions: 開発バランスのメニューの選択
   it('isSameRefactoringOption は整数パーセントで比べる（0.1 + 0.2 と 0.3 は同じ、0.3 と 0.4 は違う）', () => {
     expect(isSameRefactoringOption(0.1 + 0.2, 0.3)).toBe(true);
     expect(isSameRefactoringOption(0.3, 0.4)).toBe(false);
+  });
+});
+
+describe('formatRefactoringAllocation（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it.each([
+    [0, 'Feat 100:Refac 0'],
+    [0.2, 'Feat 80:Refac 20'],
+    [1, 'Feat 0:Refac 100'],
+  ])('formatRefactoringAllocation(%d) = %s', (ratio, expected) => {
+    expect(formatRefactoringAllocation(ratio)).toBe(expected);
   });
 });

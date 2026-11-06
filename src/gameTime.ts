@@ -1,4 +1,5 @@
-import { DAYS_PER_GAME_MONTH, ELAPSED_DAYS_FORMAT, MS_PER_GAME_MONTH } from './config';
+import { DAYS_PER_GAME_MONTH, MS_PER_GAME_MONTH } from './config';
+import { getMessages, interpolate } from './i18n';
 
 // ゲーム内時計。Phaser に依存しない純粋関数だけを置く。
 // 時計は「経過msを累積する」形。個別の休暇(#36)ではゲーム時計を止めない。一時停止で時間を止めるかは未決定。
@@ -51,5 +52,5 @@ export const createMonthElapsedEvent = (month: number): MonthElapsedEvent => {
   return { month, elapsedMs, days: getElapsedDays(elapsedMs) };
 };
 
-export const formatElapsedDays = (days: number): string =>
-  `${ELAPSED_DAYS_FORMAT.prefix}${days}${ELAPSED_DAYS_FORMAT.suffix}`;
+// 「経過日数: 12日」（英語は「Days elapsed: 12」#158）。日数は区切らない。
+export const formatElapsedDays = (days: number): string => interpolate(getMessages().hud.elapsedDays, { days });

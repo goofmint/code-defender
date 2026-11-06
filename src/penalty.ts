@@ -1,8 +1,9 @@
 import { canAttack, findAttackTarget } from './attack';
 import type { AttackTarget } from './attack';
 import type { CodeKind } from './code';
-import { FUNDS_FORMAT, NORMAL_CODE_PENALTY } from './config';
+import { NORMAL_CODE_PENALTY } from './config';
 import { subtractFunds } from './funds';
+import { formatYen, getMessages, interpolate } from './i18n';
 import type { Point } from './route';
 
 // 正常なコードを攻撃したときの減点。Phaser に依存しない純粋関数だけを置く。
@@ -94,6 +95,6 @@ export const resolveAttackPenalty = <T extends AttackTarget>({
   };
 };
 
-// 「-50,000円」の形。
+// 「-50,000円」（英語は「-¥50,000」）の形(#158)。amount は引いた額（正の値）。
 export const formatPenalty = (amount: number): string =>
-  `-${amount.toLocaleString('ja-JP')}${FUNDS_FORMAT.suffix}`;
+  interpolate(getMessages().penalty.amount, { amount: formatYen(amount) });

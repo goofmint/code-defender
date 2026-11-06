@@ -12,7 +12,6 @@ import {
   ITEM_ROUTE_CLEARANCE,
   ITEM_SHORT_NAMES,
   LINTER_HESITATION_PROBABILITY,
-  MENU_TEXT,
   PAIR_PROGRAMMER_FOLLOW_OFFSET,
   PLACEMENT_CELL_SIZE,
   PLACEMENT_COLS,
@@ -21,6 +20,7 @@ import {
   SPAWN_MARKER_DECOR_STYLE,
 } from './config';
 import { CELL_SIZE, FIELD_HEIGHT, FIELD_WIDTH } from './field';
+import { formatShortAmount, getMessages, interpolate } from './i18n';
 import { pointInRect, rectIntersectsCircle, rectIntersectsThickSegment, rectsOverlap, rectWithin } from './geometry';
 import type { Rect } from './geometry';
 import {
@@ -34,7 +34,7 @@ import {
   itemTargetsNormalCode,
 } from './item';
 import type { ItemEffect, ItemPayment, ItemType } from './item';
-import { RELEASE_POINT_CENTER, RELEASE_POINT_LABEL_BOUNDS } from './releasePoint';
+import { getReleasePointLabelBounds, RELEASE_POINT_CENTER } from './releasePoint';
 import { cellCenter, routePixelPoints, SPAWN_MARKER_STYLE } from './route';
 import type { GridCell, Point, Route } from './route';
 
@@ -164,7 +164,7 @@ const isOpenTerrain = (cell: PlacementCell, context: PlacementContext): boolean 
     return false;
   }
   if (rectIntersectsCircle(footprint, RELEASE_POINT_CENTER, RELEASE_CLEARANCE_RADIUS)) return false;
-  return !rectsOverlap(footprint, RELEASE_POINT_LABEL_BOUNDS);
+  return !rectsOverlap(footprint, getReleasePointLabelBounds());
 };
 
 // フットプリントが既存アイテムのフットプリントと重なるか（辺の接触は重なりとしない）。
@@ -282,22 +282,23 @@ export const purchaseInstantItem = (
 
 // 購入結果のメッセージ。ゲームオーバー中は表示しないので空文字。置かないアイテム(#58)は「〜を使いました」。
 export const formatItemMessage = (result: PurchaseResult | InstantPurchaseResult, itemType: string): string => {
+  const messages = getMessages();
   if (result.ok) {
     return 'item' in result
-      ? `${ITEM_SHORT_NAMES[result.item.itemType]}を置きました`
-      : `${ITEM_SHORT_NAMES[result.itemType]}を使いました`;
+      ? interpolate(messages.items.placed, { name: ITEM_SHORT_NAMES[result.item.itemType] })
+      : interpolate(messages.items.used, { name: ITEM_SHORT_NAMES[result.itemType] });
   }
   switch (result.reason) {
     case 'gameOver':
       return '';
     case 'unknownItem':
-      return `不明なアイテムです: ${itemType}`;
+      return interpolate(messages.common.unknownItem, { item: itemType });
     case 'insufficientFunds':
-      return '資金が足りません';
+      return messages.common.insufficientFunds;
     case 'noEligibleIncident':
-      return '取り消せる障害がありません';
+      return messages.items.noEligibleIncident;
     default:
-      return 'そこには置けません';
+      return messages.common.notPlaceable;
   }
 };
 
@@ -318,10 +319,12 @@ export const getItemMonthlyFee = (
 
 // アイテムのメニュー(#156)の枠の文言。「Linter 2.5万円」。月額払いは「CodeRabbit 10万/月」（幅に収めるため「円」を省く）。キー名（4〜9）は出さない。
 // 月額払いは精算と同じ月額（getItemMonthlyFee）を表示する。
+// 英語は「Linter ¥25K」「CodeRabbit ¥100K/mo」(#158)。金額の計算は変えず、短い金額の書式（formatShortAmount）だけを言語で変える。
 export const formatItemOption = (itemType: ItemType, ratio: number = ITEM_MONTHLY_FEE_RATIO): string => {
-  const head = ITEM_SHORT_NAMES[itemType];
-  if (isMonthlyItem(itemType)) return `${head} ${getItemMonthlyFee(itemType, ratio) / 10000}${MENU_TEXT.monthlyUnit}`;
-  return `${head} ${getItemPrice(itemType) / 10000}${MENU_TEXT.oneTimeUnit}`;
+  const price = isMonthlyItem(itemType)
+    ? formatShortAmount(getItemMonthlyFee(itemType, ratio), 'monthly')
+    : formatShortAmount(getItemPrice(itemType), 'oneTime');
+  return interpolate(getMessages().items.option, { name: ITEM_SHORT_NAMES[itemType], price });
 };
 
 // 攻撃対象の候補。設定が false なら不正なコードだけ、true なら正常も含む。入力は変更しない。

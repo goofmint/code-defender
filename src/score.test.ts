@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import { createFundsChangedEvent } from './funds';
 import type { FundsChangedEvent, FundsChangeReason } from './funds';
 import { accumulateScore, formatCumulativeSales, formatScore, INITIAL_SCORE } from './score';
@@ -152,5 +153,24 @@ describe('formatCumulativeSales', () => {
     [Number.MAX_SAFE_INTEGER, '累計売上: 9,007,199,254,740,991円'],
   ])('formatCumulativeSales(%d) = %s', (score, expected) => {
     expect(formatCumulativeSales(score)).toBe(expected);
+  });
+});
+
+describe('formatScore（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it.each([
+    [0, 'Score: ¥0'],
+    [1, 'Score: ¥1'],
+    [999, 'Score: ¥999'],
+    [1000, 'Score: ¥1,000'],
+    [1000000, 'Score: ¥1,000,000'],
+  ])('formatScore(%d) = %s', (score, expected) => {
+    expect(formatScore(score)).toBe(expected);
   });
 });

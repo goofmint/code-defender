@@ -7,6 +7,7 @@ import {
 } from './config';
 import { CODE_SIZE, CODE_STYLES } from './code';
 import type { CodeStyle } from './code';
+import { getMessages } from './i18n';
 
 // 脆弱性は重大度の高い順に先頭4つ。
 export const MALICIOUS_CODE_TYPES = [
@@ -29,8 +30,8 @@ export type CodeVariant =
 
 export type MaliciousCodeGroup = 'vulnerability' | 'other';
 
+// 表示名は言語カタログ（maliciousCode.names）に置き、getMaliciousCodeLabel で読む(#158)。
 type MaliciousCodeTypeDefinition = {
-  readonly label: string;
   readonly group: MaliciousCodeGroup;
   // 仮の見た目（星の右上のバッジ）。
   readonly badgeColor: number;
@@ -43,35 +44,33 @@ type MaliciousCodeTypeDefinition = {
 
 export const MALICIOUS_CODE_TYPE_DEFINITIONS = {
   vulnerabilityCritical: {
-    label: '脆弱性：クリティカル',
     group: 'vulnerability',
     ...MALICIOUS_CODE_PARAMS.vulnerabilityCritical,
   },
   vulnerabilityMajor: {
-    label: '脆弱性：メジャー',
     group: 'vulnerability',
     ...MALICIOUS_CODE_PARAMS.vulnerabilityMajor,
   },
   vulnerabilityMinor: {
-    label: '脆弱性：マイナー',
     group: 'vulnerability',
     ...MALICIOUS_CODE_PARAMS.vulnerabilityMinor,
   },
   vulnerabilityInfo: {
-    label: '脆弱性：インフォ',
     group: 'vulnerability',
     ...MALICIOUS_CODE_PARAMS.vulnerabilityInfo,
   },
-  spaghetti: { label: 'スパゲティコード', group: 'other', ...MALICIOUS_CODE_PARAMS.spaghetti },
-  bug: { label: 'バグ', group: 'other', ...MALICIOUS_CODE_PARAMS.bug },
-  duplication: { label: 'コード重複', group: 'other', ...MALICIOUS_CODE_PARAMS.duplication },
+  spaghetti: { group: 'other', ...MALICIOUS_CODE_PARAMS.spaghetti },
+  bug: { group: 'other', ...MALICIOUS_CODE_PARAMS.bug },
+  duplication: { group: 'other', ...MALICIOUS_CODE_PARAMS.duplication },
   lowPerformance: {
-    label: '低パフォーマンス',
     group: 'other',
     ...MALICIOUS_CODE_PARAMS.lowPerformance,
   },
-  typo: { label: 'タイポ', group: 'other', ...MALICIOUS_CODE_PARAMS.typo },
+  typo: { group: 'other', ...MALICIOUS_CODE_PARAMS.typo },
 } as const satisfies Record<MaliciousCodeType, MaliciousCodeTypeDefinition>;
+
+// 表示名。現在の言語のカタログから読む(#158)。
+export const getMaliciousCodeLabel = (type: MaliciousCodeType): string => getMessages().maliciousCode.names[type];
 
 // 描画用の見た目。不正コードの基本形（赤い星形＋「!」）にバッジを足したもの。
 export type MaliciousCodeAppearance = CodeStyle & {

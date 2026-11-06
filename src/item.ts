@@ -8,6 +8,7 @@ import {
   ITEM_STRONG_AGAINST_MULTIPLIER,
 } from './config';
 import { CELL_SIZE } from './field';
+import { getMessages } from './i18n';
 import type { MaliciousCodeType } from './maliciousCode';
 import type { Point } from './route';
 
@@ -80,8 +81,8 @@ export type ItemPayment = 'monthly' | 'oneTime';
 // releaseGate はリリース直前の減速と確率阻止（CI #55。ci.ts と main.ts の updateCodes）で、汎用攻撃はしない。
 export type ItemActivation = 'nearestTarget' | 'releaseGate';
 
+// 表示名は言語カタログ（items.names）に置き、getItemLabel で読む(#158)。
 type ItemDefinition = {
-  readonly label: string;
   readonly payment: ItemPayment;
   readonly strongAgainst: StrongAgainst;
   readonly range: ItemRangeSpec;
@@ -100,7 +101,6 @@ type ItemDefinition = {
 
 export const ITEM_DEFINITIONS = {
   codeRabbit: {
-    label: 'CodeRabbit',
     payment: 'monthly',
     strongAgainst: { kind: 'all' },
     range: 'long',
@@ -113,7 +113,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   linter: {
-    label: '静的解析ツール（Linter）',
     payment: 'oneTime',
     strongAgainst: { kind: 'types', types: ['typo', 'duplication'] },
     range: 'short',
@@ -126,7 +125,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: LINTER_ATTACK_COOLDOWN_MS,
   },
   testTool: {
-    label: 'テストツール',
     payment: 'oneTime',
     strongAgainst: { kind: 'types', types: ['bug'] },
     range: 'middle',
@@ -139,7 +137,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   ci: {
-    label: 'CI',
     payment: 'monthly',
     strongAgainst: { kind: 'types', types: ['bug', 'lowPerformance'] },
     range: 'short',
@@ -154,7 +151,6 @@ export const ITEM_DEFINITIONS = {
   // 企画書 8（docs/game_plan.md の表）: 得意は脆弱性クリティカル・メジャー、中距離、強、月額。
   // 「クリティカル・メジャーは、セキュリティスキャナーがないと苦戦する」（同ファイル）。ダメージ・範囲の数値は config.ts の仮の値（仮・要確認）。
   securityScanner: {
-    label: 'セキュリティスキャナー',
     payment: 'monthly',
     strongAgainst: {
       kind: 'types',
@@ -170,7 +166,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   pairProgrammer: {
-    label: 'ペアプロ相棒',
     payment: 'monthly',
     strongAgainst: { kind: 'types', types: ['spaghetti'] },
     range: 'short',
@@ -183,7 +178,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   cat: {
-    label: '猫',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'random',
@@ -197,7 +191,6 @@ export const ITEM_DEFINITIONS = {
   },
   // 以下は #58。攻撃しない（攻撃力・得意なし）1回払いのアイテム。範囲 none は置かずに購入時に発動する。
   rubberDuck: {
-    label: 'ラバーダック',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'middle',
@@ -210,7 +203,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   codeFreeze: {
-    label: 'コードフリーズ',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'none',
@@ -223,7 +215,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   specChangeStorm: {
-    label: '仕様変更の嵐',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'none',
@@ -236,7 +227,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   coffeeMachine: {
-    label: 'コーヒーマシン',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'short',
@@ -249,7 +239,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   energyDrink: {
-    label: 'エナジードリンク',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'none',
@@ -262,7 +251,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   pizza: {
-    label: 'ピザ',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'none',
@@ -275,7 +263,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   documentation: {
-    label: 'ドキュメント',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'none',
@@ -288,7 +275,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   fridayDeploy: {
-    label: '金曜日の夕方デプロイ',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'none',
@@ -301,7 +287,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   rollbackButton: {
-    label: 'ロールバックボタン',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'none',
@@ -314,7 +299,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   worksFine: {
-    label: '「動いてるからヨシ！」',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'none',
@@ -327,7 +311,6 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
   seniorNote: {
-    label: '伝説のシニアの書き置き',
     payment: 'oneTime',
     strongAgainst: { kind: 'none' },
     range: 'middle',
@@ -340,6 +323,9 @@ export const ITEM_DEFINITIONS = {
     attackCooldownMs: null,
   },
 } as const satisfies Record<ItemType, ItemDefinition>;
+
+// 表示名（正式名称）。現在の言語のカタログから読む(#158)。
+export const getItemLabel = (itemType: ItemType): string => getMessages().items.names[itemType];
 
 // このアイテムが正常なコードも対象にするか（企画書 8。猫だけが true）。
 export const itemTargetsNormalCode = (itemType: ItemType): boolean =>

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import {
   addFunds,
   createFundsChangedEvent,
@@ -71,5 +72,25 @@ describe('createFundsChangedEvent', () => {
 
   it('変化なし: delta は 0', () => {
     expect(createFundsChangedEvent(500, 500, 'salary').delta).toBe(0);
+  });
+});
+
+describe('formatFunds（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it.each([
+    [0, 'Funds: ¥0'],
+    [999, 'Funds: ¥999'],
+    [1000, 'Funds: ¥1,000'],
+    [1000000, 'Funds: ¥1,000,000'],
+    [-1, 'Funds: -¥1'],
+    [-300000, 'Funds: -¥300,000'],
+  ])('formatFunds(%d) = %s（負の符号は通貨記号の前）', (funds, expected) => {
+    expect(formatFunds(funds)).toBe(expected);
   });
 });

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import {
   ENGINEER_SPAWN_CELLS,
   ENGINEER_SPAWN_COL,
@@ -27,6 +28,7 @@ import {
   removeRoute,
   routePixelPoints,
   SPAWN_MARKER_STYLE,
+  VACATION_MARKER_STYLE,
 } from './route';
 
 // シード付き擬似乱数（mulberry32）。0 以上 1 未満を返す。
@@ -435,6 +437,23 @@ describe('removeRoute（退職でルートが消える #32）', () => {
     const removed = removeRoute(initial(), 1);
     expect(nextSpawnCell(removed.map((route) => route.spawn))).toEqual(spawnAt(0));
     expect(removed.map((route) => route.spawn)).not.toContainEqual(ENGINEER_SPAWN_CELLS[1]);
+  });
+});
+
+describe('休暇マーカーの文字 #158', () => {
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('日本語は「休」', () => {
+    expect(VACATION_MARKER_STYLE.label).toBe('休');
+  });
+
+  it('読むたびに現在の言語の文字を返す', () => {
+    setLocale('en');
+    expect(VACATION_MARKER_STYLE.label).toBe('Zz');
+    setLocale('ja');
+    expect(VACATION_MARKER_STYLE.label).toBe('休');
   });
 });
 

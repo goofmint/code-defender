@@ -1,4 +1,6 @@
 // ゲーム設定の仮の値を一か所に集める。後続のゲームバランス用の値もここに追加する。
+// 表示する文言は言語カタログ（src/i18n/locales/）に置く(#158)。ここには座標・大きさなどのレイアウト値を残す。
+import { localizedRecord } from './i18n';
 
 // 仮: セルサイズ・列数・行数は CodeRabbit 実装計画(#2)の値。企画書には未記載。
 // CELL_SIZE はルートグリッド（出現セル・折れ点・リリースセル）と射程（ITEM_RANGE_RATIOS × CELL_SIZE）の基準。
@@ -178,8 +180,7 @@ const GAME_DAY_MS = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH;
 // コード速度の間隔（DIFFICULTY_STEP_MS）とは分け、1段階ごとに CODE_MALICIOUS_RATE_INCREMENT（+3 ポイント）ずつ上げる（difficulty.ts の maliciousRateAt）。
 export const MALICIOUS_RATE_STEP_DAYS = 10;
 export const MALICIOUS_RATE_STEP_MS = GAME_DAY_MS * MALICIOUS_RATE_STEP_DAYS;
-// 仮: 経過日数の表示書式。「経過日数: N日」。接頭辞と接尾辞で挟む。企画書には表示書式の記載なし。
-export const ELAPSED_DAYS_FORMAT = { prefix: '経過日数: ', suffix: '日' } as const;
+// 仮: 経過日数の表示書式「経過日数: N日」は言語カタログ（hud.elapsedDays）に置く(#158)。企画書には表示書式の記載なし。
 // 仮・要確認(#59追加対応): 左上の表示（経過日数・初期配置UI）の左端 x。企画書には未記載。
 // 出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右隣に余白12pxを置く。出現場所は列0の行0〜8のどこにでも出るため、列0の右に置いて重ならないようにする。
 const HUD_LEFT_X = CELL_SIZE * (ENGINEER_SPAWN_COL + 1) + 12;
@@ -206,10 +207,8 @@ export const INITIAL_FUNDS = 1000000;
 // 仮・要確認(#42): この値は既定の配分（DEFAULT_REFACTORING_RATIO）のときの単価。実際の売上は機能開発の割合 (1 − r) に比例する
 // （getFeatureRevenueMultiplier）。リファクタリング 0%（r=0）で 25000円、100%（r=1）で 0円。
 export const REVENUE_PER_NORMAL_CODE = 20000;
-// 仮・要確認: 企画書に記載なし。資金の表示書式。「資金: 1,000,000円」。数値部分は3桁区切り。
-export const FUNDS_FORMAT = { prefix: '資金: ', suffix: '円' } as const;
-// 仮・要確認(#59): 企画書は「スコアは倒産までの累計売上」とだけで、プレイ中の表示書式は未記載。「累計売上: 20,000円」。数値部分は3桁区切り。
-export const CUMULATIVE_SALES_FORMAT = { prefix: '累計売上: ', suffix: '円' } as const;
+// 仮・要確認: 企画書に記載なし。資金の表示書式「資金: 1,000,000円」は言語カタログ（hud.funds）に置く(#158)。数値部分は3桁区切り。
+// 仮・要確認(#59): 企画書は「スコアは倒産までの累計売上」とだけで、プレイ中の表示書式は未記載。「累計売上: 20,000円」（hud.cumulativeSales #158）。
 
 // 仮・要確認(#43): 企画書(7)は「機能開発に偏ると技術的負債が溜まる」とだけで、溜まり方・返し方の数値は未定（docs/tasks.md の「技術的負債の具体的な数値」）。以下はすべて仮の値。
 // 負債は 0〜TECH_DEBT_MAX の数値。資金や借入ではない（資金には影響しない）。
@@ -243,22 +242,19 @@ export const REFACTORING_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 // 1 なら負債がいくつでも生成間隔は基準のまま（techDebt.ts の techDebtSpawnIntervalMs）。倍率 1 で無効になるのは生成間隔の延長だけで、
 // 負債による不正コード率の増加(#45)と、閾値超えの放置による大障害(#46、main.ts の updateTechDebtNeglect)はそのまま残る。
 export const TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER = 1;
-// 仮・要確認(#43): 技術的負債の表示書式。「技術的負債: 40」。数値は四捨五入した整数。
-export const TECH_DEBT_FORMAT = { prefix: '技術的負債: ', suffix: '' } as const;
+// 仮・要確認(#43): 技術的負債の表示書式「技術的負債: 40」は言語カタログ（hud.techDebt）に置く(#158)。数値は四捨五入した整数。
 // 仮・要確認(#156): 右下の指標に出す技術的負債の段階。数値ではなく色付きの丸と短い語で出す（「緑なら正常（0〜30）、オレンジは注意（31〜60）、赤は要解消（61〜100）」）。
 // 判定は四捨五入した整数を 0〜TECH_DEBT_MAX に収めた値で行う（formatTechDebt の表示と同じ丸め。30.4 は正常、30.5 は注意）。max はその段階に入る上限（その値を含む）。
-// 大障害の閾値（TECH_DEBT_OUTAGE_THRESHOLD、内部値 80 超）とは別で、こちらは表示だけに使う。
+// 大障害の閾値（TECH_DEBT_OUTAGE_THRESHOLD、内部値 80 超）とは別で、こちらは表示だけに使う。段階の語は言語カタログ（hud.techDebtLevels）に置く(#158)。
 export const TECH_DEBT_LEVELS = {
-  normal: { max: 30, color: 0x43a047, label: '正常' },
-  caution: { max: 60, color: 0xfb8c00, label: '注意' },
-  critical: { max: TECH_DEBT_MAX, color: 0xe53935, label: '要解消' },
+  normal: { max: 30, color: 0x43a047 },
+  caution: { max: 60, color: 0xfb8c00 },
+  critical: { max: TECH_DEBT_MAX, color: 0xe53935 },
 } as const;
 
 // 仮・要確認: 企画書に記載なし。「資金がなくなったら」を残高ちょうど 0 も倒産とするか。false なら 0 未満のみ倒産。
 export const BANKRUPT_INCLUDES_ZERO = true;
-// 仮・要確認: 企画書に記載なし。ゲームオーバー画面の文言。案内はタッチ端末でも読める文言にしている。
-export const GAME_OVER_TEXT = '倒産しました';
-export const GAME_OVER_RESTART_TEXT = 'タップ / クリック / Enter でもう一度';
+// 仮・要確認: 企画書に記載なし。ゲームオーバー画面の文言は言語カタログ（src/i18n/locales/ の gameOver）に置く(#158)。
 // 仮・要確認: 企画書に記載なし。ゲームオーバー中のリスタートキー（Phaser の KeyCodes のキー名）。
 // Space は攻撃キーと同じだが、ゲームオーバー中は攻撃しないのでリスタートに使う。
 export const GAME_OVER_RESTART_KEYS = ['ENTER', 'SPACE'] as const;
@@ -309,8 +305,7 @@ export const DEFEAT_EFFECT_START_RADIUS_RATIO = 0.4;
 export const DEFEAT_EFFECT_END_RADIUS_RATIO = 1.2;
 
 // 仮・要確認(#22): 企画書は「スコアは倒産までの累計売上」とだけで、表示の書式・位置は未記載。
-// ゲームオーバー画面のスコア表示書式。「スコア: 20,000円」。数値部分は3桁区切り。
-export const SCORE_FORMAT = { prefix: 'スコア: ', suffix: '円' } as const;
+// ゲームオーバー画面のスコア表示書式「スコア: 20,000円」は言語カタログ（gameOver.score）に置く(#158)。
 
 // 仮・要確認: 企画書には「正常なコードを攻撃すると減点」としかない。スコアは累計売上で減らさない方針のため、減点は資金から引く。
 export const NORMAL_CODE_PENALTY_TARGET = 'funds' as const;
@@ -324,16 +319,20 @@ export const PENALTY_TEXT_DURATION_MS = 800;
 export const PENALTY_TEXT_RISE_PX = 40;
 export const PENALTY_TEXT_FONT_SIZE = '20px';
 
+// 仮・要確認(#158): 文字列の幅の見積もり（textMetrics.ts の estimateTextWidth）。全角文字は 1 文字 = フォント px、
+// 半角文字（英数字など）はフォント px にこの比率を掛けた幅とする。sans-serif の英字の平均幅（約 0.5〜0.55 倍）より少し広く見積もり、はみ出しを防ぐ。
+export const HALF_WIDTH_CHAR_RATIO = 0.6;
+
 // 仮・要確認(#23): 企画書(6)は「ジュニア・ミドル・シニアの3ランクから雇える」とだけで、費用・人数・上限・操作は未記載。以下はすべて仮の値。
-// ランク表。表示名のほか、不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。
+// ランク表。不正コード率(#12/#24)・性格(#26)の列を後から足せる。順序は画面のボタン順と同じ。表示名は言語カタログ（engineer.ranks）に置く(#158)。
 // 仮・要確認(#12): maliciousRate は担当ルートの開始時の不正コード率、maliciousRateMax は時間が経った後の上限（どちらも 0〜1）。
 // 企画書(6)「不正なコードの割合」の叩き台（ジュニア 40%→60%・ミドル 25%→45%・シニア 10%→25%）。
 // 数値は docs/tasks.md の「各ランクの不正コード率（開始時・上限）を確定する」で調整する。
 // 増え方（増加量・間隔）は CODE_MALICIOUS_RATE_INCREMENT / MALICIOUS_RATE_STEP_MS(#150) を共用する。
 export const ENGINEER_RANKS = [
-  { id: 'junior', label: 'ジュニア', maliciousRate: 0.4, maliciousRateMax: 0.6 },
-  { id: 'middle', label: 'ミドル', maliciousRate: 0.25, maliciousRateMax: 0.45 },
-  { id: 'senior', label: 'シニア', maliciousRate: 0.1, maliciousRateMax: 0.25 },
+  { id: 'junior', maliciousRate: 0.4, maliciousRateMax: 0.6 },
+  { id: 'middle', maliciousRate: 0.25, maliciousRateMax: 0.45 },
+  { id: 'senior', maliciousRate: 0.1, maliciousRateMax: 0.25 },
 ] as const;
 // 仮・要確認(#25): 企画書(6)は「ランクによって、一定期間ごとの支払い（給料）が変わる」とだけで金額は未記載。以下はすべて仮の値。
 // ランク別の月給の初期額（円）(#33)。雇ったとき・初期編成のときに、この額がエンジニア個人の月給（Engineer.salary）になる。
@@ -389,16 +388,16 @@ export const ENGINEER_INITIAL_PARAMETERS: Readonly<
 };
 // 仮・要確認(#26): 企画書(6)の性格8種。順序は企画書の表どおり。雇ったときにランダムで1つ付く。
 // 性格ごとのパラメータの傾向は、この表とは別に ENGINEER_PERSONALITY_TENDENCIES に持つ(#29)。
-// 性格は画面には出さない（仮）。#59 の表示と衝突するため。
+// 性格は画面には出さない（仮）。#59 の表示と衝突するため。表示名は言語カタログ（engineer.personalities）に置く(#158)。
 export const ENGINEER_PERSONALITIES = [
-  { id: 'meticulous', label: '几帳面' },
-  { id: 'passive', label: '消極的' },
-  { id: 'careless', label: '適当' },
-  { id: 'slacker', label: 'サボりがち' },
-  { id: 'earnest', label: '真面目' },
-  { id: 'calm', label: '冷静沈着' },
-  { id: 'cheerful', label: '陽気' },
-  { id: 'gloomy', label: '根暗' },
+  { id: 'meticulous' },
+  { id: 'passive' },
+  { id: 'careless' },
+  { id: 'slacker' },
+  { id: 'earnest' },
+  { id: 'calm' },
+  { id: 'cheerful' },
+  { id: 'gloomy' },
 ] as const;
 // 仮・要確認(#26): 性格を選ぶ重み。企画書に偏りの記載はないので全部 1（均等）。Record なので過不足は型エラーになる。
 export const ENGINEER_PERSONALITY_WEIGHTS: Readonly<
@@ -483,14 +482,12 @@ export const REFACTORING_RATIO_STEP_PERCENT = 10;
 // 仮・要確認(#40): 割合を変えるキー（Phaser の KeyCodes のキー名）。feature は機能開発へ寄せる、refactoring はリファクタリングへ寄せる。
 // 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給（#34 の Q/E/R/F）と重ならない。
 export const REFACTORING_RATIO_KEYS = { feature: 'Z', refactoring: 'X' } as const;
-// 仮・要確認(#40): 割合の表示書式。「機能80:リファ20」。両方の割合（整数パーセント、合計100）を出す。
-export const REFACTORING_ALLOCATION_FORMAT = { feature: '機能', separator: ':', refactoring: 'リファ' } as const;
+// 仮・要確認(#40): 割合の表示書式「機能80:リファ20」は言語カタログ（balance.allocation）に置く(#158)。両方の割合（整数パーセント、合計100）を出す。
 // 仮・要確認(#34): 昇給・減給の操作。企画書には操作方法の記載なし。「選択中のエンジニア」の情報行と、前へ・次へ・昇給・減給の4つのボタン・キーで操作する。
 // キーは移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・アイテム購入(4〜9)・リスタート(ENTER/SPACE)と重ならない。Phaser の KeyCodes のキー名。
 export const SALARY_SELECT_KEYS = { previous: 'Q', next: 'E' } as const;
 export const SALARY_ADJUST_KEYS = { raise: 'R', cut: 'F' } as const;
-// 仮・要確認(#34): ボタンのラベル。#156 でエンジニアのメニューに移し、キー名は出さない（キー操作は残す）。
-export const SALARY_BUTTON_LABELS = { previous: '◀ 前へ', next: '次へ ▶', raise: '昇給', cut: '減給' } as const;
+// 仮・要確認(#34): ボタンのラベルは言語カタログ（engineer.salaryButtons）に置く(#158)。#156 でエンジニアのメニューに移し、キー名は出さない（キー操作は残す）。
 // 仮・要確認(#53): AIコーディングエージェント（強い・普通・安い）。企画書(8)は「エンジニアに付けて出力ペースを上げる」「普通は強いより、安いは最も不正なコードを混ぜやすい」
 // 「価格は高い・普通・安い」「月額」とだけで、具体的な数値・操作は未記載。以下はすべて仮の値。
 // 価格の段階（ITEM_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
@@ -504,9 +501,9 @@ export const AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE = { strong: 0, normal: 0.0
 // 仮・要確認(#53): 倍率を掛けた後のコード生成間隔の下限（ミリ秒）。倍率の調整で生成が速くなりすぎないようにする。
 export const CODE_SPAWN_INTERVAL_MIN_MS = 500;
 // 仮・要確認(#53): ボタン・メッセージ・選択中のエンジニアの情報行に使う短い名前。
-export const AI_AGENT_SHORT_NAMES = { strong: '強い', normal: '普通', cheap: '安い' } as const;
-// 仮・要確認(#53): 選択中のエンジニアの情報行で、AIエージェントを付けていないときの表示。
-export const AI_AGENT_NONE_LABEL = 'なし';
+// 文言は言語カタログ（aiAgents.shortNames）に置き、読むたびに現在の言語の値を返す(#158)。
+export const AI_AGENT_SHORT_NAMES = localizedRecord((messages) => messages.aiAgents.shortNames);
+// 仮・要確認(#53): 選択中のエンジニアの情報行で、AIエージェントを付けていないときの表示は言語カタログ（engineer.aiNone）に置く(#158)。
 // 仮・要確認(#53): AIエージェントを選択中のエンジニアに付けるキー（strong / normal / cheap）。Phaser の KeyCodes のキー名。
 // 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給(Q/E/R/F)・割合UI(Z/X)と重ならない。
 export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as const;
@@ -514,21 +511,13 @@ export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as con
 export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
 // 仮・要確認(#150): 休暇の操作方法と効果の案内文。#156 で常時表示をやめ、エンジニアのポップオーバー（出現地点のクリックで開く）の中に出す。入力は受け付けない。
 // 「休憩する機能が見当たらない」(#150) への対応で、既存の休暇(#35/#39)の操作を案内する。休暇のロジックは変えない。
-// 3 行で、数値は config から作る（engineer.ts の formatVacationHint）: 1回あたりの低下量 VACATION_MALICIOUS_RATE_REDUCTION、
+// 3 行で、文言は言語カタログ（vacation.hintOperation / hintRate / hintPersistence #158）、数値は config から作る（engineer.ts の formatVacationHint）: 1回あたりの低下量 VACATION_MALICIOUS_RATE_REDUCTION、
 // 累積の上限 VACATION_MALICIOUS_RATE_REDUCTION_MAX、補正後の下限 CODE_MALICIOUS_RATE_MIN（いずれもパーセントポイント・四捨五入した整数）。
 //   休暇ボタンで休暇/復帰（給与は継続）
 //   不正率-10pt/回・最大-20pt・下限5%
 //   効果は復帰後も維持。休暇中は生産停止
 // ポップオーバーは setup 中は開かない（openEngineerPopover）ので「プレイ開始後」は添えない。低下量は復帰後も維持し(#39)、休暇中は新規生成だけが止まり(#36, #163。生成済みのコードは流れ続ける)、給料は引かれる(#37)。
 // 各行はポップオーバーの幅（ENGINEER_POPOVER_WIDTH）に収める（hudLayout.test.ts で検証）。
-export const VACATION_HINT_FORMAT = {
-  operation: '休暇ボタンで休暇/復帰（給与は継続）',
-  ratePrefix: '不正率-',
-  perVacationSuffix: 'pt/回・最大-',
-  capSuffix: 'pt・下限',
-  floorSuffix: '%',
-  persistence: '効果は復帰後も維持。休暇中は生産停止',
-} as const;
 export const VACATION_HINT_LINES = 3;
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
@@ -553,8 +542,7 @@ export const TECH_DEBT_OUTAGE_DAMAGE = TECH_DEBT_OUTAGE_DAMAGE_POINTS * INCIDENT
 // 仮・要確認(#46): 大障害の演出（画面全体の点滅）。通常の障害(INCIDENT_FLASH_DURATION_MS)より長くする。企画書には演出の記載なし。
 export const TECH_DEBT_OUTAGE_FLASH_DURATION_MS = 600;
 export const TECH_DEBT_OUTAGE_FLASH_COLOR = 0xff0000;
-// 仮・要確認(#46): 大障害の通知（フィールド中央に出てフェードアウトする文字）の文言・文字サイズ・色・表示時間（ミリ秒）。
-export const TECH_DEBT_OUTAGE_TEXT = '大障害発生!';
+// 仮・要確認(#46): 大障害の通知（フィールド中央に出てフェードアウトする文字）の文字サイズ・色・表示時間（ミリ秒）。文言は言語カタログ（outage.major #158）。
 export const TECH_DEBT_OUTAGE_TEXT_FONT_SIZE = '48px';
 export const TECH_DEBT_OUTAGE_TEXT_COLOR = '#ff1744';
 export const TECH_DEBT_OUTAGE_TEXT_DURATION_MS = 1500;
@@ -615,47 +603,9 @@ export const ITEM_PAGE_KEYS = { previous: 'G', next: 'H' } as const;
 // 仮・要確認(#156): アイテムのメニューのページ切替ボタンの文字。キー名は出さない（キー操作 G/H は残す）。
 export const ITEM_PAGE_BUTTON_LABELS = { previous: '◀', next: '▶' } as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
-export const ITEM_SHORT_NAMES = {
-  codeRabbit: 'CodeRabbit',
-  linter: 'Linter',
-  testTool: 'Test',
-  ci: 'CI',
-  securityScanner: 'Scanner',
-  pairProgrammer: 'Pair',
-  cat: 'Cat',
-  rubberDuck: 'Duck',
-  codeFreeze: 'Freeze',
-  specChangeStorm: 'SpecStorm',
-  coffeeMachine: 'Coffee',
-  energyDrink: 'Energy',
-  pizza: 'Pizza',
-  documentation: 'Docs',
-  fridayDeploy: 'FriDeploy',
-  rollbackButton: 'Rollback',
-  worksFine: 'Yoshi!',
-  seniorNote: 'Senior',
-} as const;
-export const ITEM_MARKS = {
-  codeRabbit: 'CR',
-  linter: 'Lint',
-  testTool: 'Test',
-  ci: 'CI',
-  securityScanner: 'Sec',
-  pairProgrammer: 'Pair',
-  cat: 'Cat',
-  // 仮・要確認(#58): フィールドに置くのはラバーダック・コーヒーマシン・書き置きだけ。他は購入時に発動して置かないが、表の形を揃えるために持つ。
-  rubberDuck: 'Duck',
-  codeFreeze: 'Frz',
-  specChangeStorm: 'Spec',
-  coffeeMachine: 'Cof',
-  energyDrink: 'Enr',
-  pizza: 'Piz',
-  documentation: 'Doc',
-  fridayDeploy: 'Fri',
-  rollbackButton: 'RB',
-  worksFine: 'Yoshi',
-  seniorNote: 'Note',
-} as const;
+// 文言は言語カタログ（items.shortNames / items.marks）に置き、読むたびに現在の言語の値を返す(#158)。
+export const ITEM_SHORT_NAMES = localizedRecord((messages) => messages.items.shortNames);
+export const ITEM_MARKS = localizedRecord((messages) => messages.items.marks);
 // 仮・要確認(#48): アイテムの攻撃間隔（ミリ秒）。全アイテム共通。置いた直後はクールダウンなしで攻撃できる。
 export const ITEM_ATTACK_COOLDOWN_MS = 1000;
 // 仮・要確認(#54): テストツールが攻撃した不正コードを足止めする時間（ミリ秒）。企画書(8)は「足止め」とだけで、時間は未定。
@@ -823,33 +773,10 @@ export const INITIAL_PLACEMENT_LINE_HEIGHT =
   Math.ceil(parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10) * INITIAL_PLACEMENT_LINE_HEIGHT_RATIO) + INITIAL_PLACEMENT_LINE_SPACING;
 // 仮・要確認(#47): パネル・開始ボタン・メッセージの間の縦の余白（ピクセル）。
 const INITIAL_PLACEMENT_UI_GAP = 6;
-// 仮・要確認(#47): パネルの文言。
+// 仮・要確認(#47): パネルの文言・結果メッセージは言語カタログ（initialPlacement #158）に置く。
 // 仮・要確認(#157): マウス操作（先に置くものを選び、次に置く場所をクリック。配置済みは右上の×で取り消す）に合わせた文言にする。
 // 開始キー（ENTER）は残すが、画面には出さない。
 // 仮・要確認(#156): 置くアイテムは右上のアイテムのアイコンを押して開くメニューから選ぶため、操作説明をその手順にする。
-export const INITIAL_PLACEMENT_TEXT = {
-  title: '初期配置',
-  points: '残りポイント: ',
-  pointUnit: 'pt',
-  selected: '選択: ',
-  selectedNone: 'なし',
-  selectedEngineer: 'エンジニア',
-  instruction: '右上のアイテムアイコンから選択し、床をクリック／×で取消',
-  startButton: 'プレイ開始',
-  // エンジニアの選択ボタンの文言。「エンジニア 残り3人」（残りは未配置の初期エンジニアの人数）。
-  engineerButton: 'エンジニア 残り',
-  engineerButtonUnit: '人',
-} as const;
-// 仮・要確認(#157): 初期配置の結果メッセージのうち、エンジニアの配置・取消・選択・開始に関するもの。
-export const INITIAL_PLACEMENT_MESSAGES = {
-  engineerPlaced: 'エンジニアを置きました',
-  engineerRemoved: 'エンジニアを外しました',
-  engineerNotCandidate: 'エンジニアはここに置けません',
-  engineerOverlapsItem: 'アイテムと重なるため置けません',
-  noUnplacedEngineer: '置けるエンジニアがいません',
-  selectFirst: '先に置くものを選んでください',
-  placeAllEngineers: 'エンジニアを全員配置してください',
-} as const;
 // 仮・要確認(#157): エンジニアの選択ボタンと開始ボタンは、パネルの下の1行に左から並べる（y=134〜162）。
 // 幅の合計（エンジニア 150 + 間 6 + 開始 128 = 284）は初期配置UIの範囲の幅（操作説明の行の幅）より狭い。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
 export const INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE = { width: 150, height: 28 } as const;
@@ -876,10 +803,12 @@ export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
 export const INITIAL_PLACEMENT_MESSAGE_COLOR = ITEM_MESSAGE_COLOR;
 export const INITIAL_PLACEMENT_MESSAGE_DURATION_MS = ITEM_MESSAGE_DURATION_MS;
 // 仮・要確認(#47, #156): 初期配置UIが占める範囲（ピクセル）。#156 で左上に移した（x=72〜464、y=68〜188）。
-// 幅は最も長い操作説明の行（全角 1 文字 = 文字サイズで見積もる。14px × 28 文字 = 392px）、下端はメッセージの下端（1 行の高さぶん）。
+// 幅は日本語の最も長い操作説明の行（全角 1 文字 = 文字サイズで見積もる。14px × 28 文字 = 392px）、下端はメッセージの下端（1 行の高さぶん）。
+// 文言は言語ごとに変わるが、配置判定の範囲は言語で変えない（#158。どの言語の文言もこの幅に収めることを hudLayout.test.ts で言語ごとに確かめる）。
 // hudLayout.test.ts でパネル・ボタン・メッセージが範囲に収まることを確かめる。この矩形に重なる位置は初期配置の間だけ置けない
 // （プレイ開始で UI を消すので、プレイ中の購入では置ける #151）。
-const INITIAL_PLACEMENT_UI_WIDTH = INITIAL_PLACEMENT_TEXT.instruction.length * parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10);
+const INITIAL_PLACEMENT_UI_WIDTH_CHARS = 28;
+const INITIAL_PLACEMENT_UI_WIDTH = INITIAL_PLACEMENT_UI_WIDTH_CHARS * parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10);
 const INITIAL_PLACEMENT_UI_BOTTOM = INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT;
 export const INITIAL_PLACEMENT_UI_BOUNDS = {
   x: INITIAL_PLACEMENT_PANEL_POSITION.x,
@@ -979,28 +908,14 @@ export const MENU_PANEL_WIDTH = { engineer: 260, item: 216, balance: 160 } as co
 export const MENU_PANEL_COLORS = { fill: 0x0b1020, fillAlpha: 0.92, stroke: 0x6c8cff, strokeWidth: 2 } as const;
 // 仮・要確認(#156): メニュー・ポップオーバーの深さ。HUD(2)より上、大障害の通知(2.5)・ゲームオーバー表示(3)より下。
 export const MENU_PANEL_DEPTH = 2.2;
-// 仮・要確認(#156): メニューの見出しと文言。
-export const MENU_TEXT = {
-  balanceTitle: '開発バランス',
-  hireSuffix: 'を雇う ',
-  hireCostUnit: '万円',
-  aiPrefix: 'AI ',
-  monthlyUnit: '万/月',
-  oneTimeUnit: '万円',
-} as const;
+// 仮・要確認(#156): メニューの見出しと文言は言語カタログ（balance・engineer.hireOption・aiAgents.option・items.option #158）に置く。
 // 仮・要確認(#156): エンジニアのポップオーバー（出現地点を押すと開く。休暇とAIエージェントの操作）。幅は休暇の案内文の最長の行
 // （「不正率-10pt/回・最大-20pt・下限5%」23 文字 × 12px = 276px）が内側（幅 − 余白 × 2）に収まる幅。左端は出現地点の中心から offsetX だけ右（出現列 x<60 の右）。
 // 上下は出現地点の中心に合わせ、フィールドの端から margin の内側に収める（行0・行8でもはみ出さない）。
 export const ENGINEER_POPOVER_WIDTH = 292;
 export const ENGINEER_POPOVER_OFFSET_X = CELL_SIZE / 2 + 4;
 export const ENGINEER_POPOVER_MARGIN = 8;
-export const ENGINEER_POPOVER_TEXT = {
-  statePrefix: '状態: ',
-  working: '勤務中',
-  onVacation: '休暇中',
-  startVacation: '休暇にする',
-  endVacation: '復帰する',
-} as const;
+// ポップオーバーの文言は言語カタログ（engineer.popoverHeading など #158）に置く。
 // 仮・要確認(#156): 右下の小さな指標（資金・累計売上・月末に支払うお金の3行と、技術的負債の色付きの丸）。下帯（最終行 y=480〜540）の右端に置く。
 // 文字は 12px・行の高さ 16px（12 × 1.25 の切り上げ + 行間 1px）で 3 行 = 48px。左に負債の丸と「負債 正常」（indicatorWidth）、右に3行（残りの幅）。
 // 幅は「累計売上: 9,999,999,999円」（20 文字 × 12px = 240px）が3行の欄に収まる幅。入力は受け付けない（下のフィールドの操作を妨げない）。
@@ -1019,13 +934,11 @@ export const STATUS_PANEL_RECT = {
   width: STATUS_PANEL_WIDTH,
   height: STATUS_PANEL_LINE_HEIGHT * STATUS_PANEL_LINES + STATUS_PANEL_PADDING * 2,
 } as const;
-// 仮・要確認(#156): 右下の指標の背景（半透明）、負債の丸の半径と、丸と文字の間（ピクセル）、負債の文言。
+// 仮・要確認(#156): 右下の指標の背景（半透明）、負債の丸の半径と、丸と文字の間（ピクセル）。負債の文言は言語カタログ（hud.techDebtLevel #158）。
 export const STATUS_PANEL_COLORS = { fill: 0x0b1020, fillAlpha: 0.6 } as const;
 export const STATUS_PANEL_INDICATOR_RADIUS = 6;
 export const STATUS_PANEL_INDICATOR_GAP = 4;
-export const STATUS_PANEL_TECH_DEBT_LABEL = '負債 ';
-// 仮・要確認(#156): 月末に支払うお金（給料＋月額アイテム＋付けている AIエージェントの月額の合計）の表示書式。「月末支払: 900,000円」。
-export const MONTH_END_PAYMENT_FORMAT = { prefix: '月末支払: ', suffix: '円' } as const;
+// 仮・要確認(#156): 月末に支払うお金（給料＋月額アイテム＋付けている AIエージェントの月額の合計）の表示書式「月末支払: 900,000円」は言語カタログ（hud.monthEndPayment #158）。
 
 // 仮・要確認(#58): 企画書(8)の「その他のアイテム」の効果の数値は未定。以下はすべて仮の値（試作で調整する）。
 // 時限効果の時刻はゲーム内の経過ミリ秒（elapsedMs）で測る。同じ効果を重ねて買っても効果量は足さず、残り時間だけ延ばす（買い直した時点から数え直す）。
@@ -1070,8 +983,7 @@ export const FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS = 50;
 // 仮・要確認(#58): 「動いてるからヨシ！」。継続時間の間、コードの移動距離に倍率を掛け、置いたアイテムは攻撃しない（主人公の攻撃は止めない）。
 export const WORKS_FINE_DURATION_MS = GAME_DAY_MS * 5;
 export const WORKS_FINE_CODE_SPEED_MULTIPLIER = 2;
-// 仮・要確認(#58): 伝説のシニアの書き置きで障害を防いだときのメッセージ。
-export const SENIOR_NOTE_PREVENTED_MESSAGE = '書き置きのおかげで障害を防いだ（中身は誰も読めない）';
+// 仮・要確認(#58): 伝説のシニアの書き置きで障害を防いだときのメッセージは言語カタログ（items.seniorNotePrevented #158）に置く。
 
 // 仮・要確認(#55): 企画書(8)は CI を「リリース直前で不正なコードを確率で止める・減速させる」とだけで、数値は未定。以下はすべて仮の値。
 // 効果範囲の長さは CI の範囲（getItemRange('ci')、近距離）を、リリース地点までの経路の残り距離として使う。

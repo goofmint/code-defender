@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { setLocale } from './i18n';
 import {
   AI_AGENT_DEFINITIONS,
   AI_AGENT_EQUIPPED_EVENT,
@@ -8,6 +9,7 @@ import {
   equipAiAgent,
   formatAiAgentMessage,
   formatAiAgentOption,
+  getAiAgentLabel,
   getAiAgentMonthlyFee,
   getAiAgentPrice,
   isAiAgentType,
@@ -16,6 +18,7 @@ import type { AiAgentType } from './aiAgent';
 import {
   AI_AGENT_BUY_KEYS,
   AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE,
+  AI_AGENT_SHORT_NAMES,
   AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE,
   ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MIN_MS,
@@ -69,7 +72,7 @@ describe('AIエージェントの種類と定義', () => {
     expect(AI_AGENT_TYPES).toEqual(['strong', 'normal', 'cheap']);
     for (const type of AI_AGENT_TYPES) {
       expect(AI_AGENT_DEFINITIONS[type].payment).toBe('monthly');
-      expect(Object.keys(AI_AGENT_DEFINITIONS[type]).sort()).toEqual(['label', 'payment']);
+      expect(Object.keys(AI_AGENT_DEFINITIONS[type]).sort()).toEqual(['payment']);
     }
   });
 
@@ -414,5 +417,60 @@ describe('aiAgentMaliciousRateModifiers: 不正コード率の補正', () => {
     const rate = effectiveMaliciousRate('junior', 0, aiAgentMaliciousRateModifiers(makeEngineer(0, 'junior', 0, 'normal')));
     expect(pickCodeKind(() => rate - 1e-9, rate)).toBe('malicious');
     expect(pickCodeKind(() => rate, rate)).toBe('normal');
+  });
+});
+
+describe('AIエージェントの表示名 #158', () => {
+  it('日本語の正式名称と短い名前', () => {
+    expect(AI_AGENT_TYPES.map((type) => getAiAgentLabel(type))).toEqual([
+      'AIコーディングエージェント（強い）',
+      'AIコーディングエージェント（普通）',
+      'AIコーディングエージェント（安い）',
+    ]);
+    expect(AI_AGENT_TYPES.map((type) => AI_AGENT_SHORT_NAMES[type])).toEqual(['強い', '普通', '安い']);
+  });
+
+  describe('英語', () => {
+    beforeEach(() => {
+      setLocale('en');
+    });
+    afterEach(() => {
+      setLocale('ja');
+    });
+
+    it('正式名称と短い名前', () => {
+      expect(AI_AGENT_TYPES.map((type) => getAiAgentLabel(type))).toEqual([
+        'AI coding agent (strong)',
+        'AI coding agent (standard)',
+        'AI coding agent (budget)',
+      ]);
+      expect(AI_AGENT_TYPES.map((type) => AI_AGENT_SHORT_NAMES[type])).toEqual(['Strong', 'Std', 'Budget']);
+    });
+  });
+});
+
+describe('AIエージェントの文言（英語 #158）', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('成功・付け替え・各失敗', () => {
+    const engineers = [makeEngineer(0, 'junior', 0, 'strong')];
+    expect(formatAiAgentMessage(equipAiAgent([makeEngineer(0, 'junior', 0)], 0, 'cheap', ACTIVE), 'cheap')).toBe(
+      'Equipped AI (Budget)',
+    );
+    expect(formatAiAgentMessage(equipAiAgent(engineers, 0, 'normal', ACTIVE), 'normal')).toBe('Swapped AI (Strong) for AI (Std)');
+    expect(formatAiAgentMessage({ ok: false, reason: 'gameOver' }, 'strong')).toBe('');
+    expect(formatAiAgentMessage({ ok: false, reason: 'unknownAgent' }, 'foo')).toBe('Unknown AI agent: foo');
+    expect(formatAiAgentMessage({ ok: false, reason: 'engineerNotFound' }, 'strong')).toBe('No engineer selected');
+    expect(formatAiAgentMessage({ ok: false, reason: 'alreadyEquipped' }, 'strong')).toBe('Already using this AI agent');
+    expect(formatAiAgentMessage({ ok: false, reason: 'insufficientFunds' }, 'strong')).toBe('Not enough funds');
+  });
+
+  it.each(AI_AGENT_TYPES)('%s のボタンは「AI 名前 月額」で、月額は精算と同じ計算を千円単位にする', (type) => {
+    expect(formatAiAgentOption(type)).toBe(`AI ${AI_AGENT_SHORT_NAMES[type]} ¥${getAiAgentMonthlyFee(type) / 1000}K/mo`);
   });
 });
