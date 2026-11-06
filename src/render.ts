@@ -76,7 +76,7 @@ import {
   TECH_DEBT_OUTAGE_TEXT_FONT_SIZE,
 } from './config';
 import { formatPenalty } from './penalty';
-import { formatElapsedDays } from './gameTime';
+import { formatLevelAndDays } from './level';
 import { formatFunds } from './funds';
 import { formatCumulativeSales } from './score';
 import { formatTechDebtLevel } from './techDebt';
@@ -699,10 +699,10 @@ export const drawPenaltyText = (scene: Phaser.Scene, position: Point, amount: nu
 // 仮: 攻撃エフェクト(1.5)より上の最前面。
 const ELAPSED_DAYS_DEPTH = 2;
 
-// 経過日数の表示（左上）。返した Text の setText で更新する。
-export const drawElapsedDays = (scene: Phaser.Scene, days: number): Phaser.GameObjects.Text =>
+// レベルと経過日数の表示（左上。「Lv.1 / 0日」#164）。返した Text の setText（formatLevelAndDays）で更新する。
+export const drawElapsedDays = (scene: Phaser.Scene, level: number, days: number): Phaser.GameObjects.Text =>
   scene.add
-    .text(ELAPSED_DAYS_POSITION.x, ELAPSED_DAYS_POSITION.y, formatElapsedDays(days), {
+    .text(ELAPSED_DAYS_POSITION.x, ELAPSED_DAYS_POSITION.y, formatLevelAndDays(level, days), {
       fontSize: ELAPSED_DAYS_STYLE.fontSize,
       fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
       color: ELAPSED_DAYS_STYLE.color,

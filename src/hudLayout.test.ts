@@ -81,7 +81,8 @@ import { formatItemOption } from './itemPlacement';
 import { formatMonthEndPayment } from './monthBoundary';
 import { formatRefactoringAllocation, getRefactoringRatioOptions } from './refactoringRatioControl';
 import { SPAWN_MARKER_STYLE } from './route';
-import { formatElapsedDays } from './gameTime';
+import { formatLevelAndDays, levelAt } from './level';
+import { MS_PER_GAME_DAY } from './gameTime';
 import { getCatalogue, getMessages, interpolate, setLocale } from './i18n';
 import { SUPPORTED_LOCALES } from './i18n/resolveLocale';
 import { formatTechDebtLevel } from './techDebt';
@@ -122,9 +123,14 @@ const field: Rect = { x: 0, y: 0, width: FIELD_WIDTH, height: FIELD_HEIGHT };
 const topBand: Rect = ITEM_BLOCKED_RECTS[0];
 const bottomBand: Rect = ITEM_BLOCKED_RECTS[1];
 
-// 経過日数（左上。最長想定の日数）。現在の言語の文言で見積もる(#158)。
+// レベルと経過日数（左上 #164。最長想定の日数と、その日数のレベル）。現在の言語の文言で見積もる(#158)。
+const LONGEST_DAYS = 999_999;
 const elapsedDaysRect = (): Rect =>
-  textRect(ELAPSED_DAYS_POSITION, formatElapsedDays(999_999), parseInt(ELAPSED_DAYS_STYLE.fontSize, 10));
+  textRect(
+    ELAPSED_DAYS_POSITION,
+    formatLevelAndDays(levelAt(LONGEST_DAYS * MS_PER_GAME_DAY), LONGEST_DAYS),
+    parseInt(ELAPSED_DAYS_STYLE.fontSize, 10),
+  );
 // 通知（雇用・昇給減給・AIエージェント・退職のメッセージ）。文字数は長めの 30 文字で過大に見積もる。
 const NOTIFICATION_FONT_PX = 20;
 const NOTIFICATION_MAX_CHARS = 30;
@@ -207,6 +213,11 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(elapsedDaysRect().x).toBeGreaterThanOrEqual((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
     });
 
+    it('最長想定はレベルも付いた「Lv.33334」の文言で見積もる(#164)', () => {
+      expect(levelAt(LONGEST_DAYS * MS_PER_GAME_DAY)).toBe(33334);
+      expect(formatLevelAndDays(33334, LONGEST_DAYS)).toContain('Lv.33334');
+    });
+
     it('通知・右上のアイコンと交差しない', () => {
       expect(intersects(elapsedDaysRect(), notificationRect)).toBe(false);
       for (const { rect } of iconRects) expect(intersects(elapsedDaysRect(), rect)).toBe(false);
@@ -282,6 +293,15 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       const pageCount = getItemPageCount(ITEM_TYPES.length);
       const [, label] = splitRow(rows[ITEM_PAGE_SIZE], 3);
       expect(fitsWidth(formatItemPage(pageCount - 1, pageCount), label.width)).toBe(true);
+    });
+
+    it('半額にした価格(#164)の文言（日本語「1.25万円」、英語「¥12.5K」）も枠の幅に収まる', () => {
+      const slotWidth = menuPanelLayout('item').rows[0].width;
+      const expected = locale === 'ja' ? 'FriDeploy 1.25万円' : 'FriDeploy ¥12.5K';
+      expect(formatItemOption('fridayDeploy')).toBe(expected);
+      expect(fitsWidth(expected, slotWidth)).toBe(true);
+      expect(formatItemOption('codeRabbit')).toBe(locale === 'ja' ? 'CodeRabbit 5万/月' : 'CodeRabbit ¥50K/mo');
+      expect(fitsWidth(formatItemOption('codeRabbit'), slotWidth)).toBe(true);
     });
 
     it('開発バランスのメニューの見出しと 11 段階の文言（機能100:リファ0 など）は幅に収まる', () => {

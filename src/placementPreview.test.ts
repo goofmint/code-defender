@@ -30,6 +30,8 @@ const setupContext = {
     { x: 0, y: 480, width: 960, height: 60 },
     { x: 72, y: 68, width: 392, height: 60 },
   ],
+  // Linter は Lv.1 で解放済み(#164)。
+  level: 1,
 };
 const state: InitialPlacementState = { points: 6, itemState: { placedItems: [], nextId: 0 } };
 const linter = { kind: 'item', itemType: 'linter' } as const;

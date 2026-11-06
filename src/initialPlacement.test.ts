@@ -21,7 +21,7 @@ import { createInitialFleet } from './engineer';
 import type { Engineer } from './engineer';
 import { rectIntersectsCircle } from './geometry';
 import { CELL_SIZE, FIELD_COLS } from './field';
-import { getItemPlacement, ITEM_TYPES } from './item';
+import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import {
   canStartPlay,
@@ -71,7 +71,9 @@ const route: Route = {
     { col: FIELD_COLS - 1, row: 4 },
   ],
 };
-const context = { routes: [route] };
+// すべてのアイテムを解放したレベル(#164)。解放の判定以外のテストは解放済みで行う。
+const ALL_UNLOCKED_LEVEL = Math.max(...Object.values(ITEM_REQUIRED_LEVELS));
+const context = { routes: [route], level: ALL_UNLOCKED_LEVEL };
 // 置けるセル。中心 (488, 136)・フットプリント x=480〜496 / y=128〜144（16px #154）で、初期配置UI（x≦464 #156）・ルート（y≧202）・上帯（y<60）に重ならない。
 const free: GridCell = { col: 30, row: 8 };
 // free の 3 セル右（x=528〜544。フットプリントは 32px 空く）と、さらに 3 セル右。
@@ -434,10 +436,68 @@ describe('finishInitialPlacement: プレイへの引き継ぎ', () => {
     const afterFirst = placeOrThrow(createInitialPlacementState(), 'linter', free);
     const afterSecond = placeOrThrow(afterFirst, 'testTool', besideFree);
     const itemState = finishInitialPlacement(afterSecond);
-    const purchaseState = { funds: 1000000, placedItems: itemState.placedItems, nextId: itemState.nextId, gameOver: false };
+    const purchaseState = {
+      funds: 1000000,
+      placedItems: itemState.placedItems,
+      nextId: itemState.nextId,
+      gameOver: false,
+      level: ALL_UNLOCKED_LEVEL,
+    };
     const bought = purchaseItem(purchaseState, 'ci', farFromFree, context);
     expect(bought.ok && bought.item.id).toBe(2);
     expect(purchaseItem(purchaseState, 'ci', free, context)).toEqual({ ok: false, reason: 'occupied' });
+  });
+});
+
+// 解放前のアイテム(#164)。初期配置の間は Lv.1 で、CI（Lv.2）から先は置けない。
+describe('placeInitialItem: レベルによる解放(#164)', () => {
+  it('境界値: CI は Lv.1 で locked、Lv.2 ちょうどで置ける', () => {
+    const state = createInitialPlacementState();
+    expect(placeInitialItem(state, 'ci', free, { ...context, level: 1 })).toEqual({ ok: false, reason: 'locked' });
+    expect(placeInitialItem(state, 'ci', free, { ...context, level: 2 }).ok).toBe(true);
+  });
+
+  it('Lv.1 で置けるのは CodeRabbit・Linter・テストツールだけ', () => {
+    const state = createInitialPlacementState(100);
+    for (const itemType of CELL_ITEM_TYPES) {
+      const result = placeInitialItem(state, itemType, free, { ...context, level: 1 });
+      const unlocked = ['codeRabbit', 'linter', 'testTool'].includes(itemType);
+      expect(result.ok ? 'ok' : result.reason).toBe(unlocked ? 'ok' : 'locked');
+    }
+  });
+
+  it('置かないアイテムは解放前なら locked（解放の判定が先）、解放後は notPlaceable', () => {
+    const state = createInitialPlacementState();
+    expect(placeInitialItem(state, 'codeFreeze', free, { ...context, level: 6 })).toEqual({ ok: false, reason: 'locked' });
+    expect(placeInitialItem(state, 'codeFreeze', free, { ...context, level: 7 })).toEqual({
+      ok: false,
+      reason: 'notPlaceable',
+    });
+  });
+
+  it.each([
+    ['不明（レベルに関係なく unknownItem）', createInitialPlacementState(), 'x', free, 'unknownItem'],
+    ['解放前かつ置けない場所', createInitialPlacementState(), 'ci', { col: -1, row: 0 }, 'locked'],
+    ['解放前かつポイント不足', createInitialPlacementState(0), 'ci', free, 'locked'],
+  ] as const)('判定順: %s → %s', (_name, state, itemType, cell, reason) => {
+    expect(placeInitialItem(state, itemType, cell, { ...context, level: 1 })).toEqual({ ok: false, reason });
+  });
+
+  it('拒否してもポイント・配置・id を変えない', () => {
+    const state = placeOrThrow(createInitialPlacementState(), 'linter', besideFree);
+    const snapshot = structuredClone(state);
+    expect(placeInitialItem(state, 'ci', free, { ...context, level: 1 })).toEqual({ ok: false, reason: 'locked' });
+    expect(state).toEqual(snapshot);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])('レベル %s は呼び出し側の誤りなので例外にする', (level) => {
+    expect(() => placeInitialItem(createInitialPlacementState(), 'linter', free, { ...context, level })).toThrow(
+      RangeError,
+    );
+  });
+
+  it('メッセージ: 日本語は「まだ使えないアイテムです」', () => {
+    expect(formatInitialPlacementMessage({ ok: false, reason: 'locked' }, 'ci')).toBe('まだ使えないアイテムです');
   });
 });
 
@@ -800,6 +860,7 @@ describe('初期配置の文言（英語 #158）', () => {
     expect(formatInitialPlacementMessage({ ok: false, reason: 'notPlaceable' }, 'linter')).toBe("Can't place it there");
     expect(formatInitialPlacementMessage({ ok: false, reason: 'notFound' }, 'linter')).toBe('No item there');
     expect(formatInitialPlacementMessage({ ok: false, reason: 'unknownItem' }, 'foo')).toBe('Unknown item: foo');
+    expect(formatInitialPlacementMessage({ ok: false, reason: 'locked' }, 'ci')).toBe('Item not unlocked yet');
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'notCandidate' })).toBe("Engineers can't go here");
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('No engineer left to place');
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'overlapsItem' })).toBe("Can't place: overlaps an item");

@@ -30,3 +30,6 @@ export const stepItemPage = (page: number, direction: ItemPageDirection, pageCou
 
 // ページ表示の文言。「1/3」。page は 0 始まり。
 export const formatItemPage = (page: number, pageCount: number): string => `${page + 1}/${pageCount}`;
+
+// ページを 0〜pageCount−1 に収める(#164)。解放済みのアイテムの一覧が変わったときに、今のページがまだあればそのまま、なければ最後のページにする。
+export const clampItemPage = (page: number, pageCount: number): number => Math.min(Math.max(0, page), pageCount - 1);

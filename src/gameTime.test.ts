@@ -1,9 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { setLocale } from './i18n';
+import { describe, expect, it } from 'vitest';
 import {
   advanceElapsedMs,
   createMonthElapsedEvent,
-  formatElapsedDays,
   getCrossedMonths,
   getElapsedDays,
   getElapsedMonths,
@@ -112,13 +110,6 @@ describe('advanceElapsedMs（累積）', () => {
   });
 });
 
-describe('formatElapsedDays', () => {
-  it('「経過日数: N日」にする', () => {
-    expect(formatElapsedDays(0)).toBe('経過日数: 0日');
-    expect(formatElapsedDays(30)).toBe('経過日数: 30日');
-  });
-});
-
 describe('月経過イベント', () => {
   it('イベント名は month-elapsed', () => {
     expect(MONTH_ELAPSED_EVENT).toBe('month-elapsed');
@@ -127,22 +118,5 @@ describe('月経過イベント', () => {
   it('ペイロードは境界の時刻と経過日数を持つ', () => {
     expect(createMonthElapsedEvent(1)).toEqual({ month: 1, elapsedMs: 60000, days: 30 });
     expect(createMonthElapsedEvent(2)).toEqual({ month: 2, elapsedMs: 120000, days: 60 });
-  });
-});
-
-describe('formatElapsedDays（英語 #158）', () => {
-  beforeEach(() => {
-    setLocale('en');
-  });
-  afterEach(() => {
-    setLocale('ja');
-  });
-
-  it.each([
-    [0, 'Days elapsed: 0'],
-    [1, 'Days elapsed: 1'],
-    [1000, 'Days elapsed: 1000'],
-  ])('formatElapsedDays(%d) = %s', (days, expected) => {
-    expect(formatElapsedDays(days)).toBe(expected);
   });
 });

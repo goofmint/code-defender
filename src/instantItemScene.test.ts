@@ -8,6 +8,7 @@ import {
   FRIDAY_DEPLOY_INCIDENT_DELAY_MS,
   FRIDAY_DEPLOY_INCIDENT_PROBABILITY,
   FRIDAY_DEPLOY_SALES,
+  LEVEL_UP_INTERVAL_DAYS,
   PIZZA_DURATION_MS,
   PIZZA_TECH_DEBT,
   TECH_DEBT_INITIAL,
@@ -15,7 +16,9 @@ import {
 import { FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent } from './funds';
 import type { GameOverState } from './gameOver';
+import { MS_PER_GAME_DAY } from './gameTime';
 import { calculateDamage } from './incident';
+import { ITEM_REQUIRED_LEVELS } from './item';
 import type { ItemType } from './item';
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
 import { getItemPrice, ITEM_USED_EVENT } from './itemPlacement';
@@ -99,7 +102,10 @@ type SceneUnderTest = {
 };
 
 const NOT_OVER: GameOverState = { over: false, at: null };
-const NOW = 30_000;
+// 置かないアイテムは Lv.7〜14 で解放する(#164)。購入と効果の接続を見るため、すべてのアイテムを解放した経過時間（Lv.16 の始まり）から 30 秒後にする。
+const ALL_UNLOCKED_ELAPSED_MS =
+  (Math.max(...Object.values(ITEM_REQUIRED_LEVELS)) - 1) * LEVEL_UP_INTERVAL_DAYS * MS_PER_GAME_DAY;
+const NOW = ALL_UNLOCKED_ELAPSED_MS + 30_000;
 const FUNDS = 1_000_000;
 const ROUTE: Route = {
   id: 0,

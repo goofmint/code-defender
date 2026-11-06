@@ -18,6 +18,8 @@ import type { AiAgentType } from './aiAgent';
 import {
   AI_AGENT_BUY_KEYS,
   AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE,
+  AI_AGENT_PRICE_TIER_BY_TYPE,
+  AI_AGENT_PRICE_TIERS,
   AI_AGENT_SHORT_NAMES,
   AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE,
   ATTACK_KEYS,
@@ -59,10 +61,11 @@ const makeEngineer = (
   ...createEngineerParameters(rank, 'meticulous'),
 });
 
+// AIエージェントの価格はアイテムの半額化(#164)の対象外で、半額前のまま（強い 10万・普通 5万・安い 2.5万）。
 const PRICES: Readonly<Record<AiAgentType, number>> = {
-  strong: ITEM_PRICE_TIERS.expensive,
-  normal: ITEM_PRICE_TIERS.normal,
-  cheap: ITEM_PRICE_TIERS.cheap,
+  strong: 100000,
+  normal: 50000,
+  cheap: 25000,
 };
 const RICH = 1_000_000_000;
 const ACTIVE = { funds: RICH, gameOver: false } as const;
@@ -114,6 +117,15 @@ describe('getAiAgentPrice / getAiAgentMonthlyFee', () => {
     expect(getAiAgentMonthlyFee(type)).toBe(PRICES[type]);
   });
 
+  it('価格の段階表は AI_AGENT_PRICE_TIERS で、半額にしたアイテムの ITEM_PRICE_TIERS のちょうど2倍(#164)', () => {
+    expect(AI_AGENT_PRICE_TIERS).toEqual({ cheap: 25000, normal: 50000, expensive: 100000 });
+    expect(ITEM_PRICE_TIERS).toEqual({ cheap: 12500, normal: 25000, expensive: 50000 });
+    for (const type of AI_AGENT_TYPES) {
+      expect(getAiAgentPrice(type)).toBe(AI_AGENT_PRICE_TIERS[AI_AGENT_PRICE_TIER_BY_TYPE[type]]);
+      expect(getAiAgentPrice(type)).toBe(ITEM_PRICE_TIERS[AI_AGENT_PRICE_TIER_BY_TYPE[type]] * 2);
+    }
+  });
+
   it('強い > 普通 > 安い', () => {
     expect(getAiAgentPrice('strong')).toBeGreaterThan(getAiAgentPrice('normal'));
     expect(getAiAgentPrice('normal')).toBeGreaterThan(getAiAgentPrice('cheap'));
@@ -121,8 +133,8 @@ describe('getAiAgentPrice / getAiAgentMonthlyFee', () => {
 
   it('段階表を差し替えられる', () => {
     expect(getAiAgentPrice('cheap', { cheap: 1, normal: 2, expensive: 3 })).toBe(1);
-    expect(getAiAgentPrice('cheap', ITEM_PRICE_TIERS, { strong: 'cheap', normal: 'cheap', cheap: 'expensive' })).toBe(
-      ITEM_PRICE_TIERS.expensive,
+    expect(getAiAgentPrice('cheap', AI_AGENT_PRICE_TIERS, { strong: 'cheap', normal: 'cheap', cheap: 'expensive' })).toBe(
+      AI_AGENT_PRICE_TIERS.expensive,
     );
   });
 
@@ -137,7 +149,7 @@ describe('getAiAgentPrice / getAiAgentMonthlyFee', () => {
     expect(getAiAgentMonthlyFee('strong', ratio)).toBe(expected);
   });
 
-  it('端数は四捨五入する（安い 50000 × 0.00001 = 0.5 → 1、× 0.0000099 = 0.495 → 0）', () => {
+  it('端数は四捨五入する（安い 25000 × 0.00002 = 0.5 → 1、× 0.0000198 = 0.495 → 0）', () => {
     expect(getAiAgentMonthlyFee('cheap', 0.5 / PRICES.cheap)).toBe(1);
     expect(getAiAgentMonthlyFee('cheap', 0.495 / PRICES.cheap)).toBe(0);
   });

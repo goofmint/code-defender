@@ -1,14 +1,15 @@
 // AIコーディングエージェント（強い・普通・安い）(#53)。エンジニアに1人1個付けて、担当ルートの出力ペース（コード生成間隔）を上げる。
-// 攻撃するアイテム（item.ts の ITEM_TYPES）とは別の種類として扱い、フィールドには置かない。価格の段階表(ITEM_PRICE_TIERS)と月額の倍率(ITEM_MONTHLY_FEE_RATIO)だけを共有する。
+// 攻撃するアイテム（item.ts の ITEM_TYPES）とは別の種類として扱い、フィールドには置かない。月額の倍率(ITEM_MONTHLY_FEE_RATIO)だけを共有する。
+// 価格の段階表はアイテムの半額化(#164)の対象外なので、アイテムの ITEM_PRICE_TIERS ではなく AI_AGENT_PRICE_TIERS（半額前の値）を使う。レベルによる解放(#164)の対象でもない。
 // Phaser に依存しない純粋関数だけを置く。
 import {
   AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE,
   AI_AGENT_PRICE_TIER_BY_TYPE,
+  AI_AGENT_PRICE_TIERS,
   AI_AGENT_SHORT_NAMES,
   AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE,
   CODE_SPAWN_INTERVAL_MIN_MS,
   ITEM_MONTHLY_FEE_RATIO,
-  ITEM_PRICE_TIERS,
 } from './config';
 import type { Engineer } from './engineer';
 import { formatShortAmount, getMessages, interpolate } from './i18n';
@@ -18,7 +19,7 @@ export const AI_AGENT_TYPES = ['strong', 'normal', 'cheap'] as const;
 
 export type AiAgentType = (typeof AI_AGENT_TYPES)[number];
 
-type PriceTier = keyof typeof ITEM_PRICE_TIERS;
+type PriceTier = keyof typeof AI_AGENT_PRICE_TIERS;
 
 // 攻撃しないので range・power・strongAgainst は持たない。表示名は言語カタログ（aiAgents.names）に置き、getAiAgentLabel で読む(#158)。
 type AiAgentDefinition = {
@@ -51,7 +52,7 @@ export const isAiAgentType = (value: string): value is AiAgentType =>
 // 購入価格（円）。段階表と種類ごとの段階は引数で差し替えられる（既定値は config.ts）。
 export const getAiAgentPrice = (
   agentType: AiAgentType,
-  tiers: Readonly<Record<PriceTier, number>> = ITEM_PRICE_TIERS,
+  tiers: Readonly<Record<PriceTier, number>> = AI_AGENT_PRICE_TIERS,
   tierByType: Readonly<Record<AiAgentType, PriceTier>> = AI_AGENT_PRICE_TIER_BY_TYPE,
 ): number => tiers[tierByType[agentType]];
 
