@@ -17,7 +17,6 @@ import {
   ENGINEER_SPAWN_CELLS,
   ENGINEER_TENDENCY_OFFSETS,
   INITIAL_ENGINEER_RANKS,
-  CODE_MALICIOUS_RATE_MIN,
   VACATION_MALICIOUS_RATE_REDUCTION,
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
@@ -622,29 +621,3 @@ export const formatEngineerPopoverLines = (engineer: Engineer): readonly string[
 // ポップオーバーの休暇ボタンの文言(#156)。勤務中は「休暇にする」、休暇中は「復帰する」。
 export const formatVacationButton = (engineer: Engineer): string =>
   isEngineerOnVacation(engineer) ? getMessages().engineer.endVacation : getMessages().engineer.startVacation;
-
-// 0〜1 の割合をパーセントポイント（四捨五入した整数）にする。
-const toPercentPoints = (ratio: number): number => Math.round(ratio * 100);
-
-// 休暇の操作方法と効果の案内文(#150)。#156 からはエンジニアのポップオーバーの中に 3 行で出す（VACATION_HINT_LINES 行）。
-// 1回あたりの低下量（VACATION_MALICIOUS_RATE_REDUCTION）、累積の上限（VACATION_MALICIOUS_RATE_REDUCTION_MAX。setEngineerVacation で止める）、
-// 補正後の下限（CODE_MALICIOUS_RATE_MIN。effectiveMaliciousRate で守る）をパーセントポイントにして並べる。低下量は復帰後も維持する(#39)。
-//   休暇ボタンで休暇/復帰（給与は継続）
-//   不正率-10pt/回・最大-20pt・下限5%
-//   効果は復帰後も維持。休暇中は生産停止
-export const formatVacationHint = (
-  reduction: number = VACATION_MALICIOUS_RATE_REDUCTION,
-  reductionMax: number = VACATION_MALICIOUS_RATE_REDUCTION_MAX,
-  rateMin: number = CODE_MALICIOUS_RATE_MIN,
-): readonly string[] => {
-  const text = getMessages().vacation;
-  return [
-    text.hintOperation,
-    interpolate(text.hintRate, {
-      reduction: toPercentPoints(reduction),
-      max: toPercentPoints(reductionMax),
-      min: toPercentPoints(rateMin),
-    }),
-    text.hintPersistence,
-  ];
-};

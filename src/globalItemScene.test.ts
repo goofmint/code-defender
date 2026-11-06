@@ -87,7 +87,6 @@ type FakeCode = {
   readonly released: boolean;
   readonly graphics: FakeGraphics;
 };
-type FakeKey = { readonly isDown: boolean };
 type FakePlayer = Point & { readonly setPosition: Mock<(x: number, y: number) => void> };
 type SceneUnderTest = {
   funds: number;
@@ -98,8 +97,7 @@ type SceneUnderTest = {
   engineers: Engineer[];
   gameOver: GameOverState;
   player?: FakePlayer;
-  moveKeys?: Record<'left' | 'right' | 'up' | 'down', FakeKey[]>;
-  input: { readonly activePointer: { readonly isDown: boolean } };
+  input: { readonly activePointer: { readonly isDown: boolean; readonly worldX: number; readonly worldY: number } };
   attackPointerHeld: boolean;
   codes: FakeCode[];
   codeHp: Map<number, number>;
@@ -116,12 +114,12 @@ type SceneUnderTest = {
   tweens: { readonly killTweensOf: Mock<(target: object) => void>; readonly pauseAll: Mock<() => void> };
   cameras: { readonly main: { readonly flash: Mock<() => void> } };
   events: { readonly emit: Mock<(event: string, payload: object) => boolean> };
-  // 右下の指標(#156)。資金・累計売上・月末支払・技術的負債の段階の表示を更新する。
+  // 右下の指標(#156)。資金・累計売上・月末支払・技術的負債（段階の絵文字と数字 #165）の表示を更新する。
   statusPanel: {
     readonly setFunds: Mock<(funds: number) => void>;
     readonly setScore: Mock<(score: number) => void>;
     readonly setMonthEndPayment: Mock<(amount: number) => void>;
-    readonly setTechDebtLevel: Mock<(level: string) => void>;
+    readonly setTechDebt: Mock<(techDebt: number) => void>;
   };
   updateCodes(delta: number): void;
   updateItems(now: number): void;
@@ -186,7 +184,6 @@ const makeCode = (id: number, dx: number, kind: 'normal' | 'malicious' = 'malici
   graphics: makeGraphics(),
 });
 
-const noKeys = (): FakeKey[] => [{ isDown: false }];
 
 const createScene = (funds: number = FUNDS): SceneUnderTest => {
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
@@ -198,8 +195,7 @@ const createScene = (funds: number = FUNDS): SceneUnderTest => {
   scene.engineers = [];
   scene.gameOver = NOT_OVER;
   scene.player = { x: 300, y: 300, setPosition: vi.fn<(x: number, y: number) => void>() };
-  scene.moveKeys = { left: noKeys(), right: [{ isDown: true }], up: noKeys(), down: noKeys() };
-  scene.input = { activePointer: { isDown: false } };
+  scene.input = { activePointer: { isDown: false, worldX: 0, worldY: 0 } };
   scene.attackPointerHeld = false;
   scene.codes = [];
   scene.codeHp = new Map();
@@ -228,7 +224,7 @@ const createScene = (funds: number = FUNDS): SceneUnderTest => {
     setFunds: vi.fn<(funds: number) => void>(),
     setScore: vi.fn<(score: number) => void>(),
     setMonthEndPayment: vi.fn<(amount: number) => void>(),
-    setTechDebtLevel: vi.fn<(level: string) => void>(),
+    setTechDebt: vi.fn<(techDebt: number) => void>(),
   };
   return scene;
 };
@@ -325,9 +321,15 @@ describe('「動いてるからヨシ！」(#58)', () => {
 });
 
 describe('エナジードリンク(#58): 主人公の速度', () => {
-  it('加速期はキー移動の距離が倍率倍になる', () => {
+  // 主人公（300, 300）の右の遠く（900, 300）を押し続ける（移動はポインターだけ #165）。
+  const holdPointerFarRight = (scene: SceneUnderTest): void => {
+    scene.input = { activePointer: { isDown: true, worldX: 900, worldY: 300 } };
+  };
+
+  it('加速期はポインター移動の距離が倍率倍になる', () => {
     const scene = createScene();
     scene.activeEffects = startEnergyDrink([], NOW);
+    holdPointerFarRight(scene);
 
     scene.updatePlayer(DELTA);
 
@@ -337,6 +339,7 @@ describe('エナジードリンク(#58): 主人公の速度', () => {
 
   it('効果がなければ通常の速度', () => {
     const scene = createScene();
+    holdPointerFarRight(scene);
 
     scene.updatePlayer(DELTA);
 

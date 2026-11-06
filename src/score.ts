@@ -1,4 +1,5 @@
 import type { FundsChangedEvent } from './funds';
+import { HUD_ICONS } from './config';
 import { formatYen, getMessages, interpolate } from './i18n';
 
 // スコア = 倒産までの累計売上。Phaser に依存しない純粋関数だけを置く。
@@ -22,6 +23,6 @@ export const accumulateScore = (
 export const formatScore = (score: number): string =>
   interpolate(getMessages().gameOver.score, { amount: formatYen(score) });
 
-// プレイ中の常時表示用。3桁区切りで整形する。「累計売上: 20,000円」（英語は「Total sales: ¥20,000」#158）の形。
+// プレイ中の常時表示用。3桁区切りで整形する。「📈20,000円」（英語は「📈¥20,000」#158, #165）の形。
 export const formatCumulativeSales = (score: number): string =>
-  interpolate(getMessages().hud.cumulativeSales, { amount: formatYen(score) });
+  interpolate(getMessages().hud.cumulativeSales, { icon: HUD_ICONS.sales, amount: formatYen(score) });

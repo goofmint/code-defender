@@ -1,13 +1,12 @@
 // 日本語の文言カタログ(#158)。表示する文言はここと en.ts に置き、ロジック側は src/i18n/index.ts の getMessages() から読む。
 // この形（typeof ja）を Messages 型にし、ほかの言語のカタログは Messages 型で書く（キーの過不足は tsc がエラーにする）。
 // 動的な値は名前付きプレースホルダー（{amount} など）で埋め込み、言語ごとに語順を変えられるようにする（interpolate で置換）。
-// 操作キーの表記（[1]・ENTER など）と内部識別子（codeRabbit・junior など）は翻訳しない。カタログには入れずに呼び出し側で埋め込む。
+// 内部識別子（codeRabbit・junior など）と絵文字（📅💰💸📈🔵🟡🔴 など。config.ts の HUD_ICONS・TECH_DEBT_LEVELS #165）は翻訳しない。カタログには入れずに呼び出し側で埋め込む。
 // 型の参照は import type だけにする。カタログからロジックや config.ts を実行時に読み込まない（循環参照を作らないため）。
 import type { AiAgentType } from '../../aiAgent';
 import type { EngineerPersonalityId, EngineerRank, SalaryDirection } from '../../engineer';
 import type { ItemType } from '../../item';
 import type { MaliciousCodeType } from '../../maliciousCode';
-import type { TechDebtLevel } from '../../techDebt';
 
 // 円の表記。symbol を数値の前（prefix）に置くか後ろ（suffix）に置くか。負の値は言語によらず符号を記号の前に置く（formatYen）。
 export type CurrencyFormat = {
@@ -37,7 +36,8 @@ export const ja = {
     title: '倒産しました',
     score: 'スコア: {amount}',
     elapsedDays: '経過日数: {days}日',
-    restart: 'タップ / クリック / Enter でもう一度',
+    // キー操作は #165 で廃止したので、Enter は書かない。
+    restart: 'タップ / クリックでもう一度',
   },
   // 正常なコードを攻撃したときの浮遊減点表示。{amount} は formatYen で整形した円額。
   penalty: {
@@ -54,22 +54,20 @@ export const ja = {
     itemLocked: 'まだ使えないアイテムです',
   },
   // 常時表示（左上の経過日数、右下の指標 #156）。{amount} は formatYen で整形した円額。
+  // #165 で語の代わりに絵文字（{icon}・{calendar}。config.ts の HUD_ICONS・TECH_DEBT_LEVELS）と数字にした。並びは言語によらず同じ。
   hud: {
-    // {level} はレベル(#164)、{days} は経過日数。
-    levelAndDays: 'Lv.{level} / {days}日',
-    funds: '資金: {amount}',
-    cumulativeSales: '累計売上: {amount}',
-    // 月末に支払うお金（給料＋月額アイテム＋AIエージェントの月額）。
-    monthEndPayment: '月末支払: {amount}',
+    // {level} はレベル(#164)、{calendar} は 📅、{days} は経過日数(#165)。
+    levelAndDays: 'Lv.{level} {calendar}{days}',
+    // {icon} は 💰。
+    funds: '{icon}{amount}',
+    // {icon} は 📈。
+    cumulativeSales: '{icon}{amount}',
+    // 月末に支払うお金（給料＋月額アイテム＋AIエージェントの月額）。{icon} は 💸（赤文字で出す #165）。
+    monthEndPayment: '{icon}{amount}',
     // 四捨五入した整数の技術的負債。
     techDebt: '技術的負債: {debt}',
-    // 右下の指標の負債の段階(#156)。{level} は techDebtLevels の語。
-    techDebtLevel: '負債 {level}',
-    techDebtLevels: {
-      normal: '正常',
-      caution: '注意',
-      critical: '要解消',
-    } satisfies Record<TechDebtLevel, string>,
+    // 右下の指標の負債(#156, #165)。{icon} は段階の絵文字（🔵🟡🔴）、{debt} は四捨五入して 0〜上限に収めた整数。
+    techDebtStatus: '{icon}{debt}',
   },
   items: {
     // 正式名称（企画書 8 の表の名前）。
@@ -162,7 +160,6 @@ export const ja = {
     selectionEngineer: 'エンジニア',
     // 選択中のアイテムと、初期配置の間のアイテムのメニューの枠(#157)。
     itemCost: '{name} {cost}pt',
-    instruction: '右上のアイテムアイコンから選択し、床をクリック／×で取消',
     startButton: 'プレイ開始',
     // エンジニアの選択ボタン(#157)。{count} は未配置の初期エンジニアの人数。
     engineerButton: 'エンジニア 残り{count}人',
@@ -271,14 +268,38 @@ export const ja = {
   vacation: {
     // 仮・要確認(#35): 出現場所マーカーに重ねる休暇の文字。マーカーの円（直径 = SPAWN_MARKER_STYLE.radius × 2）に収める。
     marker: '休',
-    // エンジニアのポップオーバー(#156)の休暇の案内文(#150)の3行。{reduction}・{max}・{min} はパーセントポイント（四捨五入した整数）。
-    hintOperation: '休暇ボタンで休暇/復帰（給与は継続）',
-    hintRate: '不正率-{reduction}pt/回・最大-{max}pt・下限{min}%',
-    hintPersistence: '効果は復帰後も維持。休暇中は生産停止',
   },
   releasePoint: {
     // リリース地点の円の上に出すラベル。
     label: 'リリース',
+  },
+  // ゲームの説明(#165)。右上の ℹ️ で開くパネルの見出しと説明の行（help.ts の buildHelpLines が上から順に並べる）。
+  // 数値は config.ts の値から埋め込む（文言に数値を直接書かない）。操作はマウスだけなので、キーの名前は書かない。
+  help: {
+    title: 'ゲームの説明',
+    // {funds} は formatYen(0)、{bankrupt} は bankruptAtOrBelow か bankruptBelow（BANKRUPT_INCLUDES_ZERO）。
+    goal: '正常なコードはリリースまで通し、不正なコードは倒す。資金が{funds}{bankrupt}になると倒産',
+    bankruptAtOrBelow: '以下',
+    bankruptBelow: '未満',
+    // {range} は攻撃の射程（px）。
+    controls: 'マウスを押し続けると主人公がそこへ動く。主人公をクリックすると{range}px以内の不正なコードを攻撃',
+    // {points} はステージポイントの初期値、{start} は開始ボタンの文言。
+    setup: '開始前: 右上のアイテムから選んで床をクリック（{points}pt）。×で取消。エンジニアを全員置いて「{start}」',
+    popover: '出現地点をクリック: 休暇・復帰とAIエージェント',
+    // {reduction}・{max}・{min} はパーセントポイント（四捨五入した整数）。
+    vacation: '休暇: 不正率-{reduction}pt/回・最大-{max}pt・下限{min}%。効果は復帰後も維持。給与は継続、休暇中は生産停止',
+    // {max} はエンジニアの上限人数。
+    hire: '右上のエンジニア: 雇用（最大{max}人）・昇給・減給。給料は月末に払う',
+    aiAgent: 'AIエージェント: 出力ペースが上がる。安いほど不正なコードが混ざりやすい。月額',
+    // {days} はレベルが上がる間隔（日）。
+    items: '右上のアイテム: 資金で買い、主人公の位置に置く。{days}日ごとにレベルが上がり、使えるアイテムが増える',
+    // {refactoring}・{feature} はボタンの文字（◀ / ▶）、{step} は1回で変える割合（%）。
+    balance: '右上の開発バランス: ゲージの左が機能開発（売上）、右がリファクタリング（負債を返す）。{refactoring} {feature}で{step}%ずつ',
+    // {days}・{funds}・{sales}・{payment} は HUD_ICONS の絵文字。
+    hudIcons: '{days}経過日数 {funds}資金 {sales}累計売上 {payment}次の月末に払う額',
+    // {normal}・{caution}・{critical} は段階の絵文字、*Min・*Max はその段階の範囲。{outage} は大障害の閾値、{days} は放置できる日数。
+    techDebt:
+      '技術的負債: {normal}{normalMin}〜{normalMax} {caution}{cautionMin}〜{cautionMax} {critical}{criticalMin}〜{criticalMax}。{outage}を超えたまま{days}日で大障害',
   },
 };
 

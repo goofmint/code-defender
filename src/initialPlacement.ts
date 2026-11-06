@@ -160,8 +160,8 @@ export type InitialPlacementSelection =
   | { readonly kind: 'item'; readonly itemType: ItemType }
   | { readonly kind: 'engineer' };
 
-// 初期配置パネルの3行（残ポイント・選択中のもの・マウス操作の説明）(#157)。行数は config の INITIAL_PLACEMENT_PANEL_LINES と同じ。
-// 例: 「初期配置 残りポイント: 6pt」「選択: Linter 1pt」「選択: エンジニア」「選択: なし」。キーボード操作の説明は出さない。
+// 初期配置パネルの2行（残ポイント・選択中のもの）(#157)。行数は config の INITIAL_PLACEMENT_PANEL_LINES と同じ。
+// 例: 「初期配置 残りポイント: 6pt」「選択: Linter 1pt」「選択: エンジニア」「選択: なし」。操作の説明は右上の ℹ️ のゲームの説明に移した(#165)。
 export const formatInitialPlacementPanel = (points: number, selection: InitialPlacementSelection): readonly string[] => {
   const text = getMessages().initialPlacement;
   const selected = ((): string => {
@@ -174,7 +174,7 @@ export const formatInitialPlacementPanel = (points: number, selection: InitialPl
         return text.selectionNone;
     }
   })();
-  return [interpolate(text.header, { points }), interpolate(text.selected, { selection: selected }), text.instruction];
+  return [interpolate(text.header, { points }), interpolate(text.selected, { selection: selected })];
 };
 
 // 初期配置の間のアイテムのメニュー(#156)の枠の文言(#157)。「Linter 1pt」。金額の代わりにステージポイントのコストを出し、キーの表示は省く。

@@ -361,7 +361,7 @@ export const isItemUnlocked = (itemType: ItemType, level: number): boolean => {
   return ITEM_REQUIRED_LEVELS[itemType] <= level;
 };
 
-// level で解放済みのアイテム（ITEM_TYPES の定義順）(#164)。アイテムのメニューとキー 4〜9 はこの一覧のページを使う。
+// level で解放済みのアイテム（ITEM_TYPES の定義順）(#164)。アイテムのメニューはこの一覧のページを使う。
 export const unlockedItemTypes = (level: number): ItemType[] =>
   ITEM_TYPES.filter((itemType) => isItemUnlocked(itemType, level));
 

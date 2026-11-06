@@ -2,9 +2,7 @@ import Phaser from 'phaser';
 import './style.css';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import {
-  AI_AGENT_BUY_KEYS,
   ATTACK_DAMAGE,
-  ATTACK_KEYS,
   CAT_DELETE_INTERVAL_MS,
   CI_INTERCEPT_RATE,
   CI_SLOW_MULTIPLIER,
@@ -15,28 +13,19 @@ import {
   FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS,
   FRIDAY_DEPLOY_INCIDENT_DELAY_MS,
   FRIDAY_DEPLOY_SALES,
-  GAME_OVER_RESTART_KEYS,
-  HIRE_KEYS,
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
   INITIAL_PLACEMENT_START_BUTTON_ALPHA,
-  INITIAL_PLACEMENT_START_KEYS,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
-  ITEM_BUY_KEYS,
-  ITEM_PAGE_KEYS,
   ITEM_PAGE_SIZE,
   MAX_ENGINEERS,
   PIZZA_DURATION_MS,
   PIZZA_TECH_DEBT,
-  PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
   PLAYER_SPEED,
-  REFACTORING_RATIO_KEYS,
   REVENUE_PER_NORMAL_CODE,
-  SALARY_ADJUST_KEYS,
-  SALARY_SELECT_KEYS,
   TECH_DEBT_INITIAL,
   TECH_DEBT_OUTAGE_FLASH_COLOR,
   TECH_DEBT_OUTAGE_FLASH_DURATION_MS,
@@ -52,14 +41,7 @@ import {
 } from './attack';
 import type { CodeHitEvent } from './attack';
 import { codeSpeedAt, effectiveMaliciousRate, vacationMaliciousRateModifiers } from './difficulty';
-import {
-  clampToField,
-  facingFromHorizontal,
-  getMoveDirection,
-  getPointerDirection,
-  movePlayer,
-  movePlayerToward,
-} from './player';
+import { clampToField, facingFromHorizontal, getPointerDirection, movePlayerToward } from './player';
 import {
   drawAttackEffect,
   drawBalanceMenu,
@@ -70,6 +52,8 @@ import {
   drawEngineerPopover,
   drawField,
   drawGameOver,
+  drawHelpIcon,
+  drawHelpOverlay,
   drawHireMessage,
   drawEngineerCandidateOverlay,
   drawInitialPlacementEngineerButton,
@@ -165,7 +149,6 @@ import { getReleaseRevenue, sellReleasedCode } from './sales';
 import {
   accumulateTechDebt,
   createTechDebtChangedEvent,
-  getTechDebtLevel,
   refactoringMaliciousRateModifier,
   resolveWorkTechDebt,
   TECH_DEBT_CHANGED_EVENT,
@@ -173,7 +156,7 @@ import {
   techDebtSpawnIntervalMs,
 } from './techDebt';
 import type { TechDebtChangeReason, WorkTechDebtResult } from './techDebt';
-import { getRefactoringRatioOptions, stepRefactoringRatio } from './refactoringRatioControl';
+import { stepRefactoringRatio } from './refactoringRatioControl';
 import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import {
   adjustEngineerSalary,
@@ -291,6 +274,7 @@ import {
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
 import { toggleMenu } from './floatingMenu';
 import type { MenuKind } from './floatingMenu';
+import { buildHelpLines, canOpenHelp } from './help';
 import type { Point, Route } from './route';
 import { getMessages, setLocale } from './i18n';
 import { applyDocumentLang, getBrowserLanguages, getLocationSearch } from './i18n/browserEnvironment';
@@ -299,12 +283,9 @@ import { resolveLocale } from './i18n/resolveLocale';
 // revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま。
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics; readonly revealed?: boolean };
 
-type MoveKeys = Record<keyof typeof PLAYER_MOVE_KEYS, Phaser.Input.Keyboard.Key[]>;
-
 class MainScene extends Phaser.Scene {
   private routes: Route[] = [];
   private player?: Phaser.GameObjects.Graphics;
-  private moveKeys?: MoveKeys;
   private codes: ActiveCode[] = [];
   private spawnElapsed = new Map<number, number>();
   private nextCodeId = 0;
@@ -327,7 +308,7 @@ class MainScene extends Phaser.Scene {
   private statusPanel?: StatusPanel;
   // 技術的負債が閾値を超えたまま続けて放置された時間（ミリ秒）(#46)。閾値以下に下がる・大障害が起きると 0 に戻る。
   private techDebtNeglectMs = 0;
-  // リファクタリングの割合（0〜1）。開発バランスのメニュー(#156)と Z/X キー(#40)で変える。
+  // リファクタリングの割合（0〜1）。開発バランスのメニューのゲージの ◀ / ▶(#156, #165)で変える（Z/X キー #40 は #165 で廃止）。
   private refactoringRatio = DEFAULT_REFACTORING_RATIO;
   private gameOver: GameOverState = INITIAL_GAME_OVER_STATE;
   private engineers: Engineer[] = [];
@@ -340,7 +321,7 @@ class MainScene extends Phaser.Scene {
   // 主人公についてまわるアイテム（ペアプロ相棒 #58）の表示（アイテム id がキー）。毎フレーム主人公の位置 + ずれへ動かす。
   private followItemViews = new Map<number, Phaser.GameObjects.Container>();
   private itemMessageText?: Phaser.GameObjects.Text;
-  // アイテムのメニューの現在のページ（0 始まり）(#58)。キー 4〜9 はこのページの枠を買う。メニューを閉じても保つ(#156)。
+  // アイテムのメニューの現在のページ（0 始まり）(#58)。メニューを閉じても保つ(#156)。
   private itemPage = 0;
   // 右上のアイコン(#156)と、開いているメニュー（一度に1つだけ。閉じていれば null）。メニューは開くときに作り、閉じるときに destroy() する。
   private menuIcons?: MenuIcons;
@@ -383,6 +364,9 @@ class MainScene extends Phaser.Scene {
   private placementPreviewView: PlacementPreviewView = HIDDEN_PLACEMENT_PREVIEW;
   // 初期配置で最後にポインターを動かした（押した）点と、その下にボタンなどの UI があったか。置く・外す・選ぶの直後に枠を出し直すのに使う。
   private lastSetupPointer: { readonly point: Point; readonly overUi: boolean } | null = null;
+  // ゲームの説明(#165)。右上の ℹ️ で開き、背景か ✕ で閉じる。開いている間（helpOpen）は update() とシーンの押下を止める（時計も止まる）。
+  private helpOpen = false;
+  private helpOverlay?: FloatingPanel;
 
   constructor() {
     super('main');
@@ -458,7 +442,7 @@ class MainScene extends Phaser.Scene {
       funds: this.funds,
       score: this.score,
       monthEndPayment: this.getMonthEndPaymentForecast(),
-      techDebtLevel: getTechDebtLevel(this.techDebt),
+      techDebt: this.techDebt,
     });
     // 右上のアイコン(#156)。scene.restart() でも閉じた状態から始める（前回のパネルは Phaser が破棄済みなので参照だけ捨てる）。
     this.openMenu = null;
@@ -467,6 +451,10 @@ class MainScene extends Phaser.Scene {
     this.popoverRouteId = null;
     this.menuIcons = drawMenuIcons(this, (kind) => this.onMenuIconPressed(kind));
     this.refreshMenuIcons();
+    // ゲームの説明(#165)。scene.restart() でも閉じた状態から始める（前回の表示は Phaser が破棄済みなので参照だけ捨てる）。
+    this.helpOpen = false;
+    this.helpOverlay = undefined;
+    drawHelpIcon(this, () => this.openHelp());
     this.initialPlacementPanelText = drawInitialPlacementPanel(
       this,
       formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementSelection),
@@ -485,37 +473,12 @@ class MainScene extends Phaser.Scene {
     this.refreshInitialPlacementControls();
     drawReleasePoint(this);
     this.player = drawPlayer(this);
-    const keyboard = this.input.keyboard;
-    if (keyboard) {
-      const register = (names: readonly string[]): Phaser.Input.Keyboard.Key[] =>
-        names.map((name) => keyboard.addKey(name));
-      this.moveKeys = {
-        left: register(PLAYER_MOVE_KEYS.left),
-        right: register(PLAYER_MOVE_KEYS.right),
-        up: register(PLAYER_MOVE_KEYS.up),
-        down: register(PLAYER_MOVE_KEYS.down),
-      };
-      // 'down' イベントで発動する（短い押下の取りこぼし防止）。emitOnRepeat は既定 false なので押しっぱなしでは連発しない。
-      register(ATTACK_KEYS).forEach((key) => key.on('down', () => this.tryAttack()));
-      HIRE_KEYS.forEach((name, index) =>
-        keyboard.addKey(name).on('down', () => this.hire(ENGINEER_RANKS[index].id)),
-      );
-      keyboard.addKey(SALARY_SELECT_KEYS.previous).on('down', () => this.selectEngineer('previous'));
-      keyboard.addKey(SALARY_SELECT_KEYS.next).on('down', () => this.selectEngineer('next'));
-      keyboard.addKey(SALARY_ADJUST_KEYS.raise).on('down', () => this.adjustSalary('raise'));
-      keyboard.addKey(SALARY_ADJUST_KEYS.cut).on('down', () => this.adjustSalary('cut'));
-      keyboard.addKey(AI_AGENT_BUY_KEYS.strong).on('down', () => this.buyAiAgent('strong'));
-      keyboard.addKey(AI_AGENT_BUY_KEYS.normal).on('down', () => this.buyAiAgent('normal'));
-      keyboard.addKey(AI_AGENT_BUY_KEYS.cheap).on('down', () => this.buyAiAgent('cheap'));
-      ITEM_BUY_KEYS.forEach((name, slot) => keyboard.addKey(name).on('down', () => this.buyItemSlot(slot)));
-      keyboard.addKey(ITEM_PAGE_KEYS.previous).on('down', () => this.changeItemPage('previous'));
-      keyboard.addKey(ITEM_PAGE_KEYS.next).on('down', () => this.changeItemPage('next'));
-      keyboard.addKey(REFACTORING_RATIO_KEYS.feature).on('down', () => this.changeRefactoringRatio('feature'));
-      keyboard.addKey(REFACTORING_RATIO_KEYS.refactoring).on('down', () => this.changeRefactoringRatio('refactoring'));
-      register(GAME_OVER_RESTART_KEYS).forEach((key) => key.on('down', () => this.tryRestart()));
-      register(INITIAL_PLACEMENT_START_KEYS).forEach((key) => key.on('down', () => this.startPlay()));
-    }
+    // キーボードの操作は登録しない(#165、マウスだけで操作する)。移動は押し続け、攻撃は主人公のクリック、開始・リスタートはボタンとクリック。
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
+      // ゲームの説明(#165)を開いている間は、押下を説明の背景・✕ だけが受け取る（置く・移動・攻撃・メニューの開閉をしない）。
+      if (this.helpOpen) {
+        return;
+      }
       if (this.gameOver.over) {
         this.tryRestart();
         return;
@@ -555,7 +518,8 @@ class MainScene extends Phaser.Scene {
     });
     // 初期配置(#47)の間は、ポインターの下のセルに置けるかどうかの枠を出す(#162)。プレイ中の枠は update() で主人公の位置に出す。
     this.input.on('pointermove', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
-      if (this.phase !== 'setup') {
+      // ゲームの説明(#165)を開いている間は枠を動かさない（閉じたあとの押下・移動で出し直す）。
+      if (this.phase !== 'setup' || this.helpOpen) {
         return;
       }
       this.lastSetupPointer = { point: { x: pointer.worldX, y: pointer.worldY }, overUi: currentlyOver.length > 0 };
@@ -868,6 +832,10 @@ class MainScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    // ゲームの説明(#165)を開いている間は時間を止める（初期配置の間と同じく、時計・コード・アイテム・月の精算を進めない）。
+    if (this.helpOpen) {
+      return;
+    }
     if (this.gameOver.over) {
       // ゲームオーバー中は置けるかどうかの枠(#162)を出さない。
       this.showPlacementPreview(HIDDEN_PLACEMENT_PREVIEW);
@@ -917,34 +885,11 @@ class MainScene extends Phaser.Scene {
     if (!this.input.activePointer.isDown) {
       this.attackPointerHeld = false;
     }
-    const keys = this.moveKeys;
-    const isDown = (list: Phaser.Input.Keyboard.Key[]): boolean => list.some((key) => key.isDown);
-    const anyKeyDown = keys
-      ? isDown(keys.left) || isDown(keys.right) || isDown(keys.up) || isDown(keys.down)
-      : false;
-    const keyDirection = keys
-      ? getMoveDirection({
-          left: isDown(keys.left),
-          right: isDown(keys.right),
-          up: isDown(keys.up),
-          down: isDown(keys.down),
-        })
-      : { x: 0, y: 0 };
     const position = { x: player.x, y: player.y };
     // エナジードリンク(#58)の加速期・鈍化期は主人公の速度に倍率を掛ける。
     const speed = PLAYER_SPEED * playerSpeedMultiplier(this.activeEffects, this.elapsedMs);
 
-    // いずれかの移動キーが押されていればキーボード優先。方向が相殺されてゼロでもポインターには切り替えない。
-    if (anyKeyDown) {
-      if (keyDirection.x !== 0 || keyDirection.y !== 0) {
-        const next = clampToField(movePlayer(position, keyDirection, delta, speed));
-        player.setPosition(next.x, next.y);
-        this.updatePlayerFacing(player, keyDirection.x);
-      }
-      return;
-    }
-
-    // ポインター（タッチ・マウス）を押している間、ゲーム座標の押下位置へ向かう。
+    // 移動はポインターだけ（キーボードの移動は #165 で廃止）。ポインター（タッチ・マウス）を押している間、ゲーム座標の押下位置へ向かう。
     const pointer = this.input.activePointer;
     if (!pointer.isDown) {
       return;
@@ -1004,34 +949,26 @@ class MainScene extends Phaser.Scene {
     this.events.emit(FUNDS_CHANGED_EVENT, createFundsChangedEvent(previous, next, reason));
   }
 
-  // 技術的負債を変更して、表示更新（右下の段階 #156）と TECH_DEBT_CHANGED_EVENT の発行を一か所で行う（changeFunds と同じ形）。
+  // 技術的負債を変更して、表示更新（右下の段階の絵文字と数字 #156, #165）と TECH_DEBT_CHANGED_EVENT の発行を一か所で行う（changeFunds と同じ形）。
   // 変化がないとき（上限・0 で止まったときなど）はイベントを発行しない。後続タスク（開発スピード低下・大障害など）はこのイベントを購読する。
   private changeTechDebt(result: WorkTechDebtResult, reason: TechDebtChangeReason): void {
     const previous = this.techDebt;
     this.techDebt = result.current;
-    this.statusPanel?.setTechDebtLevel(getTechDebtLevel(result.current));
+    this.statusPanel?.setTechDebt(result.current);
     const event = createTechDebtChangedEvent(previous, result.current, reason);
     if (event.delta !== 0) {
       this.events.emit(TECH_DEBT_CHANGED_EVENT, event);
     }
   }
 
-  // 機能開発とリファクタリングの割合を1段階寄せる(#40、Z/X キー)。ゲームオーバー中・初期配置の間と、両端で値が変わらないときは何もしない（applyRefactoringRatio）。
+  // 機能開発とリファクタリングの割合を1段階寄せる(#40。#165 から開発バランスのメニューの ◀ / ▶)。ゲームオーバー中・初期配置の間と、両端で値が変わらないときは何もしない（applyRefactoringRatio）。
   // 次のリリースから resolveWorkTechDebt に新しい割合が使われる。
   private changeRefactoringRatio(direction: RefactoringRatioDirection): void {
     this.applyRefactoringRatio(stepRefactoringRatio(this.refactoringRatio, direction));
   }
 
-  // 開発バランスのメニュー(#156)で選んだ割合（getRefactoringRatioOptions の値）にする。0〜1 の外・NaN は設定の誤りなので例外にする。
-  private setRefactoringRatio(value: number): void {
-    if (!(value >= 0 && value <= 1)) {
-      throw new RangeError(`リファクタリングの割合は 0〜1 にする: ${value}`);
-    }
-    this.applyRefactoringRatio(value);
-  }
-
-  // changeRefactoringRatio と setRefactoringRatio の共通処理。ゲームオーバー中・初期配置の間・同じ値なら何もしない。
-  // 変えたら開発バランスのメニューが開いていれば描き直す（現在値の強調を移す）。
+  // changeRefactoringRatio の適用。ゲームオーバー中・初期配置の間・同じ値なら何もしない。
+  // 変えたら開発バランスのメニューが開いていれば描き直す（ゲージと割合の文言を新しい値にする）。
   private applyRefactoringRatio(next: number): void {
     if (this.gameOver.over || this.phase === 'setup') {
       return;
@@ -1110,7 +1047,7 @@ class MainScene extends Phaser.Scene {
     this.refreshMonthEndPayment();
   }
 
-  // アイテムのメニューの現在ページの枠 slot のアイテムを買う(#58)。空の枠なら何もしない。
+  // アイテムのメニューの現在ページの枠 slot のアイテムを買う(#58)。空の枠なら何もしない（アイテムのメニューの枠のボタンから呼ぶ）。
   // 枠は今のレベルで解放済みのアイテム（unlockedItems #164）の並び。
   private buyItemSlot(slot: number): void {
     const itemType = getItemOnPageSlot(this.unlockedItems(), this.itemPage, slot);
@@ -1131,7 +1068,7 @@ class MainScene extends Phaser.Scene {
     return levelAt(this.elapsedMs);
   }
 
-  // 今のレベルで解放済みのアイテム（ITEM_TYPES の定義順 #164）。アイテムのメニュー・キー 4〜9・ページ数はこの一覧を使う。
+  // 今のレベルで解放済みのアイテム（ITEM_TYPES の定義順 #164）。アイテムのメニューの枠・ページ数はこの一覧を使う。
   private unlockedItems(): ItemType[] {
     return unlockedItemTypes(this.currentLevel());
   }
@@ -1218,10 +1155,8 @@ class MainScene extends Phaser.Scene {
         });
         return;
       case 'balance':
-        this.menuPanel = drawBalanceMenu(
-          this,
-          { options: getRefactoringRatioOptions(), current: this.refactoringRatio },
-          (ratio) => this.setRefactoringRatio(ratio),
+        this.menuPanel = drawBalanceMenu(this, { ratio: this.refactoringRatio }, (direction) =>
+          this.changeRefactoringRatio(direction),
         );
         return;
     }
@@ -1238,9 +1173,30 @@ class MainScene extends Phaser.Scene {
     this.closeEngineerPopover();
   }
 
+  // 右上の ℹ️ を押したとき、ゲームの説明を開く(#165)。ゲームオーバー中（canOpenHelp）と、もう開いているときは何もしない。
+  // 初期配置の間とプレイ中は開ける。開いているメニュー・ポップオーバーはそのまま残す（説明の背景が上に重なって押下を受け止める）。
+  private openHelp(): void {
+    if (!canOpenHelp(this.gameOver.over) || this.helpOpen) {
+      return;
+    }
+    this.helpOpen = true;
+    this.helpOverlay = drawHelpOverlay(this, getMessages().help.title, buildHelpLines(), () => this.closeHelp());
+  }
+
+  // ゲームの説明を閉じる（背景か ✕ の押下）(#165)。閉じた押下のまま主人公が動かないよう、プレイ開始（startPlay）と同じく離すまでポインター移動を止める。
+  private closeHelp(): void {
+    if (!this.helpOpen) {
+      return;
+    }
+    this.helpOverlay?.destroy();
+    this.helpOverlay = undefined;
+    this.helpOpen = false;
+    this.attackPointerHeld = this.input.activePointer.isDown;
+  }
+
   // 出現地点（休暇マーカー）を押したとき、そのルートを担当するエンジニアのポップオーバーを開く(#156)。休暇・AIエージェントはここから操作する。
   // 初期配置の間・ゲームオーバー中・担当がいないときは何もしない。同じ出現地点をもう一度押すと閉じる。
-  // 開くときは担当エンジニアを選択中にして（Q/E/R/F・V/B/N のキー操作もこの人が対象になる）、メニューを閉じる（一度に1つだけ）。
+  // 開くときは担当エンジニアを選択中にして（エンジニアのメニューの昇給・減給もこの人が対象になる）、メニューを閉じる（一度に1つだけ）。
   private openEngineerPopover(routeId: number): void {
     if (this.gameOver.over || this.phase === 'setup') {
       return;
@@ -1297,7 +1253,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // 仮・要確認(#53): エンジニアに AIエージェントを付ける（付けていれば付け替える。前の種類の返金はしない）。ゲームオーバー中は何もしない。
-  // 対象は engineerId（エンジニアのポップオーバー #156 が担当エンジニアの id を渡す）。省略したとき（V/B/N キー）は選択中のエンジニア。
+  // 対象は engineerId（エンジニアのポップオーバー #156 が担当エンジニアの id を渡す）。省略したときは選択中のエンジニア。
   // 費用は changeFunds を通して引く（倒産判定もここで動く）。月額は次の月次精算（onMonthElapsed → settleMonthBoundary）から引く。
   // メッセージは昇給・減給と同じく雇用メッセージの場所に出し、直前の雇用・給与メッセージは消す。
   private buyAiAgent(agentType: AiAgentType, targetEngineerId?: number): void {

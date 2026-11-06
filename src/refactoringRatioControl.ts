@@ -46,14 +46,16 @@ export const formatRefactoringAllocation = (ratio: number): string => {
   return interpolate(getMessages().balance.allocation, { feature: featurePercent, refactoring: refactoringPercent });
 };
 
-// 開発バランスのメニュー(#156)に縦に並べる選択肢。0 から 1 まで刻み（stepPercent）ごとの割合（10% 刻みなら 0, 0.1, …, 1 の 11 個）。
-// 値はパーセントを 100 で割って作る（0.1 を足していく誤差は出ない）。刻みの検査は stepRefactoringRatio と同じ。
-export const getRefactoringRatioOptions = (stepPercent: number = REFACTORING_RATIO_STEP_PERCENT): readonly number[] => {
-  if (!Number.isInteger(stepPercent) || stepPercent <= 0 || PERCENT % stepPercent !== 0) {
-    throw new RangeError(`stepPercent は 100 を割り切る正の整数にする: ${stepPercent}`);
+// 開発バランスのゲージ(#165)の2色の幅（左が機能開発、右がリファクタリング）。width はゲージ全体の幅（0 以上の整数 px）。
+// 機能開発の幅は 機能開発の整数パーセント（formatRefactoringAllocation と同じ丸め）× width ÷ 100 を四捨五入した整数 px、
+// リファクタリングの幅は残り（width − 機能開発の幅）なので、2つの和は常に width になる。width が 0 以上の整数でなければ設定の誤りなので例外にする。
+export const gaugeSegmentWidths = (
+  ratio: number,
+  width: number,
+): { readonly feature: number; readonly refactoring: number } => {
+  if (!Number.isInteger(width) || width < 0) {
+    throw new RangeError(`ゲージの幅は 0 以上の整数にする: ${width}`);
   }
-  return Array.from({ length: PERCENT / stepPercent + 1 }, (_, index) => (index * stepPercent) / PERCENT);
+  const feature = Math.round((width * (PERCENT - toPercent(ratio))) / PERCENT);
+  return { feature, refactoring: width - feature };
 };
-
-// 2つの割合が同じ選択肢か(#156、現在値の強調)。表示と同じく整数パーセントで比べる（0.30000000000000004 と 0.3 は同じ）。
-export const isSameRefactoringOption = (a: number, b: number): boolean => toPercent(a) === toPercent(b);

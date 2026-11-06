@@ -1,3 +1,4 @@
+import { HUD_ICONS } from './config';
 import { formatYen, getMessages, interpolate } from './i18n';
 
 // 資金の状態。Phaser に依存しない純粋関数だけを置く。
@@ -44,5 +45,6 @@ export const createFundsChangedEvent = (
   reason: FundsChangeReason,
 ): FundsChangedEvent => ({ previous, current, delta: current - previous, reason });
 
-// 3桁区切りで整形する。マイナスは「資金: -300,000円」（英語は「Funds: -¥300,000」#158）の形。
-export const formatFunds = (funds: number): string => interpolate(getMessages().hud.funds, { amount: formatYen(funds) });
+// 3桁区切りで整形する。マイナスは「💰-300,000円」（英語は「💰-¥300,000」#158, #165）の形。
+export const formatFunds = (funds: number): string =>
+  interpolate(getMessages().hud.funds, { icon: HUD_ICONS.funds, amount: formatYen(funds) });

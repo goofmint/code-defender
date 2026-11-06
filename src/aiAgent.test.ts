@@ -16,25 +16,16 @@ import {
 } from './aiAgent';
 import type { AiAgentType } from './aiAgent';
 import {
-  AI_AGENT_BUY_KEYS,
   AI_AGENT_MALICIOUS_RATE_MODIFIER_BY_TYPE,
   AI_AGENT_PRICE_TIER_BY_TYPE,
   AI_AGENT_PRICE_TIERS,
   AI_AGENT_SHORT_NAMES,
   AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE,
-  ATTACK_KEYS,
   CODE_SPAWN_INTERVAL_MIN_MS,
   CODE_SPAWN_INTERVAL_MS,
   ENGINEER_RANKS,
-  GAME_OVER_RESTART_KEYS,
-  HIRE_KEYS,
-  ITEM_BUY_KEYS,
   ITEM_PRICE_TIERS,
   MALICIOUS_RATE_STEP_MS,
-  PLAYER_MOVE_KEYS,
-  REFACTORING_RATIO_KEYS,
-  SALARY_ADJUST_KEYS,
-  SALARY_SELECT_KEYS,
   VACATION_MALICIOUS_RATE_REDUCTION,
 } from './config';
 import { initialSpawnElapsed, pickCodeKind, stepSpawnTimerUnlessPaused } from './codeFlow';
@@ -92,23 +83,6 @@ describe('AIエージェントの種類と定義', () => {
     expect(AI_AGENT_EQUIPPED_EVENT).toBe('ai-agent-equipped');
   });
 
-  it('キーは他の操作のキーと重ならない', () => {
-    const others: readonly string[] = [
-      ...Object.values(PLAYER_MOVE_KEYS).flat(),
-      ...ATTACK_KEYS,
-      ...GAME_OVER_RESTART_KEYS,
-      ...HIRE_KEYS,
-      ...ITEM_BUY_KEYS,
-      ...Object.values(SALARY_SELECT_KEYS),
-      ...Object.values(SALARY_ADJUST_KEYS),
-      ...Object.values(REFACTORING_RATIO_KEYS),
-    ];
-    const keys = Object.values(AI_AGENT_BUY_KEYS);
-    expect(new Set(keys).size).toBe(AI_AGENT_TYPES.length);
-    for (const key of keys) {
-      expect(others).not.toContain(key);
-    }
-  });
 });
 
 describe('getAiAgentPrice / getAiAgentMonthlyFee', () => {

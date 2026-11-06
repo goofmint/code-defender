@@ -253,34 +253,35 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
       const result = placeInitialItem(big, 'linter', cell, setupContext);
       return result.ok ? 'ok' : result.reason;
     };
-    // 初期配置UIは左上（#156）。#162 で外接矩形（x=72〜464、y=68〜188）をパネル・エンジニアの選択ボタン・開始ボタン・メッセージの矩形に分けた。
+    // 初期配置UIは左上（#156）。#162 で外接矩形をパネル・エンジニアの選択ボタン・開始ボタン・メッセージの矩形に分けた。
+    // #165 でパネルを2行（操作説明の行をやめた）にしたので、ボタンの行とメッセージは 20px 上がった（外接矩形は x=72〜464、y=68〜168）。
     expect(INITIAL_PLACEMENT_UI_BOUNDS).toEqual([
-      { x: 72, y: 68, width: 392, height: 60 },
-      { x: 72, y: 134, width: 150, height: 28 },
-      { x: 228, y: 134, width: 128, height: 28 },
-      { x: 72, y: 168, width: 392, height: 20 },
+      { x: 72, y: 68, width: 392, height: 40 },
+      { x: 72, y: 114, width: 150, height: 28 },
+      { x: 228, y: 114, width: 128, height: 28 },
+      { x: 72, y: 148, width: 392, height: 20 },
     ]);
     // 本体の上は置けない（プレイ中の既定では置ける）。
-    const onEngineerButton: GridCell = { col: 10, row: 8 }; // x=160〜176、y=128〜144（エンジニアの選択ボタン y≧134 に重なる）
+    const onEngineerButton: GridCell = { col: 10, row: 8 }; // x=160〜176、y=128〜144（エンジニアの選択ボタン y=114〜142 に重なる）
     expect(reasonInSetup(onEngineerButton)).toBe('notPlaceable');
     expect(reasonAt(onEngineerButton)).toBe('ok');
     expect(reasonInSetup({ col: 10, row: 5 })).toBe('notPlaceable'); // x=160〜176、y=80〜96（パネル）
-    expect(reasonInSetup({ col: 16, row: 9 })).toBe('notPlaceable'); // x=256〜272、y=144〜160（開始ボタン）
-    expect(reasonInSetup({ col: 10, row: 11 })).toBe('notPlaceable'); // x=160〜176、y=176〜192（メッセージ）
-    // 開始ボタンの右（x=356〜464、y=128〜168）は何も描いていないので置ける(#162)。#156 の外接矩形では置けなかった。
-    expect(reasonInSetup({ col: 23, row: 9 })).toBe('ok'); // x=368〜384、y=144〜160（開始ボタンの右端 356 まで 12px 空く）
-    expect(reasonInSetup({ col: 22, row: 9 })).toBe('notPlaceable'); // x=352〜368（開始ボタンの右端 356 に 4px 重なる）
-    expect(reasonInSetup({ col: 28, row: 8 })).toBe('ok'); // x=448〜464、y=128〜144（上端がパネルの下端 128 に接するだけ）
-    expect(reasonInSetup({ col: 25, row: 7 })).toBe('notPlaceable'); // y=112〜128（パネル）
-    expect(reasonInSetup({ col: 25, row: 9 })).toBe('ok'); // y=144〜160（パネルとメッセージの間）
-    expect(reasonInSetup({ col: 25, row: 10 })).toBe('notPlaceable'); // y=160〜176（メッセージの上端 168 に 8px 重なる）
-    // 外接矩形の外側の辺は #156 と同じ。
+    expect(reasonInSetup({ col: 16, row: 7 })).toBe('notPlaceable'); // x=256〜272、y=112〜128（開始ボタン）
+    expect(reasonInSetup({ col: 10, row: 9 })).toBe('notPlaceable'); // x=160〜176、y=144〜160（メッセージ）
+    // 開始ボタンの右（x=356〜464、y=108〜148）は何も描いていないので置ける(#162)。#156 の外接矩形では置けなかった。
+    expect(reasonInSetup({ col: 23, row: 7 })).toBe('ok'); // x=368〜384、y=112〜128（開始ボタンの右端 356 まで 12px 空く）
+    expect(reasonInSetup({ col: 22, row: 7 })).toBe('notPlaceable'); // x=352〜368（開始ボタンの右端 356 に 4px 重なる）
+    expect(reasonInSetup({ col: 28, row: 7 })).toBe('ok'); // x=448〜464、y=112〜128（パネルの下端 108 から 4px 空く）
+    expect(reasonInSetup({ col: 25, row: 6 })).toBe('notPlaceable'); // y=96〜112（パネルの下端 108 に 4px 重なる）
+    expect(reasonInSetup({ col: 25, row: 8 })).toBe('ok'); // y=128〜144（パネルとメッセージの間）
+    expect(reasonInSetup({ col: 25, row: 9 })).toBe('notPlaceable'); // y=144〜160（メッセージの上端 148 に 12px 重なる）
+    // 外接矩形の外側の辺。
     expect(reasonInSetup({ col: 4, row: 8 })).toBe('notPlaceable'); // x=64〜80（エンジニアの選択ボタンの左端 72 に 8px 重なる）
     expect(reasonInSetup({ col: 3, row: 8 })).toBe('ok'); // x=48〜64（8px 空く）
     expect(reasonInSetup({ col: 28, row: 5 })).toBe('notPlaceable'); // x=448〜464（パネルの中。右端に内側から接する）
     expect(reasonInSetup({ col: 29, row: 5 })).toBe('ok'); // x=464〜480（パネルの右端 464 に辺が接する）
-    expect(reasonInSetup({ col: 25, row: 11 })).toBe('notPlaceable'); // y=176〜192（メッセージの下端 188 に 4px 重なる）
-    expect(reasonInSetup({ col: 25, row: 12 })).toBe('ok'); // y=192〜208（4px 空く。ルートの線からも離れている）
+    expect(reasonInSetup({ col: 25, row: 10 })).toBe('notPlaceable'); // y=160〜176（メッセージの下端 168 に 8px 重なる）
+    expect(reasonInSetup({ col: 25, row: 11 })).toBe('ok'); // y=176〜192（8px 空く。ルートの線からも離れている）
   });
 });
 
@@ -521,13 +522,12 @@ describe('formatInitialPlacementMessage / formatInitialPlacementPanel', () => {
     expect(formatInitialPlacementMessage({ ok: false, reason: 'unknownItem' }, 'foo')).toBe('不明なアイテムです: foo');
   });
 
-  it('パネルは INITIAL_PLACEMENT_PANEL_LINES 行で、残ポイントと選択中のもの（アイテムとコスト・エンジニア・なし）とマウス操作の説明を出す(#157)', () => {
+  it('パネルは INITIAL_PLACEMENT_PANEL_LINES（2）行で、残ポイントと選択中のもの（アイテムとコスト・エンジニア・なし）だけを出す(#157, #165)', () => {
     const lines = formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'item', itemType: 'linter' });
-    expect(INITIAL_PLACEMENT_PANEL_LINES).toBe(3);
+    expect(INITIAL_PLACEMENT_PANEL_LINES).toBe(2);
     expect(lines).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
     expect(lines[0]).toContain(`${STAGE_POINTS_INITIAL}pt`);
     expect(lines[1]).toBe(`選択: ${ITEM_SHORT_NAMES.linter} ${linterCost}pt`);
-    expect(lines[2]).toBe('右上のアイテムアイコンから選択し、床をクリック／×で取消');
     expect(lines[0]).toBe(`初期配置 残りポイント: ${STAGE_POINTS_INITIAL}pt`);
     expect(formatInitialPlacementPanel(0, { kind: 'item', itemType: 'cat' })[0]).toContain('0pt');
     expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'engineer' })[1]).toBe('選択: エンジニア');
@@ -835,17 +835,12 @@ describe('初期配置の文言（英語 #158）', () => {
     setLocale('ja');
   });
 
-  it('パネルの3行（残ポイント・選択中のもの・操作説明）', () => {
+  it('パネルの2行（残ポイント・選択中のもの #165）', () => {
     const lines = formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'item', itemType: 'linter' });
     expect(lines).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
     expect(lines[0]).toBe(`Setup - Points left: ${STAGE_POINTS_INITIAL}pt`);
     expect(lines[1]).toBe(`Selected: Linter ${linterCost}pt`);
-    expect(lines[2]).toBe('Pick from the item icon, click floor; × undo');
-    expect(formatInitialPlacementPanel(0, { kind: 'engineer' })).toEqual([
-      'Setup - Points left: 0pt',
-      'Selected: Engineer',
-      'Pick from the item icon, click floor; × undo',
-    ]);
+    expect(formatInitialPlacementPanel(0, { kind: 'engineer' })).toEqual(['Setup - Points left: 0pt', 'Selected: Engineer']);
     expect(formatInitialPlacementPanel(0, { kind: 'none' })[1]).toBe('Selected: None');
   });
 

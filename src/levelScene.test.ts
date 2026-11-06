@@ -1,12 +1,10 @@
-// レベル(#164)が MainScene に正しく接続されていることを確かめる（アイテムのメニューの一覧・キー 4〜9・左上の表示・リスタート・同じ更新での倒産）。
+// レベル(#164)が MainScene に正しく接続されていることを確かめる（アイテムのメニューの一覧と枠・左上の表示・リスタート・同じ更新での倒産）。
+// 操作は開始ボタン・メニューのコールバック・押下だけ（キー操作は #165 で廃止）。
 // main.ts は読み込み時に new Phaser.Game(config) を実行するので、このファイルの中だけで phaser をモックする（initialPlacementScene.test.ts と同じ形）。
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import {
-  GAME_OVER_RESTART_KEYS,
-  INITIAL_PLACEMENT_START_KEYS,
-  ITEM_BUY_KEYS,
-  ITEM_PAGE_KEYS,
+  ITEM_PAGE_SIZE,
   LEVEL_UP_INTERVAL_DAYS,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
@@ -97,6 +95,9 @@ vi.mock('./render', () => {
     }),
     drawField: vi.fn(),
     drawGameOver: vi.fn(),
+    // ゲームの説明(#165)。
+    drawHelpIcon: vi.fn(object),
+    drawHelpOverlay: vi.fn(object),
     drawHireMessage: vi.fn(object),
     drawEngineerCandidateOverlay: vi.fn(object),
     drawInitialPlacementEngineerButton: vi.fn(() => ({
@@ -119,7 +120,7 @@ vi.mock('./render', () => {
       setFunds: vi.fn(),
       setScore: vi.fn(),
       setMonthEndPayment: vi.fn(),
-      setTechDebtLevel: vi.fn(),
+      setTechDebt: vi.fn(),
     })),
     drawItemMessage: vi.fn(object),
     drawOutageText: vi.fn(),
@@ -143,7 +144,6 @@ vi.mock('./render', () => {
 
 const render = await import('./render');
 
-type FakeKey = { readonly isDown: boolean; readonly on: (event: string, handler: () => void) => FakeKey };
 type FakePointer = { readonly worldX: number; readonly worldY: number; isDown: boolean };
 type PointerDownHandler = (pointer: FakePointer, currentlyOver: readonly object[]) => void;
 type EventHandler = (payload: object) => void;
@@ -161,7 +161,6 @@ type SceneUnderTest = {
   player?: Point;
   input: {
     readonly activePointer: FakePointer;
-    readonly keyboard: { readonly addKey: (name: string) => FakeKey };
     readonly on: (event: string, handler: PointerDownHandler) => void;
   };
   // Phaser の EventEmitter と同じく、on で登録したハンドラーを emit で呼ぶ（月の境界の給料と倒産判定を動かすため）。
@@ -180,7 +179,7 @@ type SceneUnderTest = {
 
 type Harness = {
   readonly scene: SceneUnderTest;
-  readonly pressKey: (name: string) => void;
+  readonly pointerDown: (point: Point) => void;
 };
 
 let mainScenePrototype: object;
@@ -204,24 +203,15 @@ beforeEach(() => {
 
 // create() を実行したシーン。scene.restart() は押下の処理が終わってから create() をもう一度実行する（Phaser と同じ）。
 const createHarness = (): Harness => {
-  let keyHandlers = new Map<string, (() => void)[]>();
+  let pointerHandlers: PointerDownHandler[] = [];
   let eventHandlers: { readonly event: string; readonly handler: EventHandler; readonly context: object }[] = [];
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
   scene.input = {
     activePointer: { worldX: 0, worldY: 0, isDown: false },
-    keyboard: {
-      addKey: (name) => {
-        const key: FakeKey = {
-          isDown: false,
-          on: (_event, handler) => {
-            keyHandlers.set(name, [...(keyHandlers.get(name) ?? []), handler]);
-            return key;
-          },
-        };
-        return key;
-      },
+    // 押下（pointerdown）のハンドラーだけを記録する（リスタートの押下に使う）。
+    on: (event, handler) => {
+      if (event === 'pointerdown') pointerHandlers.push(handler);
     },
-    on: () => undefined,
   };
   scene.events = {
     on: (event, handler, context) => {
@@ -247,13 +237,11 @@ const createHarness = (): Harness => {
   scene.create();
   return {
     scene,
-    pressKey: (name) => {
-      const handlers = keyHandlers.get(name);
-      if (handlers === undefined) throw new Error(`キーが登録されていません: ${name}`);
-      handlers.forEach((handler) => handler());
+    pointerDown: (point) => {
+      pointerHandlers.forEach((handler) => handler({ worldX: point.x, worldY: point.y, isDown: true }, []));
       if (restartPending) {
         restartPending = false;
-        keyHandlers = new Map();
+        pointerHandlers = [];
         eventHandlers = [];
         scene.create();
       }
@@ -265,7 +253,12 @@ const days = (n: number): number => n * MS_PER_GAME_DAY;
 // Lv.n になる経過時間（その始まり）。
 const levelStartMs = (level: number): number => days((level - 1) * LEVEL_UP_INTERVAL_DAYS);
 
-const startKey = INITIAL_PLACEMENT_START_KEYS[0];
+// 開始ボタンを押す（最後に描いた開始ボタンのコールバック。開始キーは #165 で廃止）。
+const pressStartButton = (): void => {
+  const call = vi.mocked(render.drawInitialPlacementStartButton).mock.calls.at(-1);
+  if (call === undefined) throw new Error('開始ボタンが描かれていません');
+  call[1]();
+};
 
 const pressIcon = (kind: 'engineer' | 'item' | 'balance'): void => {
   const call = vi.mocked(render.drawMenuIcons).mock.calls.at(-1);
@@ -274,10 +267,14 @@ const pressIcon = (kind: 'engineer' | 'item' | 'balance'): void => {
 };
 
 // 最後に描いたアイテムのメニュー(#156)の中身と、ページ切替のコールバック。
-const lastItemMenu = (): { readonly view: ItemMenuView; readonly onPage: (direction: 'previous' | 'next') => void } => {
+const lastItemMenu = (): {
+  readonly view: ItemMenuView;
+  readonly onPage: (direction: 'previous' | 'next') => void;
+  readonly onBuySlot: (slot: number) => void;
+} => {
   const call = vi.mocked(render.drawItemMenu).mock.calls.at(-1);
   if (call === undefined) throw new Error('アイテムのメニューが描かれていません');
-  return { view: call[1], onPage: call[2].onPage };
+  return { view: call[1], onPage: call[2].onPage, onBuySlot: call[2].onBuySlot };
 };
 
 // 左上の表示（最後に描いた drawElapsedDays の偽物）に setText した文言。
@@ -289,7 +286,7 @@ const elapsedTexts = (): readonly string[] => {
 
 // プレイ中のメニューの枠の文言（ITEM_PAGE_SIZE 枠。足りない枠は null）。
 const labelsOf = (items: readonly ItemType[]): (string | null)[] =>
-  Array.from({ length: ITEM_BUY_KEYS.length }, (_, slot) => {
+  Array.from({ length: ITEM_PAGE_SIZE }, (_, slot) => {
     const itemType = items[slot];
     return itemType === undefined ? null : formatItemOption(itemType);
   });
@@ -300,14 +297,14 @@ const RICH = 1_000_000_000_000;
 // プレイを始めてアイテムのメニューを開いた状態。倒産の確認以外は資金を RICH にして、月の境界の給料で倒産しないようにする。
 const startPlaying = (funds: number = RICH): Harness => {
   const harness = createHarness();
-  harness.pressKey(startKey);
+  pressStartButton();
   harness.scene.funds = funds;
   pressIcon('item');
   return harness;
 };
 
 describe('MainScene: レベルによるアイテムの解放(#164)', () => {
-  it('開始時は Lv.1 / 0日 を描き、メニューは CodeRabbit・Linter・テストツールの3枠だけ（1/1）', () => {
+  it('開始時は Lv.1 📅0 を描き、メニューは CodeRabbit・Linter・テストツールの3枠だけ（1/1）', () => {
     const { scene } = startPlaying();
     expect(render.drawElapsedDays).toHaveBeenLastCalledWith(scene, 1, 0);
     expect(scene.phase).toBe('playing');
@@ -319,10 +316,10 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
     const { scene } = startPlaying();
     const drawn = vi.mocked(render.drawItemMenu).mock.calls.length;
     scene.advanceClock(days(30) - 1);
-    expect(elapsedTexts().at(-1)).toBe('Lv.1 / 29日');
+    expect(elapsedTexts().at(-1)).toBe('Lv.1 📅29');
     expect(render.drawItemMenu).toHaveBeenCalledTimes(drawn);
     scene.advanceClock(1);
-    expect(elapsedTexts().at(-1)).toBe('Lv.2 / 30日');
+    expect(elapsedTexts().at(-1)).toBe('Lv.2 📅30');
     expect(render.drawItemMenu).toHaveBeenCalledTimes(drawn + 1);
     expect(lastItemMenu().view.labels).toEqual(labelsOf(['codeRabbit', 'linter', 'testTool', 'ci']));
     expect(lastItemMenu().view.pageLabel).toBe('1/1');
@@ -332,7 +329,7 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
     const { scene } = startPlaying();
     const drawn = vi.mocked(render.drawItemMenu).mock.calls.length;
     scene.advanceClock(levelStartMs(3));
-    expect(elapsedTexts().at(-1)).toBe('Lv.3 / 60日');
+    expect(elapsedTexts().at(-1)).toBe('Lv.3 📅60');
     expect(render.drawItemMenu).toHaveBeenCalledTimes(drawn + 1);
     expect(lastItemMenu().view.labels).toEqual(labelsOf(ITEM_TYPES.slice(0, 5)));
   });
@@ -363,19 +360,19 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
     expect(lastItemMenu().view.pageLabel).toBe('2/3');
   });
 
-  it('ページ切替キーは解放済みの一覧のページ数で回り込む（Lv.1 は1ページ、Lv.5 は2ページ）', () => {
-    const { scene, pressKey } = startPlaying();
-    pressKey(ITEM_PAGE_KEYS.next);
+  it('ページ切替ボタンは解放済みの一覧のページ数で回り込む（Lv.1 は1ページ、Lv.5 は2ページ）', () => {
+    const { scene } = startPlaying();
+    lastItemMenu().onPage('next');
     expect(scene.itemPage).toBe(0);
     scene.advanceClock(levelStartMs(5));
-    pressKey(ITEM_PAGE_KEYS.next);
+    lastItemMenu().onPage('next');
     expect(scene.itemPage).toBe(1);
-    pressKey(ITEM_PAGE_KEYS.next);
+    lastItemMenu().onPage('next');
     expect(scene.itemPage).toBe(0);
   });
 
-  it('キー 4〜9 は解放済みの一覧の枠を買う。Lv.1 の4枠目（キー 7）は空なので何もせず、Lv.2 で CI を買う', () => {
-    const { scene, pressKey } = startPlaying();
+  it('メニューの枠は解放済みの一覧の枠を買う。Lv.1 の4枠目は空なので何もせず、Lv.2 で CI を買う', () => {
+    const { scene } = startPlaying();
     // 主人公を置ける場所に立たせる（配置グリッドの置けるセルの中心）。
     const cell = Array.from({ length: PLACEMENT_ROWS * PLACEMENT_COLS }, (_, index) => ({
       col: index % PLACEMENT_COLS,
@@ -383,25 +380,25 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
     })).find((candidate) => isPlaceableCell(candidate, { routes: scene.routes, placedItems: [] }));
     if (cell === undefined) throw new Error('置けるセルがありません');
     scene.player = placementCellCenter(cell);
-    pressKey(ITEM_BUY_KEYS[3]);
+    lastItemMenu().onBuySlot(3);
     expect(render.drawItemMessage).not.toHaveBeenCalled();
     expect(scene.funds).toBe(RICH);
     expect(scene.placedItems).toEqual([]);
     scene.advanceClock(levelStartMs(2));
     // 30日の境界で給料を払った後の資金から CI の価格を引く。
     const funds = scene.funds;
-    pressKey(ITEM_BUY_KEYS[3]);
+    lastItemMenu().onBuySlot(3);
     expect(scene.placedItems.map((item) => item.itemType)).toEqual(['ci']);
     expect(scene.funds).toBe(funds - getItemPrice('ci'));
   });
 
-  it('リスタートで Lv.1 / 0日 と Lv.1 の一覧・1ページ目に戻る', () => {
-    const { scene, pressKey } = startPlaying();
+  it('リスタート（ゲームオーバー中の押下）で Lv.1 📅0 と Lv.1 の一覧・1ページ目に戻る', () => {
+    const { scene, pointerDown } = startPlaying();
     scene.advanceClock(levelStartMs(5));
     lastItemMenu().onPage('next');
     scene.gameOver = { over: true, at: 0 };
     scene.time.now = Number.MAX_SAFE_INTEGER;
-    pressKey(GAME_OVER_RESTART_KEYS[0]);
+    pointerDown({ x: 480, y: 270 });
     expect(scene.scene.restart).toHaveBeenCalledOnce();
     expect(scene.elapsedMs).toBe(0);
     expect(scene.itemPage).toBe(0);
@@ -416,16 +413,16 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
       null,
     ]);
     expect(lastItemMenu().view.pageLabel).toBe('1/1');
-    pressKey(startKey);
+    pressStartButton();
     expect(lastItemMenu().view.labels).toEqual(labelsOf(['codeRabbit', 'linter', 'testTool']));
   });
 
-  it('30日の給料で倒産した同じ更新でも、時計は戻さず Lv.2 / 30日 を表示し、倒産後の月は引かない（メニューは閉じる）', () => {
+  it('30日の給料で倒産した同じ更新でも、時計は戻さず Lv.3 📅60 を表示し、倒産後の月は引かない（メニューは閉じる）', () => {
     const { scene } = startPlaying(1);
     scene.advanceClock(levelStartMs(3));
     expect(scene.gameOver.over).toBe(true);
     expect(scene.elapsedMs).toBe(levelStartMs(3));
-    expect(elapsedTexts().at(-1)).toBe('Lv.3 / 60日');
+    expect(elapsedTexts().at(-1)).toBe('Lv.3 📅60');
     expect(render.drawGameOver).toHaveBeenCalledWith(scene, expect.any(Number), 60);
     // 給料は1か月目だけ（倒産したら残りの月は発行しない）。
     expect(scene.events.emit.mock.calls.filter(([event]) => event === 'salary-paid')).toHaveLength(1);
