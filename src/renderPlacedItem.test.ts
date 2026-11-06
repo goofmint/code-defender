@@ -9,11 +9,12 @@ import {
   ITEM_MARK_STYLE,
   ITEM_MARKS,
   PLACEMENT_CELL_SIZE,
+  PLACEMENT_PREVIEW,
 } from './config';
 import { ITEM_TYPES } from './item';
 import { itemFootprint, placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
-import { drawPlacedItem } from './render';
+import { drawPlacedItem, drawPlacementPreview, updatePlacementPreview } from './render';
 
 vi.mock('phaser', () => ({
   default: { Scene: class {}, Geom: { Rectangle: class {}, Circle: class {} } },
@@ -127,5 +128,82 @@ describe('drawPlacedItem: 配置グリッド 1マスの見た目(#154)', () => {
     expect(containers[0].children).toHaveLength(2);
     expect(texts[0].x).toBe(0);
     expect(texts[0].y).toBe(0);
+  });
+});
+
+// 置けるかどうかの枠(#162)。塗りのない 16px の四角を作り、updatePlacementPreview でセルの中心へ動かして色を変える。
+// 呼び出しを順に記録するだけの偽の Rectangle（描画しない）。
+const createFakePreviewScene = () => {
+  const rectangles: { readonly x: number; readonly y: number; readonly width: number; readonly height: number; readonly fillColor?: number }[] = [];
+  const calls: (readonly [string, ...number[]] | readonly ['setVisible', boolean])[] = [];
+  const preview = {
+    setStrokeStyle: (width: number, color: number, alpha: number) => {
+      calls.push(['setStrokeStyle', width, color, alpha]);
+      return preview;
+    },
+    setDepth: (depth: number) => {
+      calls.push(['setDepth', depth]);
+      return preview;
+    },
+    setVisible: (visible: boolean) => {
+      calls.push(['setVisible', visible]);
+      return preview;
+    },
+    setPosition: (x: number, y: number) => {
+      calls.push(['setPosition', x, y]);
+      return preview;
+    },
+  };
+  const scene = {
+    add: {
+      rectangle: (x: number, y: number, width: number, height: number, fillColor?: number) => {
+        rectangles.push({ x, y, width, height, fillColor });
+        return preview;
+      },
+    },
+  };
+  return { scene, preview, rectangles, calls };
+};
+
+describe('置けるかどうかの枠(#162)', () => {
+  it('drawPlacementPreview は塗りのない一辺 16px の四角を、アイテム(0.4)より手前・×ボタン(0.6)より奥に、隠して作る', () => {
+    const { scene, rectangles, calls } = createFakePreviewScene();
+    drawPlacementPreview(scene as never);
+    expect(rectangles).toEqual([{ x: 0, y: 0, width: 16, height: 16, fillColor: undefined }]);
+    expect(calls).toEqual([
+      ['setStrokeStyle', PLACEMENT_PREVIEW.lineWidth, PLACEMENT_PREVIEW.okColor, PLACEMENT_PREVIEW.alpha],
+      ['setDepth', 0.45],
+      ['setVisible', false],
+    ]);
+    expect(PLACEMENT_PREVIEW.depth).toBeGreaterThan(0.4);
+    expect(PLACEMENT_PREVIEW.depth).toBeLessThan(0.6);
+  });
+
+  it('置けるなら ok の色、置けないなら ng の色で、セル (28, 21) の中心 (456, 344) に出す', () => {
+    const { scene, preview, calls } = createFakePreviewScene();
+    drawPlacementPreview(scene as never);
+    calls.length = 0;
+    updatePlacementPreview(preview as never, { visible: true, cell: { col: 28, row: 21 }, placeable: true });
+    expect(calls).toEqual([
+      ['setPosition', 456, 344],
+      ['setStrokeStyle', PLACEMENT_PREVIEW.lineWidth, PLACEMENT_PREVIEW.okColor, PLACEMENT_PREVIEW.alpha],
+      ['setVisible', true],
+    ]);
+    calls.length = 0;
+    updatePlacementPreview(preview as never, { visible: true, cell: { col: 0, row: 0 }, placeable: false });
+    expect(calls).toEqual([
+      ['setPosition', 8, 8],
+      ['setStrokeStyle', PLACEMENT_PREVIEW.lineWidth, PLACEMENT_PREVIEW.ngColor, PLACEMENT_PREVIEW.alpha],
+      ['setVisible', true],
+    ]);
+    expect(PLACEMENT_PREVIEW.okColor).not.toBe(PLACEMENT_PREVIEW.ngColor);
+  });
+
+  it('出さないときは隠すだけで、位置・色は変えない', () => {
+    const { scene, preview, calls } = createFakePreviewScene();
+    drawPlacementPreview(scene as never);
+    calls.length = 0;
+    updatePlacementPreview(preview as never, { visible: false });
+    expect(calls).toEqual([['setVisible', false]]);
   });
 });

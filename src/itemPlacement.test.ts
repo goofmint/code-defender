@@ -304,44 +304,82 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
     expect(isPlaceableCell(cell, ctx)).toBe(expected);
   });
 
-  it('ルートの線: 中心線から ITEM_ROUTE_CLEARANCE（8px）未満は不可、ちょうど離れれば可（水平の区間）', () => {
-    expect(ITEM_ROUTE_CLEARANCE).toBe(8);
-    // 行3の線（y=210）。帯は y=202〜218。16px グリッドの辺は帯の辺（16 の倍数ではない）とちょうど接しないので、帯に最も近い空きと重なりのセルで見る（ちょうどの境界は geometry.test.ts）。
+  it('ルートの線: 中心線から ITEM_ROUTE_CLEARANCE（6px #162）未満は不可、ちょうど離れれば可（水平の区間）', () => {
+    // 描いているルートの外形（下地線の太さ 12px の半分）と同じ 6px(#162)。#151 の 8px より 2px 狭い。
+    expect(ITEM_ROUTE_CLEARANCE).toBe(6);
+    // 行3の線（y=210）。帯は y=204〜216。16px グリッドの辺は帯の辺（16 の倍数ではない）とちょうど接しないので、帯に最も近い空きと重なりのセルで見る（ちょうどの境界は下の #162 の検査と geometry.test.ts）。
     const above = { routes: [rowRoute(3)], placedItems: [], blockedRects: [] };
-    expect(isPlaceableCell({ col: 20, row: 11 }, above)).toBe(true); // 下端 y=192（帯まで 10px 空く）
-    expect(isPlaceableCell({ col: 20, row: 12 }, above)).toBe(false); // 下端 y=208（帯に 6px 重なる）
+    expect(isPlaceableCell({ col: 20, row: 11 }, above)).toBe(true); // 下端 y=192（帯まで 12px 空く）
+    expect(isPlaceableCell({ col: 20, row: 12 }, above)).toBe(false); // 下端 y=208（帯に 4px 重なる）
     expect(isPlaceableCell({ col: 20, row: 13 }, above)).toBe(false); // 線上
-    expect(isPlaceableCell({ col: 20, row: 14 }, above)).toBe(true); // 上端 y=224（帯の下端 218 まで 6px 空く）
-    // 行4の線（y=270）。帯は y=262〜278。
+    expect(isPlaceableCell({ col: 20, row: 14 }, above)).toBe(true); // 上端 y=224（帯の下端 216 まで 8px 空く）
+    // 行4の線（y=270）。帯は y=264〜276。
     const below = { routes: [rowRoute(4)], placedItems: [], blockedRects: [] };
-    expect(isPlaceableCell({ col: 20, row: 18 }, below)).toBe(true); // 上端 y=288（帯の下端 278 まで 10px 空く）
-    expect(isPlaceableCell({ col: 20, row: 17 }, below)).toBe(false); // 上端 y=272（帯に 6px 重なる）
-    expect(isPlaceableCell({ col: 20, row: 16 }, below)).toBe(false); // 下端 y=272（帯に 10px 重なる）
-    expect(isPlaceableCell({ col: 20, row: 15 }, below)).toBe(true); // 下端 y=256（帯の上端 262 まで 6px 空く）
+    expect(isPlaceableCell({ col: 20, row: 18 }, below)).toBe(true); // 上端 y=288（帯の下端 276 まで 12px 空く）
+    expect(isPlaceableCell({ col: 20, row: 17 }, below)).toBe(false); // 上端 y=272（帯に 4px 重なる）
+    expect(isPlaceableCell({ col: 20, row: 16 }, below)).toBe(false); // 下端 y=272（帯に 8px 重なる）
+    expect(isPlaceableCell({ col: 20, row: 15 }, below)).toBe(true); // 下端 y=256（帯の上端 264 まで 8px 空く）
   });
 
   it('ルートの線: 縦の区間も同じ', () => {
-    // col 7 の縦区間（x=450、行1〜7）。帯は x=442〜458（ここも 16 の倍数ではないので、最も近い空きと重なりのセルで見る）。
+    // col 7 の縦区間（x=450、行1〜7）。帯は x=444〜456（ここも 16 の倍数ではないので、最も近い空きと重なりのセルで見る）。
     const left = { routes: [colRoute(7)], placedItems: [], blockedRects: [] };
-    expect(isPlaceableCell({ col: 26, row: 20 }, left)).toBe(true); // 右端 x=432（帯の左端 442 まで 10px 空く）
-    expect(isPlaceableCell({ col: 27, row: 20 }, left)).toBe(false); // 右端 x=448（帯に 6px 重なる）
-    expect(isPlaceableCell({ col: 28, row: 20 }, left)).toBe(false); // 左端 x=448（帯に 10px 重なる）
-    expect(isPlaceableCell({ col: 29, row: 20 }, left)).toBe(true); // 左端 x=464（帯の右端 458 まで 6px 空く）
-    // col 8 の縦区間（x=510）。帯は x=502〜518。
+    expect(isPlaceableCell({ col: 26, row: 20 }, left)).toBe(true); // 右端 x=432（帯の左端 444 まで 12px 空く）
+    expect(isPlaceableCell({ col: 27, row: 20 }, left)).toBe(false); // 右端 x=448（帯に 4px 重なる）
+    expect(isPlaceableCell({ col: 28, row: 20 }, left)).toBe(false); // 左端 x=448（帯に 8px 重なる）
+    expect(isPlaceableCell({ col: 29, row: 20 }, left)).toBe(true); // 左端 x=464（帯の右端 456 まで 8px 空く）
+    // col 8 の縦区間（x=510）。帯は x=504〜516。
     const right = { routes: [colRoute(8)], placedItems: [], blockedRects: [] };
-    expect(isPlaceableCell({ col: 33, row: 20 }, right)).toBe(true); // 左端 x=528（帯の右端 518 まで 10px 空く）
-    expect(isPlaceableCell({ col: 32, row: 20 }, right)).toBe(false); // 左端 x=512（帯に 6px 重なる）
-    expect(isPlaceableCell({ col: 31, row: 20 }, right)).toBe(false); // 右端 x=512（帯に 10px 重なる）
-    expect(isPlaceableCell({ col: 30, row: 20 }, right)).toBe(true); // 右端 x=496（帯の左端 502 まで 6px 空く）
+    expect(isPlaceableCell({ col: 33, row: 20 }, right)).toBe(true); // 左端 x=528（帯の右端 516 まで 12px 空く）
+    expect(isPlaceableCell({ col: 32, row: 20 }, right)).toBe(false); // 左端 x=512（帯に 4px 重なる）
+    expect(isPlaceableCell({ col: 31, row: 20 }, right)).toBe(false); // 右端 x=512（帯に 8px 重なる）
+    expect(isPlaceableCell({ col: 30, row: 20 }, right)).toBe(true); // 右端 x=496（帯の左端 504 まで 8px 空く）
+  });
+
+  // #162: 見た目では空いているのに置けなかったセル。ルートは座標を直接書いた手書きのもので、期待値も共有定数から求めずに書く。
+  // 描いているルートの外形は、下地線（太さ 12px）が中心線から 6px、折れ点・端点の丸が半径 6px。外形にちょうど接するセルは置け、1px でも重なるセルは置けない。
+  describe('ルートの描画の外形と配置判定の一致(#162)', () => {
+    // 出現 (30, 210) → (330, 210) → 折れ点 (330, 330) → 終点 (570, 330)。
+    const drawnRoute: Route = {
+      id: 40,
+      spawn: { col: 0, row: 3 },
+      waypoints: [
+        { col: 0, row: 3 },
+        { col: 5, row: 3 },
+        { col: 5, row: 5 },
+        { col: 9, row: 5 },
+      ],
+    };
+    const drawn = { routes: [drawnRoute], placedItems: [], blockedRects: [] };
+
+    it.each([
+      // 水平の区間（y=330、外形は y=324〜336）。
+      [{ col: 28, row: 21 }, true, '上端 y=336 が外形の下端に接するだけ（#151 の 8px では 2px 重なって置けなかった）'],
+      [{ col: 28, row: 20 }, false, 'y=320〜336 が線に重なる'],
+      [{ col: 28, row: 19 }, true, '下端 y=320 は外形の上端 324 まで 4px 空く'],
+      // 縦の区間（x=330、外形は x=324〜336）。
+      [{ col: 21, row: 16 }, true, '左端 x=336 が外形の右端に接するだけ'],
+      [{ col: 20, row: 16 }, false, 'x=320〜336 が線に重なる'],
+      [{ col: 19, row: 16 }, true, '右端 x=320 は外形の左端 324 まで 4px 空く'],
+      // 区間の端（終点 x=570、外形の右端は x=576）。
+      [{ col: 36, row: 20 }, true, '左端 x=576 が終点の丸の右端に接するだけ'],
+      [{ col: 35, row: 20 }, false, 'x=560〜576 が終点の丸に重なる'],
+      // 折れ点（330, 330）。外側の角（左下）は折れ点の丸（半径 6px）の下端 y=336 に接するだけ。
+      [{ col: 20, row: 21 }, true, '上端 y=336 が折れ点の丸の下端に接するだけ'],
+      [{ col: 20, row: 20 }, false, '折れ点の上'],
+      [{ col: 21, row: 21 }, true, '左上の角 (336, 336) が外形の角に接するだけ'],
+    ])('%j → %s（%s）', (cell, expected) => {
+      expect(isPlaceableCell(cell, drawn)).toBe(expected);
+    });
   });
 
   it('ルートの線上・その脇（既定のルート）', () => {
     expect(isPlaceableCell(onRoute, ctx)).toBe(false);
-    expect(isPlaceableCell({ col: 20, row: 11 }, ctx)).toBe(true); // 行3の線のクリアランスから 10px 空く（#156 で HUD を撤去したので置ける）
+    expect(isPlaceableCell({ col: 20, row: 11 }, ctx)).toBe(true); // 行3の線のクリアランスから 12px 空く（#156 で HUD を撤去したので置ける）
     expect(isPlaceableCell({ col: 28, row: 20 }, ctx)).toBe(false); // 行5の線（y=330）の上
-    expect(isPlaceableCell({ col: 28, row: 18 }, ctx)).toBe(true); // 行5の線の上側（下端 y=304 < 322）
-    expect(isPlaceableCell({ col: 28, row: 22 }, ctx)).toBe(true); // 行5の線の下側（上端 y=352 > 338）
-    expect(isPlaceableCell({ col: 28, row: 21 }, ctx)).toBe(false); // 上端 y=336（帯 y≦338 に 2px 重なる）
+    expect(isPlaceableCell({ col: 28, row: 18 }, ctx)).toBe(true); // 行5の線の上側（下端 y=304 < 324）
+    expect(isPlaceableCell({ col: 28, row: 22 }, ctx)).toBe(true); // 行5の線の下側（上端 y=352 > 336）
+    expect(isPlaceableCell({ col: 28, row: 21 }, ctx)).toBe(true); // 上端 y=336（帯 y<336 に接するだけ #162。#151 の 8px では 2px 重なっていた）
   });
 
   it('出現場所の円（半径 SPAWN_CLEARANCE_RADIUS）に重なると不可、離れれば可。ルートが無ければ出現セルの位置にも置ける', () => {
@@ -742,7 +780,7 @@ describe('CodeRabbit(#52): 長距離の射程と標的の選び方', () => {
 describe('CodeRabbit(#52): ルート脇に置いてルートを守る', () => {
   const price = getItemPrice('codeRabbit');
   // ルートは行 5（y=330）を通る（col 5〜最終列）。配置グリッドの col 28・行 18（中心 456,296、フットプリント y=278〜314）は
-  // ルートの線のクリアランス（y≧322）に重ならないルート脇の位置。routeCell はそのすぐ下のルートのセル（60px）。
+  // ルートの線のクリアランス（y≧324 #162）に重ならないルート脇の位置。routeCell はそのすぐ下のルートのセル（60px）。
   const beside: GridCell = { col: 28, row: 18 };
   const routeCell: GridCell = { col: 7, row: 5 };
   const onRouteCell = pointToPlacementCell(cellCenter(routeCell));
