@@ -13,7 +13,7 @@ import {
 import { CODE_RELEASED_EVENT } from './codeFlow';
 import type { CodeReleasedPayload } from './codeFlow';
 import { codeSpeedAt } from './difficulty';
-import { createInitialFleet } from './engineer';
+import { createFixtureFleet } from './testFixtures';
 import type { Engineer } from './engineer';
 import { FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent } from './funds';
@@ -167,9 +167,9 @@ const makeCode = (id: number, routeId: number, kind: 'normal' | 'malicious', mal
 
 type SceneOptions = { readonly activeEffects?: readonly ActiveEffect[] };
 
-// ルート 1 本・エンジニア 1 人（createInitialFleet の先頭）。休暇ルートの出口の直前に、正常コードと bug を 1 つずつ置く。CI・アイテムは置かない。
+// ルート 1 本・エンジニア 1 人（テスト用の編成 createFixtureFleet の先頭。#172 から初期編成は 0 人）。休暇ルートの出口の直前に、正常コードと bug を 1 つずつ置く。CI・アイテムは置かない。
 const createScene = (options: SceneOptions = {}): { scene: SceneUnderTest; route: Route } => {
-  const fleet = createInitialFleet(() => 0);
+  const fleet = createFixtureFleet(() => 0);
   const route = fleet.routes[0];
   if (route === undefined) throw new Error('ルートがありません');
   const codes = [makeCode(NORMAL_ID, route.id, 'normal'), makeCode(BUG_ID, route.id, 'malicious', 'bug')];
