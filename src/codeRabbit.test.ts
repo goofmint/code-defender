@@ -112,7 +112,7 @@ const PRICE = getItemPrice('codeRabbit');
 const FEE = getItemMonthlyFee('codeRabbit');
 const T0 = 10_000;
 // ルートは行 5（y=330）を通る。アイテムのセルは配置グリッド（16px #151）の col 28・行 16（中心 456,264）で、
-// HUD（x≦416）とルートの線のクリアランス（y≧322）のどちらにもフットプリントが重ならない。
+// HUD（x≦416）とルートの線のクリアランス（y≧324 #162）のどちらにもフットプリントが重ならない。
 const ROUTE: Route = {
   id: 0,
   spawn: { col: 0, row: 5 },

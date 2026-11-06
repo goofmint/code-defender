@@ -472,19 +472,30 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(getMessages().initialPlacement.instruction).toContain('×');
     });
 
-    it('境界値: 初期配置UIの範囲は左上（x=72〜464、y=68〜188）で、上帯の下端（y=60）より下、出現列（x<60）の右', () => {
-      expect(INITIAL_PLACEMENT_UI_BOUNDS).toEqual({ x: 72, y: 68, width: 392, height: 120 });
-      expect(INITIAL_PLACEMENT_UI_BOUNDS.y).toBeGreaterThanOrEqual(topBand.height);
-      expect(INITIAL_PLACEMENT_UI_BOUNDS.x).toBeGreaterThanOrEqual((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
-      for (const rect of ITEM_BLOCKED_RECTS) expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, rect)).toBe(false);
+    it('境界値: 初期配置UIの矩形はパネル・エンジニアの選択ボタン・開始ボタン・メッセージの4つで(#162)、上帯の下端（y=60）より下、出現列（x<60）の右', () => {
+      expect(INITIAL_PLACEMENT_UI_BOUNDS).toEqual([
+        { x: 72, y: 68, width: 392, height: 60 },
+        { x: 72, y: 134, width: 150, height: 28 },
+        { x: 228, y: 134, width: 128, height: 28 },
+        { x: 72, y: 168, width: 392, height: 20 },
+      ]);
+      for (const uiRect of INITIAL_PLACEMENT_UI_BOUNDS) {
+        expect(uiRect.y).toBeGreaterThanOrEqual(topBand.height);
+        expect(uiRect.x).toBeGreaterThanOrEqual((ENGINEER_SPAWN_COL + 1) * CELL_SIZE);
+        for (const rect of ITEM_BLOCKED_RECTS) expect(intersects(uiRect, rect)).toBe(false);
+      }
     });
 
-    it('境界値: パネル・ボタンの行・メッセージは上から順に重ならず並び、メッセージの下端は範囲の下端と一致する', () => {
+    it('境界値: 初期配置UIの矩形どうしは重ならない（間は置ける #162）', () => {
+      INITIAL_PLACEMENT_UI_BOUNDS.forEach((a, i) => {
+        INITIAL_PLACEMENT_UI_BOUNDS.slice(i + 1).forEach((b) => expect(intersects(a, b)).toBe(false));
+      });
+    });
+
+    it('境界値: パネル・ボタンの行・メッセージは上から順に重ならず並び、メッセージの下端はメッセージの矩形の下端と一致する', () => {
       expect(panelRect().y + panelRect().height).toBeLessThanOrEqual(startButtonRect.y);
       expect(startButtonRect.y + startButtonRect.height).toBeLessThanOrEqual(messageRect().y);
-      expect(INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT).toBe(
-        INITIAL_PLACEMENT_UI_BOUNDS.y + INITIAL_PLACEMENT_UI_BOUNDS.height,
-      );
+      expect(INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT).toBe(188);
       expect(estimateTextWidth(getMessages().initialPlacement.startButton, fontPx)).toBeLessThanOrEqual(INITIAL_PLACEMENT_START_BUTTON_SIZE.width);
     });
 
@@ -494,24 +505,29 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(estimateTextWidth(formatInitialPlacementEngineerButton(MAX_ENGINEERS), fontPx)).toBeLessThanOrEqual(engineerButtonRect.width);
     });
 
-    it.each(setupRects)('$name は初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS）とフィールドの内側に収まる', ({ rect }) => {
-      expect(within(rect(), INITIAL_PLACEMENT_UI_BOUNDS)).toBe(true);
+    // #162: UI の要素ごとに、どれか1つの矩形（INITIAL_PLACEMENT_UI_BOUNDS）に収まる（矩形の間の隙間にはみ出さない）。
+    it.each(setupRects)('$name は初期配置UIの矩形のどれか1つ（INITIAL_PLACEMENT_UI_BOUNDS）とフィールドの内側に収まる', ({ rect }) => {
+      expect(INITIAL_PLACEMENT_UI_BOUNDS.some((uiRect) => within(rect(), uiRect))).toBe(true);
       expect(within(rect(), field)).toBe(true);
     });
 
-    it('範囲は経過日数・右上のアイコン・通知・購入結果のメッセージ・右下の指標と交差しない', () => {
-      for (const other of [elapsedDaysRect(), notificationRect, itemMessageRect(), STATUS_PANEL_RECT, ...iconRects.map(({ rect }) => rect)]) {
-        expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, other)).toBe(false);
+    it('矩形は経過日数・右上のアイコン・通知・購入結果のメッセージ・右下の指標と交差しない', () => {
+      for (const uiRect of INITIAL_PLACEMENT_UI_BOUNDS) {
+        for (const other of [elapsedDaysRect(), notificationRect, itemMessageRect(), STATUS_PANEL_RECT, ...iconRects.map(({ rect }) => rect)]) {
+          expect(intersects(uiRect, other)).toBe(false);
+        }
       }
     });
 
-    it('範囲は初期配置の間に開くアイテムのメニューと交差しない（メニューを開いたまま床を押して置ける）', () => {
-      expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, menuPanelLayout('item').rect)).toBe(false);
+    it('矩形は初期配置の間に開くアイテムのメニューと交差しない（メニューを開いたまま床を押して置ける）', () => {
+      for (const uiRect of INITIAL_PLACEMENT_UI_BOUNDS) expect(intersects(uiRect, menuPanelLayout('item').rect)).toBe(false);
     });
 
-    it('範囲は全行の休暇マーカー・リリース地点と交差しない', () => {
-      for (const row of spawnRows) expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, vacationMarkerRect(row))).toBe(false);
-      expect(intersects(INITIAL_PLACEMENT_UI_BOUNDS, cellRect(RELEASE_POINT_CELL.col, RELEASE_POINT_CELL.row))).toBe(false);
+    it('矩形は全行の休暇マーカー・リリース地点と交差しない', () => {
+      for (const uiRect of INITIAL_PLACEMENT_UI_BOUNDS) {
+        for (const row of spawnRows) expect(intersects(uiRect, vacationMarkerRect(row))).toBe(false);
+        expect(intersects(uiRect, cellRect(RELEASE_POINT_CELL.col, RELEASE_POINT_CELL.row))).toBe(false);
+      }
     });
   });
 

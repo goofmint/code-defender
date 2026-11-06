@@ -124,6 +124,8 @@ vi.mock('./render', () => {
     drawItemMessage: vi.fn(object),
     drawOutageText: vi.fn(),
     drawPlacedItem: vi.fn(object),
+    drawPlacementPreview: vi.fn(object),
+    updatePlacementPreview: vi.fn(),
     drawPenaltyText: vi.fn(),
     drawPlayer: vi.fn(object),
     drawReleasePoint: vi.fn(),

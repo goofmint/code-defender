@@ -35,7 +35,7 @@ import {
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
 import { setLocale } from './i18n';
-import { ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
+import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
@@ -139,6 +139,9 @@ vi.mock('./render', () => {
     drawItemMessage: vi.fn(object),
     drawOutageText: vi.fn(),
     drawPlacedItem: vi.fn(object),
+    // 置けるかどうかの枠(#162)。枠の状態は updatePlacementPreview の mock.calls の2番目の引数から読む。
+    drawPlacementPreview: vi.fn(object),
+    updatePlacementPreview: vi.fn(),
     drawPenaltyText: vi.fn(),
     drawPlayer: vi.fn(object),
     drawReleasePoint: vi.fn(),
@@ -160,6 +163,8 @@ const render = await import('./render');
 type FakeKey = { readonly isDown: boolean; readonly on: (event: string, handler: () => void) => FakeKey };
 type FakePointer = { readonly worldX: number; readonly worldY: number; isDown: boolean };
 type PointerDownHandler = (pointer: FakePointer, currentlyOver: readonly object[]) => void;
+// pointerdown と pointermove(#162) は同じ形の引数で呼ばれる。
+type PointerHandler = PointerDownHandler;
 
 // 初期配置の処理が触る MainScene の private メンバーと、create() が使う Phaser のプロパティだけを表す型。
 type SceneUnderTest = {
@@ -179,10 +184,11 @@ type SceneUnderTest = {
   routes: Route[];
   gameOver: GameOverState;
   attackPointerHeld: boolean;
+  player?: { x: number; y: number };
   input: {
     readonly activePointer: FakePointer;
     readonly keyboard: { readonly addKey: (name: string) => FakeKey };
-    readonly on: (event: string, handler: PointerDownHandler) => void;
+    readonly on: (event: string, handler: PointerHandler) => void;
   };
   events: {
     readonly on: Mock<(event: string) => void>;
@@ -200,6 +206,8 @@ type Harness = {
   readonly scene: SceneUnderTest;
   readonly pressKey: (name: string) => void;
   readonly pointerDown: (point: { readonly x: number; readonly y: number }, currentlyOver?: readonly object[]) => void;
+  // ポインターを動かす（pointermove #162）。
+  readonly pointerMove: (point: { readonly x: number; readonly y: number }, currentlyOver?: readonly object[]) => void;
 };
 
 let mainScenePrototype: object;
@@ -225,7 +233,8 @@ beforeEach(() => {
 // scene.restart() は create() をもう一度実行する（キー・ハンドラーは Phaser の SHUTDOWN で消えるので記録し直す）。
 const createHarness = (): Harness => {
   let keyHandlers = new Map<string, (() => void)[]>();
-  let pointerHandlers: PointerDownHandler[] = [];
+  // ポインターのハンドラー（イベント名がキー。pointerdown と pointermove #162）。
+  let pointerHandlers = new Map<string, PointerHandler[]>();
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
   const activePointer: FakePointer = { worldX: 0, worldY: 0, isDown: false };
   scene.input = {
@@ -242,8 +251,8 @@ const createHarness = (): Harness => {
         return key;
       },
     },
-    on: (_event, handler) => {
-      pointerHandlers.push(handler);
+    on: (event, handler) => {
+      pointerHandlers.set(event, [...(pointerHandlers.get(event) ?? []), handler]);
     },
   };
   scene.events = {
@@ -270,12 +279,19 @@ const createHarness = (): Harness => {
       if (restartPending) {
         restartPending = false;
         keyHandlers = new Map();
-        pointerHandlers = [];
+        pointerHandlers = new Map();
         scene.create();
       }
     },
     pointerDown: (point, currentlyOver = []) => {
-      pointerHandlers.forEach((handler) => handler({ worldX: point.x, worldY: point.y, isDown: true }, currentlyOver));
+      (pointerHandlers.get('pointerdown') ?? []).forEach((handler) =>
+        handler({ worldX: point.x, worldY: point.y, isDown: true }, currentlyOver),
+      );
+    },
+    pointerMove: (point, currentlyOver = []) => {
+      (pointerHandlers.get('pointermove') ?? []).forEach((handler) =>
+        handler({ worldX: point.x, worldY: point.y, isDown: false }, currentlyOver),
+      );
     },
   };
 };
@@ -291,7 +307,7 @@ const placeableCells = (routes: readonly Route[], count: number): GridCell[] => 
         isPlaceableCell(cell, {
           routes,
           placedItems,
-          blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS],
+          blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS],
         })
       ) {
         cells.push(cell);
@@ -496,7 +512,7 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
   it('置いたアイテムの上（フットプリント内）を押しても撤去しない（撤去は×だけ #157）。右端ちょうど（右隣のセル #154）は隣に新しく置く', () => {
     const { scene, pointerDown } = createHarness();
     // 右隣のセルも置けるセル（初期配置UIの範囲の左隣などは右隣が置けないので除く）。
-    const setupContext = { routes: scene.routes, placedItems: [], blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS] };
+    const setupContext = { routes: scene.routes, placedItems: [], blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS] };
     const cell = placeableCells(scene.routes, PLACEMENT_COLS).find((candidate) =>
       isPlaceableCell({ col: candidate.col + 1, row: candidate.row }, setupContext),
     );
@@ -835,5 +851,195 @@ describe('MainScene: 英語の初期配置パネル(#158)', () => {
     expect(scene.scene.restart).toHaveBeenCalledOnce();
     expect(render.drawInitialPlacementPanel).toHaveBeenCalledOnce();
     expect(vi.mocked(render.drawInitialPlacementPanel).mock.calls[0]?.[1]).toEqual(expectedPanel);
+  });
+});
+
+// #162: 見た目では空いているのに置けなかった位置。ルートは座標を直接書いた固定のもの（create() のランダムなルートを置き換える）で、
+// 押す点と期待値も共有定数から求めずに書く。ポイントは 6pt、置くのは Linter（1pt）。
+describe('MainScene: 描画どおりの配置判定と置けるかどうかの枠(#162)', () => {
+  // 出現 (30, 210) → (330, 210) → 折れ点 (330, 330) → 終点 (570, 330)。描いている外形は中心線から 6px。
+  const fixedRoute: Route = {
+    id: 100,
+    spawn: { col: 0, row: 3 },
+    waypoints: [
+      { col: 0, row: 3 },
+      { col: 5, row: 3 },
+      { col: 5, row: 5 },
+      { col: 9, row: 5 },
+    ],
+  };
+  // ルート（y=330）の下のセル (28, 21)。フットプリント x=448〜464、y=336〜352 は線の外形の下端 y=336 に接するだけ（#151 の 8px では置けなかった）。
+  const besideRoute = { x: 456, y: 344 };
+  // ルートの線の上のセル (28, 20)。フットプリント y=320〜336。
+  const onRouteLine = { x: 456, y: 328 };
+  // 開始ボタン（x=228〜356、y=134〜162）の右のセル (23, 9)。フットプリント x=368〜384、y=144〜160（#156 の外接矩形では置けなかった）。
+  const rightOfStartButton = { x: 376, y: 152 };
+  // パネル（x=72〜464、y=68〜128）の上のセル (10, 5)。
+  const onPanel = { x: 168, y: 88 };
+
+  const createFixture = (): Harness => {
+    const harness = createHarness();
+    harness.scene.routes = [fixedRoute];
+    harness.scene.initialPlacement = { points: 6, itemState: { placedItems: [], nextId: 0 } };
+    return harness;
+  };
+
+  // 最後に描いた枠の状態。まだ一度も描き直していなければ、作ったときの「隠した状態」。
+  const lastPreview = (): { readonly visible: boolean; readonly cell?: GridCell; readonly placeable?: boolean } => {
+    const call = vi.mocked(render.updatePlacementPreview).mock.calls.at(-1);
+    return call === undefined ? { visible: false } : call[1];
+  };
+
+  it('create() で枠を1つだけ作る', () => {
+    createFixture();
+    expect(render.drawPlacementPreview).toHaveBeenCalledOnce();
+    expect(render.updatePlacementPreview).not.toHaveBeenCalled();
+  });
+
+  it('ルートの線の外形に接するだけの (456, 344) を押すと Linter を置く（6pt → 5pt、次の id 1、描画と×ボタン）', () => {
+    const { scene, pointerDown } = createFixture();
+    selectItem(scene, 'linter');
+    pointerDown(besideRoute);
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([
+      { id: 0, itemType: 'linter', cell: { col: 28, row: 21 }, lastAttackTime: null },
+    ]);
+    expect(scene.initialPlacement.points).toBe(5);
+    expect(scene.initialPlacement.itemState.nextId).toBe(1);
+    expect(render.drawPlacedItem).toHaveBeenCalledOnce();
+    expect(render.drawPlacedItem).toHaveBeenCalledWith(scene, {
+      id: 0,
+      itemType: 'linter',
+      cell: { col: 28, row: 21 },
+      lastAttackTime: null,
+    });
+    // ×ボタンはフットプリントの右上の角 (464, 336)。
+    expect(vi.mocked(render.drawRemoveButton).mock.calls.at(-1)?.[1]).toEqual({ x: 464, y: 336 });
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'Linterを置きました');
+  });
+
+  it('開始ボタンの右の (376, 152) を押すと置き、パネルの上の (168, 88) とルートの線の上の (456, 328) は置かない', () => {
+    const { scene, pointerDown } = createFixture();
+    selectItem(scene, 'linter');
+    pointerDown(onPanel);
+    pointerDown(onRouteLine);
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+    expect(render.drawPlacedItem).not.toHaveBeenCalled();
+    pointerDown(rightOfStartButton);
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([
+      { id: 0, itemType: 'linter', cell: { col: 23, row: 9 }, lastAttackTime: null },
+    ]);
+    expect(scene.initialPlacement.points).toBe(5);
+  });
+
+  // 枠の可否と、同じ点を押したときに置けたかどうかが一致する。
+  it.each([
+    ['ルートの線の外形に接するだけ', besideRoute, { col: 28, row: 21 }, true],
+    ['ルートの線の上', onRouteLine, { col: 28, row: 20 }, false],
+    ['開始ボタンの右（初期配置UIの矩形の間）', rightOfStartButton, { col: 23, row: 9 }, true],
+    ['パネルの上', onPanel, { col: 10, row: 5 }, false],
+  ])('%s: 枠は %j のセルに出て可否 %s で、押すとそのとおりになる', (_name, point, cell, placeable) => {
+    const { scene, pointerDown, pointerMove } = createFixture();
+    selectItem(scene, 'linter');
+    pointerMove(point);
+    expect(lastPreview()).toEqual({ visible: true, cell, placeable });
+    pointerDown(point);
+    expect(scene.initialPlacement.itemState.placedItems.length).toBe(placeable ? 1 : 0);
+  });
+
+  it('既にある: 置いたセルの枠は置けない色になり、もう一度押しても置かない', () => {
+    const { scene, pointerDown, pointerMove } = createFixture();
+    selectItem(scene, 'linter');
+    pointerMove(besideRoute);
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 28, row: 21 }, placeable: true });
+    pointerDown(besideRoute);
+    // 置いた直後に枠を出し直す（ポインターは動かしていない）。
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 28, row: 21 }, placeable: false });
+    pointerDown(besideRoute);
+    expect(scene.initialPlacement.itemState.placedItems).toHaveLength(1);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'そこには置けません');
+  });
+
+  it('ポイント不足: 0pt では置ける場所でも枠は置けない色で、押しても置かない', () => {
+    const { scene, pointerDown, pointerMove } = createFixture();
+    scene.initialPlacement = { points: 0, itemState: { placedItems: [], nextId: 0 } };
+    selectItem(scene, 'linter');
+    pointerMove(besideRoute);
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 28, row: 21 }, placeable: false });
+    pointerDown(besideRoute);
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'ステージポイントが足りません');
+  });
+
+  it('置かないアイテム（placement: none #58）: 枠は置けない色で、押しても置かない', () => {
+    const { scene, pointerDown, pointerMove } = createFixture();
+    const instant = ITEM_TYPES.find((itemType) => getItemPlacement(itemType) === 'none');
+    if (instant === undefined) throw new Error('置かないアイテムがありません');
+    // 置かないアイテムは Lv.1 では解放前(#164)でメニューに並ばないので、選択を直接入れる（解放前・置かないのどちらでも置けない）。
+    scene.initialPlacementSelection = { kind: 'item', itemType: instant };
+    pointerMove(besideRoute);
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 28, row: 21 }, placeable: false });
+    pointerDown(besideRoute);
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+  });
+
+  it('ボタンなどの上（currentlyOver あり）・フィールドの外・アイテムを選んでいないときは枠を隠す', () => {
+    const { scene, pointerMove } = createFixture();
+    // 未選択。
+    pointerMove(besideRoute);
+    expect(render.updatePlacementPreview).not.toHaveBeenCalled();
+    selectItem(scene, 'linter');
+    pointerMove(besideRoute);
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 28, row: 21 }, placeable: true });
+    pointerMove(besideRoute, [{}]);
+    expect(lastPreview()).toEqual({ visible: false });
+    pointerMove(besideRoute);
+    expect(lastPreview().visible).toBe(true);
+    pointerMove({ x: 960, y: 344 });
+    expect(lastPreview()).toEqual({ visible: false });
+    pointerMove({ x: 959.99, y: 344 });
+    // フィールド内の右端（959.99）は判定する。セル (59, 21) は x=944〜960 でフィールドに収まり、何にも重ならない。
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 59, row: 21 }, placeable: true });
+    // エンジニアを選ぶと隠す（エンジニアはルートグリッドのセルに置くため）。
+    lastEngineerButton().onSelect();
+    expect(lastPreview()).toEqual({ visible: false });
+  });
+
+  it('同じセルの中で動かしても描き直さない', () => {
+    const { scene, pointerMove } = createFixture();
+    selectItem(scene, 'linter');
+    pointerMove({ x: 449, y: 337 });
+    pointerMove({ x: 463, y: 351 });
+    expect(render.updatePlacementPreview).toHaveBeenCalledTimes(1);
+    pointerMove({ x: 464, y: 351 });
+    expect(render.updatePlacementPreview).toHaveBeenCalledTimes(2);
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 29, row: 21 }, placeable: true });
+  });
+
+  it('プレイ中は主人公の位置を含むセルに枠を出し（既定の置けない範囲）、セルか可否が変わったときだけ描き直す。ゲームオーバーで隠す', () => {
+    const { scene, pressKey, pointerMove } = createFixture();
+    selectItem(scene, 'linter');
+    pointerMove(besideRoute);
+    pressKey(startKey);
+    // プレイ開始で初期配置の枠を隠す。
+    expect(scene.phase).toBe('playing');
+    expect(lastPreview()).toEqual({ visible: false });
+    scene.routes = [fixedRoute];
+    const player = scene.player;
+    if (player === undefined) throw new Error('主人公がいません');
+    // 初期配置のパネルがあった位置（プレイ中は初期配置UIが消えるので置ける）。
+    player.x = 168;
+    player.y = 88;
+    scene.update(0, 16);
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 10, row: 5 }, placeable: true });
+    const calls = vi.mocked(render.updatePlacementPreview).mock.calls.length;
+    scene.update(16, 16);
+    expect(render.updatePlacementPreview).toHaveBeenCalledTimes(calls);
+    player.x = 456;
+    player.y = 328;
+    scene.update(32, 16);
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 28, row: 20 }, placeable: false });
+    scene.gameOver = { over: true, at: 0 };
+    scene.update(48, 16);
+    expect(lastPreview()).toEqual({ visible: false });
   });
 });
