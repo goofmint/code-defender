@@ -190,7 +190,6 @@ import {
   isAssigneeOnVacation,
   selectAdjacentEngineerId,
   isEngineerOnVacation,
-  isRouteOnVacation,
   partitionResignedEngineers,
   shouldAddRouteOnHire,
   toggleEngineerVacation,
@@ -1764,7 +1763,8 @@ class MainScene extends Phaser.Scene {
     const spawnIntervalMs =
       techDebtSpawnIntervalMs(this.techDebt, CODE_SPAWN_INTERVAL_MS) *
       spawnIntervalMultiplier(this.activeEffects, this.elapsedMs);
-    // コードフリーズ(#58)の間は全ルートを休暇と同じく止める（生成・移動を止め、リリース・売上も止まる。ゲーム内時計は進める）。
+    // 生成は担当者の休暇またはコードフリーズ(#58)で止まり、移動はコードフリーズだけで止まる(#163)。休暇中も生成済みのコードは流れ続け、通常どおりリリースされる。
+    // コードフリーズの間は全ルートの生成・移動を止める（リリース・売上も止まる。ゲーム内時計は進める）。
     const frozen = isEffectActive(this.activeEffects, 'codeFreeze', this.elapsedMs);
     for (const route of this.routes) {
       // 担当者はルートごとに 1 回だけ検索し、休暇の判定(#36)と不正コード率の計算で使い回す。
@@ -1814,9 +1814,9 @@ class MainScene extends Phaser.Scene {
       // テストツールの足止め中(#54)は、足止めが切れたあとの時間だけ進む。足止めのないコードは delta のまま。
       const movableMs = this.advanceCodeHold(active.id, delta);
       const distance = ((speed * movableMs) / 1000) * worksFineMultiplier;
-      // 担当者の休暇中・コードフリーズ(#58)中はそのルートのコードを進めない(#36)。流れたまま残るので攻撃はできる。
-      const unslowed = moveDistanceUnlessPaused(distance, isRouteOnVacation(this.engineers, active.routeId) || frozen);
-      // CI の減速(#55)。休暇中の 0 は 0 のまま。正常・不正どちらのコードにも効く。
+      // コードフリーズ(#58)中だけコードを進めない。担当者の休暇中でも生成済みのコードは進める(#163)。止まったコードは流れたまま残るので攻撃はできる。
+      const unslowed = moveDistanceUnlessPaused(distance, frozen);
+      // CI の減速(#55)。コードフリーズ中の 0 は 0 のまま。正常・不正どちらのコードにも効く。
       const moved = ciActive
         ? ciSlowedDistance(remainingPathDistance(active), unslowed, ciZoneLength, CI_SLOW_MULTIPLIER)
         : unslowed;
@@ -1896,7 +1896,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // ルートを担当するエンジニアの休暇を切り替えて、マーカーの表示（と開いていればポップオーバー #156）を更新する(#35)。ゲームオーバー中・担当がいないときは何もしない。
-  // 資金・スコアは変えない。コードの停止(#36)は次の updateCodes で onVacation から反映する。
+  // 資金・スコアは変えない。新規生成の停止(#36, #163)は次の updateCodes で onVacation から反映する。
   // 休暇中も給料は引く(#37): onMonthElapsed は this.engineers 全員の給料を引くので、ここでは給料の処理をしない。
   // 休暇を始めると担当エンジニアの不正コード率が下がる(#39、setEngineerVacation で累積し、次に生成するコードから反映)。
   // 休暇中は担当エンジニアの愛着心が時間経過で上がる(#30、update の advanceEngineersAttachment が onVacation から反映)。
