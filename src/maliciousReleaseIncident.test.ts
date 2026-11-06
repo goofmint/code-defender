@@ -6,6 +6,8 @@ import type { Mock } from 'vitest';
 import type { CodeReleasedPayload, FlowingCode } from './codeFlow';
 import { CODE_RELEASED_EVENT, spawnCode } from './codeFlow';
 import {
+  ATTACK_DAMAGE,
+  DEFAULT_MALICIOUS_CODE_HP,
   DEFAULT_REFACTORING_RATIO,
   ENGINEER_SPAWN_CELLS,
   INCIDENT_DAMAGE_UNIT_YEN,
@@ -196,6 +198,8 @@ const CRITICAL: MaliciousCodeType = 'vulnerabilityCritical';
 // config から求めたクリティカルの損害額（円）。
 const criticalDamage = MALICIOUS_CODE_PARAMS[CRITICAL].damage * INCIDENT_DAMAGE_UNIT_YEN;
 const defaultDamage = INCIDENT_DEFAULT_DAMAGE_POINTS * INCIDENT_DAMAGE_UNIT_YEN;
+// config から求めたクリティカルの初期 hp。リリースのペイロードの残り hp(#173)になる。
+const criticalHp = MALICIOUS_CODE_PARAMS[CRITICAL].hp;
 
 describe('MainScene: 種別付きの不正コードのリリースで種別ごとの損害を引く', () => {
   it('前提: クリティカルの損害は config の損害ポイントから求まり、既定の損害とは異なる', () => {
@@ -211,7 +215,7 @@ describe('MainScene: 種別付きの不正コードのリリースで種別ご�
     spawnAndRelease(scene, CRITICAL_RANDOM);
 
     expect(payloadsOf(emitted, CODE_RELEASED_EVENT)).toEqual([
-      { id: 0, kind: 'malicious', routeId: route.id, maliciousType: CRITICAL },
+      { id: 0, kind: 'malicious', routeId: route.id, maliciousType: CRITICAL, remainingHp: criticalHp },
     ]);
     expect(scene.funds).toBe(funds - criticalDamage);
     expect(payloadsOf(emitted, INCIDENT_EVENT)).toEqual([
@@ -254,25 +258,54 @@ describe('MainScene: 種別付きの不正コードのリリースで種別ご�
     expect(scene.funds).toBe(defaultDamage + 1 - criticalDamage);
     expect(scene.gameOver.over).toBe(true);
   });
+
+  it('途中まで攻撃したクリティカルは、残り hp の割合に減らした損害ぶんだけ資金が減る(#173)', () => {
+    const emitted: EmitCall[] = [];
+    const funds = criticalDamage * 3;
+    const scene = createScene(funds, emitted);
+    const remainingHp = criticalHp - ATTACK_DAMAGE;
+    // 1 回の攻撃では撃破されない（前提）。
+    expect(remainingHp).toBeGreaterThan(0);
+    const damage = Math.round((criticalDamage * remainingHp) / criticalHp);
+    expect(damage).toBeLessThan(criticalDamage);
+
+    seedRandom(CRITICAL_RANDOM);
+    scene.updateCodes(0);
+    expect(scene.codes).toHaveLength(1);
+    scene.codeHp.set(0, remainingHp);
+    scene.routes = [];
+    scene.updateCodes(RELEASE_DELTA_MS);
+    expect(scene.codes).toHaveLength(0);
+
+    expect(payloadsOf(emitted, CODE_RELEASED_EVENT)).toEqual([
+      { id: 0, kind: 'malicious', routeId: route.id, maliciousType: CRITICAL, remainingHp },
+    ]);
+    expect(scene.funds).toBe(funds - damage);
+    expect(payloadsOf(emitted, INCIDENT_EVENT)).toEqual([
+      { codeId: 0, maliciousType: CRITICAL, damage, fundsBefore: funds, fundsAfter: funds - damage },
+    ]);
+  });
 });
 
 describe('MainScene: 種別のないコードのリリースは従来どおり', () => {
-  it('種別を持たない不正コードは既定の損害を引く', () => {
+  it('種別を持たない不正コードは既定の損害を、残り hp 1 の割合(#173)に減らして引く', () => {
     const emitted: EmitCall[] = [];
     const funds = defaultDamage * 3;
     const scene = createScene(funds, emitted);
     scene.routes = [];
     scene.codes = [{ ...spawnCode(0, 'malicious', route), graphics: createFakeGraphics() }];
-    scene.codeHp.set(0, 1);
+    const remainingHp = 1;
+    scene.codeHp.set(0, remainingHp);
+    const damage = Math.round((defaultDamage * remainingHp) / DEFAULT_MALICIOUS_CODE_HP);
 
     scene.updateCodes(RELEASE_DELTA_MS);
 
     expect(payloadsOf(emitted, CODE_RELEASED_EVENT)).toEqual([
-      { id: 0, kind: 'malicious', routeId: route.id, maliciousType: undefined },
+      { id: 0, kind: 'malicious', routeId: route.id, maliciousType: undefined, remainingHp },
     ]);
-    expect(scene.funds).toBe(funds - defaultDamage);
+    expect(scene.funds).toBe(funds - damage);
     expect(payloadsOf(emitted, INCIDENT_EVENT)).toEqual([
-      { codeId: 0, maliciousType: undefined, damage: defaultDamage, fundsBefore: funds, fundsAfter: funds - defaultDamage },
+      { codeId: 0, maliciousType: undefined, damage, fundsBefore: funds, fundsAfter: funds - damage },
     ]);
   });
 

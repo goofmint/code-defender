@@ -25,6 +25,8 @@ export type CodeReleasedPayload = {
   readonly kind: CodeKind;
   readonly routeId: number;
   readonly maliciousType?: MaliciousCodeType;
+  // リリース時点の残り hp(#173)。不正なコードのときだけ入る。障害の損害額をこの割合で減らす（settleIncident）。
+  readonly remainingHp?: number;
 };
 
 // maliciousType は不正なコードのときだけ設定する。省略時（または正常なコード）は種別を持たない。

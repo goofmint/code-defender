@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { INCIDENT_DAMAGE_UNIT_YEN, INCIDENT_DEFAULT_DAMAGE_POINTS, REVENUE_PER_NORMAL_CODE } from './config';
+import {
+  DEFAULT_MALICIOUS_CODE_HP,
+  INCIDENT_DAMAGE_UNIT_YEN,
+  INCIDENT_DEFAULT_DAMAGE_POINTS,
+  REVENUE_PER_NORMAL_CODE,
+} from './config';
 import type { CodeReleasedPayload } from './codeFlow';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
 import type { GameOverState } from './gameOver';
@@ -8,6 +13,7 @@ import {
   createIncidentEvent,
   incidentDamage,
   INCIDENT_EVENT,
+  scaledIncidentDamage,
   settleIncident,
   settleScheduledIncident,
 } from './incident';
@@ -67,6 +73,63 @@ describe('incidentDamage', () => {
   });
 });
 
+// 種別ごとの初期 hp と満額の損害（円）。種別なしは既定の hp と既定の損害ポイント。すべて config から求める。
+const SCALE_TARGETS: readonly (readonly [CodeReleasedPayload['maliciousType'], number, number])[] = [
+  ...MALICIOUS_CODE_TYPES.map(
+    (type) =>
+      [
+        type,
+        MALICIOUS_CODE_TYPE_DEFINITIONS[type].hp,
+        MALICIOUS_CODE_TYPE_DEFINITIONS[type].damage * INCIDENT_DAMAGE_UNIT_YEN,
+      ] as const,
+  ),
+  [undefined, DEFAULT_MALICIOUS_CODE_HP, DEFAULT_DAMAGE],
+];
+
+describe('scaledIncidentDamage: 残り hp に応じて減らした損害(#173)', () => {
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: 満 hp ちょうどなら満額', (type, hp, full) => {
+    expect(scaledIncidentDamage(type, hp)).toBe(full);
+  });
+
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: 初期 hp より 1 多くても満額を超えない', (type, hp, full) => {
+    expect(scaledIncidentDamage(type, hp + 1)).toBe(full);
+  });
+
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: 満 hp より 1 少なければ割合で減らして丸める', (type, hp, full) => {
+    expect(scaledIncidentDamage(type, hp - 1)).toBe(Math.round((full * (hp - 1)) / hp));
+  });
+
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: 途中の hp（半分）は割合で減らして丸める', (type, hp, full) => {
+    const half = hp / 2;
+    expect(scaledIncidentDamage(type, half)).toBe(Math.round(full / 2));
+  });
+
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: 残り hp 1 は 1/初期 hp を丸めた額', (type, hp, full) => {
+    expect(scaledIncidentDamage(type, 1)).toBe(Math.round(full / hp));
+  });
+
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: 残り hp 0 は 0 円', (type) => {
+    expect(scaledIncidentDamage(type, 0)).toBe(0);
+  });
+
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: 残り hp が 0 未満（-1）でも 0 円', (type) => {
+    expect(scaledIncidentDamage(type, -1)).toBe(0);
+  });
+
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: 残り hp が undefined・NaN・±Infinity なら満額', (type, _hp, full) => {
+    expect(scaledIncidentDamage(type, undefined)).toBe(full);
+    expect(scaledIncidentDamage(type, NaN)).toBe(full);
+    expect(scaledIncidentDamage(type, Infinity)).toBe(full);
+    expect(scaledIncidentDamage(type, -Infinity)).toBe(full);
+  });
+
+  it('満額は incidentDamage と一致する（前提）', () => {
+    for (const [type, , full] of SCALE_TARGETS) {
+      expect(incidentDamage(type)).toBe(full);
+    }
+  });
+});
+
 describe('settleIncident', () => {
   it('正常コードは障害にならない', () => {
     expect(settleIncident(1000000, normal(1), INITIAL_GAME_OVER_STATE)).toBeNull();
@@ -95,6 +158,28 @@ describe('settleIncident', () => {
       damage,
       fundsBefore: 1000000,
       fundsAfter: 1000000 - damage,
+    });
+  });
+
+  it.each(SCALE_TARGETS)('種別 %s（初期 hp %d）: ペイロードの残り hp(#173)で損害を減らして引く', (type, hp, full) => {
+    const remainingHp = hp - 1;
+    const damage = Math.round((full * remainingHp) / hp);
+    expect(settleIncident(1000000, { ...malicious(5, type), remainingHp }, INITIAL_GAME_OVER_STATE)).toEqual({
+      codeId: 5,
+      maliciousType: type,
+      damage,
+      fundsBefore: 1000000,
+      fundsAfter: 1000000 - damage,
+    });
+  });
+
+  it('残り hp 0 のペイロードは損害 0 円の障害になり、資金は変わらない(#173)', () => {
+    expect(settleIncident(1000000, { ...malicious(5, 'bug'), remainingHp: 0 }, INITIAL_GAME_OVER_STATE)).toEqual({
+      codeId: 5,
+      maliciousType: 'bug',
+      damage: 0,
+      fundsBefore: 1000000,
+      fundsAfter: 1000000,
     });
   });
 });

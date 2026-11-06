@@ -1912,11 +1912,13 @@ class MainScene extends Phaser.Scene {
         this.codeHp.delete(next.id);
         this.codeHold.delete(next.id);
         next.graphics.destroy();
+        // 残り hp(#173)は消す前に読んだ hp を不正なコードのときだけ載せる。障害の損害額をこの割合で減らす。
         const payload: CodeReleasedPayload = {
           id: next.id,
           kind: next.kind,
           routeId: next.routeId,
           maliciousType: next.maliciousType,
+          ...(next.kind === 'malicious' && hp !== undefined ? { remainingHp: hp } : {}),
         };
         this.events.emit(CODE_RELEASED_EVENT, payload);
       } else {
