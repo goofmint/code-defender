@@ -696,8 +696,8 @@ describe('休暇中はそのエンジニアのコードを止める(#36): isRout
   });
 });
 
-describe('休暇中はそのエンジニアのコードを止める(#36): 複数フレームの合成', () => {
-  // main.ts の updateCodes と同じ順に、休暇の切替 → ルートの判定 → 生成タイマー・移動を組み合わせる。
+describe('休暇中は新規生成だけを止める(#36, #163): 複数フレームの合成', () => {
+  // main.ts の updateCodes と同じ形に、休暇の切替 → ルートの判定 → 生成タイマー（休暇で停止）・移動（休暇では止めない）を組み合わせる。
   const interval = CODE_SPAWN_INTERVAL_MS;
   const route = createRoutes(ENGINEER_SPAWN_CELLS, () => 0)[0];
   const frame = (
@@ -722,17 +722,25 @@ describe('休暇中はそのエンジニアのコードを止める(#36): 複数
     expect(frame(engineers, timer.elapsedMs, 1)).toEqual({ elapsedMs: 0, spawn: true });
   });
 
-  it('休暇中のルートのコードは進まず、解除後に進む。他のルートは影響を受けない', () => {
+  it('休暇中のルートの生成済みコードも進み続け、生成タイマーだけが保持される。復帰後は保持値から生成が再開する', () => {
     const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0);
     let engineers: readonly Engineer[] = toggleEngineerVacation(makeEngineers(2), 0);
-    const paused = spawnCode(1, 'malicious', routes[0]);
+    const vacationCode = spawnCode(1, 'malicious', routes[0]);
     const working = spawnCode(2, 'normal', routes[1]);
-    const step = (code: ReturnType<typeof spawnCode>) =>
-      advanceCode(code, moveDistanceUnlessPaused(30, isRouteOnVacation(engineers, code.routeId)));
-    expect(step(paused)).toBe(paused);
+    // 移動は休暇では止めない（止めるのはコードフリーズなどの停止フラグだけ）。
+    const step = (code: ReturnType<typeof spawnCode>) => advanceCode(code, moveDistanceUnlessPaused(30, false));
+    expect(step(vacationCode).position).not.toEqual(vacationCode.position);
     expect(step(working).position).not.toEqual(working.position);
+    // 生成タイマーは休暇中に保持される。
+    const held = stepSpawnTimerUnlessPaused(interval - 1, interval * 30, interval, isRouteOnVacation(engineers, routes[0].id));
+    expect(held).toEqual({ elapsedMs: interval - 1, spawn: false });
+    // 復帰後は保持値から再開し、1ms で生成する。
     engineers = toggleEngineerVacation(engineers, 0);
-    expect(step(paused).position).not.toEqual(paused.position);
+    expect(step(vacationCode).position).not.toEqual(vacationCode.position);
+    expect(stepSpawnTimerUnlessPaused(held.elapsedMs, 1, interval, isRouteOnVacation(engineers, routes[0].id))).toEqual({
+      elapsedMs: 0,
+      spawn: true,
+    });
   });
 });
 

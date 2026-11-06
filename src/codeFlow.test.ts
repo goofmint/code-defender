@@ -288,7 +288,7 @@ describe('stepSpawnTimerUnlessPaused（休暇中の停止 #36・境界値）', (
   });
 });
 
-describe('moveDistanceUnlessPaused（休暇中の停止 #36・境界値）', () => {
+describe('moveDistanceUnlessPaused（停止中（コードフリーズ等）の停止・境界値）', () => {
   it.each([0, 1, 30, 1e6])('停止中は基準 %i でも 0', (distance) => {
     expect(moveDistanceUnlessPaused(distance, true)).toBe(0);
   });
