@@ -407,7 +407,7 @@ describe('MainScene.updateCodes: CI の減速', () => {
     expect(positionAfter(scene)).toBeCloseTo(PATH_LENGTH - ZONE + STEP);
   });
 
-  it('担当者の休暇中はゾーン内でも移動量 0 のまま', () => {
+  it('担当者の休暇中でもゾーン内の不正コードは CI 減速の 0.8 倍だけ進む(#163)', () => {
     const scene = createScene({
       codes: [makeCode(1, ZONE)],
       placedItems: [placed(0, 'ci')],
@@ -416,7 +416,7 @@ describe('MainScene.updateCodes: CI の減速', () => {
 
     scene.updateCodes(DELTA_MS);
 
-    expect(positionAfter(scene)).toBe(PATH_LENGTH - ZONE);
+    expect(positionAfter(scene)).toBeCloseTo(PATH_LENGTH - ZONE + STEP * CI_SLOW_MULTIPLIER);
   });
 
   it('出現と同じフレームで動くコードにも減速が効く', () => {
