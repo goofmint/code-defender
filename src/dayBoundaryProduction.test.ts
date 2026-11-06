@@ -327,30 +327,48 @@ describe('MainScene.update: 30 日目の給料で倒産すると、そこで止�
   });
 });
 
-describe('MainScene.update: 1 人だけ休暇にすると、そのルートだけが止まる', () => {
-  it('休暇中のルートは生成・移動が止まり、時計・他のルート・給料の精算は続く', () => {
+describe('MainScene.update: 1 人だけ休暇にすると、そのルートの新規生成だけが止まる(#163)', () => {
+  it('休暇中のルートの生成済みコードは進み、新規生成だけが止まる。時計・他のルート・給料の精算も続く', () => {
     const scene = createScene(AMPLE_FUNDS);
     const vacationRoute = scene.routes[0];
     if (vacationRoute === undefined) throw new Error('ルートがありません');
     const payroll = payrollOf(scene);
     runUntil(scene, 0, BEFORE_BOUNDARY_MS);
     scene.toggleVacation(vacationRoute.id);
-    const pausedPositions = positionsById(scene.codes.filter((code) => code.routeId === vacationRoute.id));
+    const vacationCodesBefore = positionsById(scene.codes.filter((code) => code.routeId === vacationRoute.id));
+    expect(vacationCodesBefore.size).toBeGreaterThan(0);
     const nextIdAtVacation = scene.nextCodeId;
 
-    runUntil(scene, BEFORE_BOUNDARY_MS, MONTH_BOUNDARY_MS);
+    // 休暇直後の 1 フレーム: 生成済みのコードは進む（リリース済みで消えたものは残らない）。
+    runUntil(scene, BEFORE_BOUNDARY_MS, BEFORE_BOUNDARY_MS + STEP_MS);
+    const firstFrame = movedCount(
+      vacationCodesBefore,
+      scene.codes.filter((code) => code.routeId === vacationRoute.id),
+    );
+    expect(firstFrame.shared).toBeGreaterThan(0);
+    expect(firstFrame.moved).toBe(firstFrame.shared);
+
+    // 以降のフレームで出た新しい id と routeId を記録する。
+    const newCodeRoutes: number[] = [];
+    let seenNextId = nextIdAtVacation;
+    for (let now = BEFORE_BOUNDARY_MS + 2 * STEP_MS; now <= MONTH_BOUNDARY_MS; now += STEP_MS) {
+      scene.time.now = now;
+      scene.update(now, STEP_MS);
+      for (const code of scene.codes) {
+        if (code.id >= seenNextId) newCodeRoutes.push(code.routeId);
+      }
+      seenNextId = scene.nextCodeId;
+    }
     const workingAtBoundary = positionsById(scene.codes.filter((code) => code.routeId !== vacationRoute.id));
     runUntil(scene, MONTH_BOUNDARY_MS, AFTER_SPAWN_INTERVAL_MS);
     expect(scene.elapsedMs).toBe(AFTER_SPAWN_INTERVAL_MS);
     // 休暇中も給料は全員分を引く(#37)。
     expect(payloadsOf(scene, SALARY_PAID_EVENT)).toEqual([expect.objectContaining({ month: 1, amount: payroll })]);
     expect(scene.gameOver.over).toBe(false);
-    const pausedCodes = scene.codes.filter((code) => code.routeId === vacationRoute.id);
-    expect(pausedCodes.length).toBeGreaterThan(0);
-    expect(positionsById(pausedCodes)).toEqual(pausedPositions);
-    const newCodes = scene.codes.filter((code) => code.id >= nextIdAtVacation);
-    expect(newCodes.length).toBeGreaterThan(0);
-    expect(newCodes.every((code) => code.routeId !== vacationRoute.id)).toBe(true);
+    // 休暇ルートでは新しいコードが出ない。他のルートでは出る。
+    expect(newCodeRoutes.length).toBeGreaterThan(0);
+    expect(newCodeRoutes.every((routeId) => routeId !== vacationRoute.id)).toBe(true);
+    expect(scene.codes.filter((code) => code.id >= nextIdAtVacation).every((code) => code.routeId !== vacationRoute.id)).toBe(true);
     const working = movedCount(workingAtBoundary, scene.codes);
     expect(working.shared).toBeGreaterThan(0);
     expect(working.moved).toBe(working.shared);
