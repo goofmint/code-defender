@@ -317,9 +317,9 @@ export const getItemMonthlyFee = (
   return Math.round(getItemPrice(itemType) * safeRatio);
 };
 
-// アイテムのメニュー(#156)の枠の文言。「Linter 2.5万円」。月額払いは「CodeRabbit 10万/月」（幅に収めるため「円」を省く）。キー名（4〜9）は出さない。
+// アイテムのメニュー(#156)の枠の文言。「Linter 1.25万円」。月額払いは「CodeRabbit 5万/月」（幅に収めるため「円」を省く）。キー名（4〜9）は出さない。
 // 月額払いは精算と同じ月額（getItemMonthlyFee）を表示する。
-// 英語は「Linter ¥25K」「CodeRabbit ¥100K/mo」(#158)。金額の計算は変えず、短い金額の書式（formatShortAmount）だけを言語で変える。
+// 英語は「Linter ¥12.5K」「CodeRabbit ¥50K/mo」(#158)。金額の計算は変えず、短い金額の書式（formatShortAmount）だけを言語で変える。
 export const formatItemOption = (itemType: ItemType, ratio: number = ITEM_MONTHLY_FEE_RATIO): string => {
   const price = isMonthlyItem(itemType)
     ? formatShortAmount(getItemMonthlyFee(itemType, ratio), 'monthly')

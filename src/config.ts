@@ -490,8 +490,11 @@ export const SALARY_ADJUST_KEYS = { raise: 'R', cut: 'F' } as const;
 // 仮・要確認(#34): ボタンのラベルは言語カタログ（engineer.salaryButtons）に置く(#158)。#156 でエンジニアのメニューに移し、キー名は出さない（キー操作は残す）。
 // 仮・要確認(#53): AIコーディングエージェント（強い・普通・安い）。企画書(8)は「エンジニアに付けて出力ペースを上げる」「普通は強いより、安いは最も不正なコードを混ぜやすい」
 // 「価格は高い・普通・安い」「月額」とだけで、具体的な数値・操作は未記載。以下はすべて仮の値。
-// 価格の段階（ITEM_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
+// 価格の段階（AI_AGENT_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
 export const AI_AGENT_PRICE_TIER_BY_TYPE = { strong: 'expensive', normal: 'normal', cheap: 'cheap' } as const;
+// 仮・要確認(#164): AIエージェントの価格の段階表（円）。アイテムの半額化(#164)はアイテムだけが対象のため、AIエージェントは半額前の
+// ITEM_PRICE_TIERS と同じ値を別に持つ（アイテムの価格を変えても AIエージェントの価格は変わらない）。キーは ITEM_PRICE_TIERS と同じ。
+export const AI_AGENT_PRICE_TIERS = { cheap: 25000, normal: 50000, expensive: 100000 } as const;
 // 仮・要確認(#53): 装着中のエンジニアが担当するルートのコード生成間隔に掛ける倍率。0.5 なら間隔が半分（出力ペース2倍）。
 // 企画書は3種とも「出力ペースを上げる」とだけで差の記載がないため、全種同じ値にする。0 以下・有限でない値は 1（効果なし）として扱う。
 export const AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE = { strong: 0.5, normal: 0.5, cheap: 0.5 } as const;
@@ -562,7 +565,9 @@ export const ITEM_STRONG_AGAINST_MULTIPLIER = 2;
 // 仮・要確認(#48): 企画書(8)は「リリースで稼いだポイントでプレイ中にアイテムを追加できる」とだけで、通貨・操作・置ける場所は未記載。以下はすべて仮の値。
 // 通貨: 別のポイントは作らず資金(funds)で買う。正常コードのリリースは売上として資金に入り(#17)、スコアも累計売上(#22)で、別通貨が存在しないため。
 // 価格の段階(円)。企画書の「安い・普通・高い」に対応。1回の購入額。月額払いの毎月の引き落としは #51。
-export const ITEM_PRICE_TIERS = { cheap: 25000, normal: 50000, expensive: 100000 } as const;
+// 仮・要確認(#164): 「アイテムの金額が全体的に高い。半額でいい」により半額にした（旧 cheap 25,000・normal 50,000・expensive 100,000）。
+// 月額払いの月額は購入価格 × ITEM_MONTHLY_FEE_RATIO なので月額も半額になる。AIエージェントは AI_AGENT_PRICE_TIERS で旧価格のまま。
+export const ITEM_PRICE_TIERS = { cheap: 12500, normal: 25000, expensive: 50000 } as const;
 // アイテムごとの価格の段階（企画書 8 の価格列）。
 export const ITEM_PRICE_TIER_BY_TYPE = {
   codeRabbit: 'expensive',
@@ -902,7 +907,7 @@ export const MENU_PANEL_PADDING = 8;
 export const MENU_BUTTON_GAP_X = 4;
 export const MENU_PANEL_GAP_Y = 4;
 // 仮・要確認(#156): メニューの幅（ピクセル）。各行の最長の文言（全角 1 文字 = 12px で見積もる）が内側（幅 − 余白 × 2）に収まる幅にする（hudLayout.test.ts で検証）。
-// エンジニア: 「月給 1,000,000円 AI: なし」（20 文字）。アイテム: 「CodeRabbit 10万/月」（16 文字）。開発バランス: 「機能100:リファ0」（10 文字）。
+// エンジニア: 「月給 1,000,000円 AI: なし」（20 文字）。アイテム: 「FriDeploy 1.25万円」（16 文字。#164 の半額後）。開発バランス: 「機能100:リファ0」（10 文字）。
 export const MENU_PANEL_WIDTH = { engineer: 260, item: 216, balance: 160 } as const;
 // 仮・要確認(#156): メニューとポップオーバーの背景。半透明の濃紺に枠線。背景全体が押下を受け止める（下のフィールドで移動・攻撃・配置が起きない）。
 export const MENU_PANEL_COLORS = { fill: 0x0b1020, fillAlpha: 0.92, stroke: 0x6c8cff, strokeWidth: 2 } as const;

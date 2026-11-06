@@ -114,26 +114,27 @@ const placed = (id: number, cell: GridCell, itemType: ItemType = 'linter'): Plac
   lastAttackTime: null,
 });
 
+// #164 で半額にした価格（安い 12,500・普通 25,000・高い 50,000）。
 describe('getItemPrice: 18アイテムの価格', () => {
   it.each([
-    ['codeRabbit', 100000],
-    ['linter', 25000],
-    ['testTool', 50000],
-    ['ci', 50000],
-    ['securityScanner', 100000],
-    ['pairProgrammer', 50000],
-    ['cat', 25000],
-    ['rubberDuck', 25000],
-    ['codeFreeze', 50000],
-    ['specChangeStorm', 50000],
-    ['coffeeMachine', 25000],
-    ['energyDrink', 25000],
-    ['pizza', 25000],
-    ['documentation', 50000],
-    ['fridayDeploy', 25000],
-    ['rollbackButton', 100000],
-    ['worksFine', 25000],
-    ['seniorNote', 100000],
+    ['codeRabbit', 50000],
+    ['linter', 12500],
+    ['testTool', 25000],
+    ['ci', 25000],
+    ['securityScanner', 50000],
+    ['pairProgrammer', 25000],
+    ['cat', 12500],
+    ['rubberDuck', 12500],
+    ['codeFreeze', 25000],
+    ['specChangeStorm', 25000],
+    ['coffeeMachine', 12500],
+    ['energyDrink', 12500],
+    ['pizza', 12500],
+    ['documentation', 25000],
+    ['fridayDeploy', 12500],
+    ['rollbackButton', 50000],
+    ['worksFine', 12500],
+    ['seniorNote', 50000],
   ] as const)('%s は %i 円', (itemType, price) => {
     expect(getItemPrice(itemType)).toBe(price);
   });
@@ -531,26 +532,26 @@ describe('formatItemMessage / formatItemOption', () => {
   });
 
   it('メニューの枠の文言は名前と価格で、キー名は出さない（#156）', () => {
-    expect(formatItemOption('linter')).toBe('Linter 2.5万円');
-    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit 10万/月');
-    expect(formatItemOption('securityScanner')).toBe('Scanner 10万/月');
-    expect(formatItemOption('cat')).toBe('Cat 2.5万円');
-    expect(formatItemOption('seniorNote')).toBe('Senior 10万円');
+    expect(formatItemOption('linter')).toBe('Linter 1.25万円');
+    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit 5万/月');
+    expect(formatItemOption('securityScanner')).toBe('Scanner 5万/月');
+    expect(formatItemOption('cat')).toBe('Cat 1.25万円');
+    expect(formatItemOption('seniorNote')).toBe('Senior 5万円');
   });
 
   it('6個ずつ3ページの文言（#58, #156）', () => {
     const pages = [ITEM_TYPES.slice(0, 6), ITEM_TYPES.slice(6, 12), ITEM_TYPES.slice(12, 18)];
     expect(pages.map((page) => page.map((itemType) => formatItemOption(itemType)))).toEqual([
-      ['CodeRabbit 10万/月', 'Linter 2.5万円', 'Test 5万円', 'CI 5万/月', 'Scanner 10万/月', 'Pair 5万/月'],
-      ['Cat 2.5万円', 'Duck 2.5万円', 'Freeze 5万円', 'SpecStorm 5万円', 'Coffee 2.5万円', 'Energy 2.5万円'],
-      ['Pizza 2.5万円', 'Docs 5万円', 'FriDeploy 2.5万円', 'Rollback 10万円', 'Yoshi! 2.5万円', 'Senior 10万円'],
+      ['CodeRabbit 5万/月', 'Linter 1.25万円', 'Test 2.5万円', 'CI 2.5万/月', 'Scanner 5万/月', 'Pair 2.5万/月'],
+      ['Cat 1.25万円', 'Duck 1.25万円', 'Freeze 2.5万円', 'SpecStorm 2.5万円', 'Coffee 1.25万円', 'Energy 1.25万円'],
+      ['Pizza 1.25万円', 'Docs 2.5万円', 'FriDeploy 1.25万円', 'Rollback 5万円', 'Yoshi! 1.25万円', 'Senior 5万円'],
     ]);
   });
 
   it('月額の表示は精算と同じ倍率を使う（1回払いは倍率に関係なく購入価格）', () => {
-    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit 5万/月');
+    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit 2.5万/月');
     expect(formatItemOption('codeRabbit', 0)).toBe('CodeRabbit 0万/月');
-    expect(formatItemOption('linter', 0.5)).toBe('Linter 2.5万円');
+    expect(formatItemOption('linter', 0.5)).toBe('Linter 1.25万円');
   });
 });
 
@@ -1019,11 +1020,11 @@ describe('アイテムの文言（英語 #158）', () => {
   });
 
   it('メニューの枠は千円単位（1回払いは ¥…K、月額は ¥…K/mo）で、金額の計算は変えない', () => {
-    expect(formatItemOption('linter')).toBe('Linter ¥25K');
-    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit ¥100K/mo');
-    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit ¥50K/mo');
+    expect(formatItemOption('linter')).toBe('Linter ¥12.5K');
+    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit ¥50K/mo');
+    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit ¥25K/mo');
     expect(formatItemOption('codeRabbit', 0)).toBe('CodeRabbit ¥0K/mo');
-    expect(formatItemOption('seniorNote')).toBe('Senior ¥100K');
+    expect(formatItemOption('seniorNote')).toBe('Senior ¥50K');
   });
 });
 
