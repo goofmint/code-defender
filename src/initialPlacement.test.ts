@@ -29,6 +29,7 @@ import type { ItemType } from './item';
 import {
   canStartPlay,
   countUnplacedEngineers,
+  filterPlacedEngineers,
   createInitialPlacementState,
   ENGINEER_REMOVE_BUTTON_OFFSET,
   engineerRemoveButtonCenter,
@@ -768,6 +769,17 @@ describe('removeInitialEngineer / canStartPlay: エンジニアを外す・開�
     const { engineers, routes } = withoutEngineers([1]);
     expect(removeInitialEngineer(engineers, routes, 99)).toEqual({ ok: false, reason: 'notFound' });
     expect(removeInitialEngineer(engineers, routes, 1)).toEqual({ ok: false, reason: 'notPlaced' });
+  });
+
+  it('filterPlacedEngineers は routeId がある人だけを返す（全員・N-1人・0人 #176）', () => {
+    const { engineers } = fleet();
+    expect(filterPlacedEngineers(engineers)).toHaveLength(engineers.length);
+    const missingOne = withoutEngineers([2]).engineers;
+    expect(filterPlacedEngineers(missingOne).map((engineer) => engineer.id)).toEqual(
+      engineers.filter((engineer) => engineer.id !== 2).map((engineer) => engineer.id),
+    );
+    expect(filterPlacedEngineers(withoutEngineers([0, 1, 2]).engineers)).toEqual([]);
+    expect(filterPlacedEngineers([])).toEqual([]);
   });
 
   it('境界値: 全員（N 人）配置なら開始でき、N-1 人なら開始できない', () => {

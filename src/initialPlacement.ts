@@ -191,6 +191,10 @@ export const formatInitialPlacementEngineerButton = (unplaced: number): string =
 export const countUnplacedEngineers = (engineers: readonly Engineer[]): number =>
   engineers.filter((engineer) => engineer.routeId === null).length;
 
+// 配置済み（routeId がある）のエンジニアだけを返す(#176)。countUnplacedEngineers と同じ routeId の基準。
+export const filterPlacedEngineers = (engineers: readonly Engineer[]): readonly Engineer[] =>
+  engineers.filter((engineer) => engineer.routeId !== null);
+
 // 配置済み（routeId がある）のエンジニアの人数(#172)。
 const countPlacedEngineers = (engineers: readonly Engineer[]): number => engineers.length - countUnplacedEngineers(engineers);
 

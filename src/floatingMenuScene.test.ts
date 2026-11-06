@@ -8,6 +8,7 @@ import { getAiAgentMonthlyFee, getAiAgentPrice } from './aiAgent';
 import {
   DEFAULT_REFACTORING_RATIO,
   ENGINEER_HIRE_COST,
+  ENGINEER_MONTHLY_SALARY_BY_RANK,
   INITIAL_FUNDS,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
@@ -618,9 +619,96 @@ describe('MainScene: 月末に支払うお金の更新(#156)', () => {
     lastEngineerMenuCallbacks().onHire('junior');
     expect(scene.engineers).toHaveLength(1);
     expect(payroll(scene.engineers)).toBeGreaterThan(0);
-    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(payroll(scene.engineers));
+    // 雇っただけで未配置なので、月末に支払う予告は0円のまま(#176)。
+    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(0);
     expect(lastStatusPanel().setFunds).toHaveBeenLastCalledWith(INITIAL_FUNDS - ENGINEER_HIRE_COST.junior);
     expect(vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1].count).toBe(1);
+  });
+
+  describe('初期配置の間の月末支払予告は配置済みのエンジニアに連動する(#176)', () => {
+    const hire = (rank: 'junior' | 'middle' | 'senior'): void => {
+      pressIcon('engineer');
+      lastEngineerMenuCallbacks().onHire(rank);
+    };
+    const salaryOf = (rank: 'junior' | 'middle' | 'senior'): number => ENGINEER_MONTHLY_SALARY_BY_RANK[rank];
+    const forecast = (): number => {
+      const call = lastStatusPanel().setMonthEndPayment.mock.calls.at(-1);
+      if (call === undefined) throw new Error('月末支払が更新されていません');
+      return call[0] as number;
+    };
+    const pressRemove = (): void => {
+      const removeCall = vi.mocked(render.drawRemoveButton).mock.calls.at(-1);
+      if (removeCall === undefined) throw new Error('×ボタンが描かれていません');
+      removeCall[2]();
+    };
+
+    it('シニアの採用→配置→×→再配置→開始で 0 → 月給 → 0 → 月給 → 月給', () => {
+      const { scene, pointerDown } = createHarness();
+      const senior = salaryOf('senior');
+      hire('senior');
+      expect(forecast()).toBe(0);
+      pointerDown(cellCenter({ col: 0, row: 1 }));
+      expect(forecast()).toBe(senior);
+      pressRemove();
+      expect(forecast()).toBe(0);
+      // 左上の「エンジニアを置く」ボタンで未配置のエンジニアを選び直して置く。
+      const selectButton = vi.mocked(render.drawInitialPlacementEngineerButton).mock.calls.at(-1);
+      if (selectButton === undefined) throw new Error('エンジニアの選択ボタンが描かれていません');
+      selectButton[2]();
+      pointerDown(cellCenter({ col: 0, row: 1 }));
+      expect(forecast()).toBe(senior);
+      startPlay();
+      expect(scene.phase).toBe('playing');
+      expect(forecast()).toBe(senior);
+    });
+
+    it('ジュニアとシニアを雇い、片方だけ置くとその人の月給だけになる', () => {
+      const { scene, pointerDown } = createHarness();
+      hire('junior');
+      hire('senior');
+      expect(forecast()).toBe(0);
+      pointerDown(cellCenter({ col: 0, row: 1 }));
+      const placed = scene.engineers.filter((engineer) => engineer.routeId !== null);
+      expect(placed).toHaveLength(1);
+      expect(forecast()).toBe(placed[0]?.salary);
+      expect(forecast()).not.toBe(payroll(scene.engineers));
+    });
+
+    it('月額アイテムを置いたままエンジニアを外すと、配置済みの月給＋アイテムの月額になる', () => {
+      const { scene, pointerDown } = createHarness();
+      hire('junior');
+      pointerDown(cellCenter({ col: 0, row: 1 }));
+      hire('middle');
+      pointerDown(cellCenter({ col: 0, row: 4 }));
+      pressIcon('item');
+      lastItemMenu().onBuySlot(ITEM_TYPES.indexOf('codeRabbit'));
+      pointerDown(placementCellCenter(firstPlaceableCell(scene.routes)));
+      expect(scene.initialPlacement.itemState.placedItems).toHaveLength(1);
+      const fee = getItemMonthlyFee('codeRabbit');
+      expect(forecast()).toBe(salaryOf('junior') + salaryOf('middle') + fee);
+      // 最初に描いた×ボタン（ジュニア）を押して外す。
+      const juniorRemove = vi.mocked(render.drawRemoveButton).mock.calls[0];
+      if (juniorRemove === undefined) throw new Error('×ボタンが描かれていません');
+      juniorRemove[2]();
+      expect(forecast()).toBe(salaryOf('middle') + fee);
+    });
+
+    it('配置に失敗したときは月末支払を更新しない（候補外のセル）', () => {
+      const { pointerDown } = createHarness();
+      hire('junior');
+      lastStatusPanel().setMonthEndPayment.mockClear();
+      pointerDown(cellCenter({ col: PLACEMENT_COLS - 1, row: 1 }));
+      expect(lastStatusPanel().setMonthEndPayment).not.toHaveBeenCalled();
+    });
+
+    it('開始後は未配置・休暇中を含む名簿全員を数える', () => {
+      const { scene } = createPlacedHarness();
+      startPlay();
+      expect(forecast()).toBe(payroll(scene.engineers));
+      pressIcon('engineer');
+      lastEngineerMenuCallbacks().onHire('senior');
+      expect(forecast()).toBe(payroll(scene.engineers));
+    });
   });
 
   it('昇給すると月給の増分を足す', () => {
