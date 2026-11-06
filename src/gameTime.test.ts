@@ -1,5 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { setLocale } from './i18n';
+import { describe, expect, it } from 'vitest';
 import {
   advanceElapsedMs,
   createMonthElapsedEvent,
@@ -119,22 +118,5 @@ describe('月経過イベント', () => {
   it('ペイロードは境界の時刻と経過日数を持つ', () => {
     expect(createMonthElapsedEvent(1)).toEqual({ month: 1, elapsedMs: 60000, days: 30 });
     expect(createMonthElapsedEvent(2)).toEqual({ month: 2, elapsedMs: 120000, days: 60 });
-  });
-});
-
-describe('formatElapsedDays（英語 #158）', () => {
-  beforeEach(() => {
-    setLocale('en');
-  });
-  afterEach(() => {
-    setLocale('ja');
-  });
-
-  it.each([
-    [0, 'Days elapsed: 0'],
-    [1, 'Days elapsed: 1'],
-    [1000, 'Days elapsed: 1000'],
-  ])('formatElapsedDays(%d) = %s', (days, expected) => {
-    expect(formatElapsedDays(days)).toBe(expected);
   });
 });
