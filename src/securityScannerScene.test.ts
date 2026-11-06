@@ -211,17 +211,24 @@ describe('MainScene.updateCodes: 通常生成の不正コードに種別を付�
 });
 
 describe('MainScene.updateItems: セキュリティスキャナーがクリティカルを攻撃する', () => {
-  it('射程内のクリティカルを1回で撃破し、コード配列と HP から除き、攻撃時刻を更新する', () => {
+  it('射程内のクリティカルを1回で撃破し、消さずに同じ id の正常なコードへ直して HP から除き、攻撃時刻を更新する(#173)', () => {
     const scene = createScene();
     placeScanner(scene, null);
     placeMaliciousCode(scene, 7, 'vulnerabilityCritical');
-    const graphics = scene.codes[0]?.graphics;
+    const before = scene.codes[0];
+    const graphics = before?.graphics;
+    vi.mocked(drawCode).mockClear();
 
     scene.updateItems(5000);
 
-    expect(scene.codes).toHaveLength(0);
+    expect(scene.codes).toHaveLength(1);
+    expect(scene.codes[0]?.id).toBe(7);
+    expect(scene.codes[0]?.kind).toBe('normal');
+    expect(scene.codes[0]).not.toHaveProperty('maliciousType');
+    expect(scene.codes[0]?.position).toEqual(before?.position);
     expect(scene.codeHp.has(7)).toBe(false);
     expect(graphics?.destroy).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(drawCode)).toHaveBeenCalledExactlyOnceWith(scene, 'normal', before?.position);
     expect(lastAttackTimeOf(scene)).toBe(5000);
   });
 
@@ -250,7 +257,8 @@ describe('MainScene.updateItems: セキュリティスキャナーがクリテ�
     scene.updateItems(lastAttack + elapsed);
 
     expect(scene.codeHp.has(7)).toBe(!attacks);
-    expect(scene.codes).toHaveLength(attacks ? 0 : 1);
+    // 撃破しても消えずに正常なコードとして残る(#173)。
+    expect(scene.codes.map((code) => code.kind)).toEqual([attacks ? 'normal' : 'malicious']);
     expect(lastAttackTimeOf(scene)).toBe(attacks ? lastAttack + elapsed : lastAttack);
   });
 
