@@ -99,7 +99,7 @@ describe.each(SUPPORTED_LOCALES)('ゲームの説明（言語 %s #165）', (loca
       expect(setupLine).toContain('1人以上');
       expect(setupLine).toContain('全員');
     } else {
-      expect(setupLine).toContain('any number (at least 1)');
+      expect(setupLine).toContain('1 or more');
       expect(setupLine).toContain('place all');
     }
   });
