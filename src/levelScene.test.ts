@@ -4,11 +4,13 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import {
+  ENGINEER_SPAWN_COL,
   ITEM_PAGE_SIZE,
   LEVEL_UP_INTERVAL_DAYS,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
 } from './config';
+import type { Engineer } from './engineer';
 import type { GameOverState } from './gameOver';
 import { MS_PER_GAME_DAY } from './gameTime';
 import { formatInitialPlacementItemButton } from './initialPlacement';
@@ -16,6 +18,7 @@ import { ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { formatItemOption, getItemPrice, isPlaceableCell, placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
+import { cellCenter } from './route';
 import type { Point, Route } from './route';
 import type { ItemMenuView } from './render';
 
@@ -151,6 +154,7 @@ type EventHandler = (payload: object) => void;
 // テストで触る MainScene の private メンバーと、create() が使う Phaser のプロパティだけを表す型。
 type SceneUnderTest = {
   phase: 'setup' | 'playing';
+  engineers: readonly Engineer[];
   placedItems: readonly PlacedItem[];
   itemPage: number;
   openMenu: 'engineer' | 'item' | 'balance' | null;
@@ -294,9 +298,25 @@ const labelsOf = (items: readonly ItemType[]): (string | null)[] =>
 // 給料で倒産しない資金。時計を何か月も進めても月の境界の給料を払える。
 const RICH = 1_000_000_000_000;
 
+// 初期は0人(#172)なので、初期配置の間に右上のエンジニアのメニューで3人雇い、出現列の行1・4・7に置く（以前の初期配置と同じ形）。
+// 雇うたびに次に置くものがエンジニアになるので、続けて出現列のその行を押して置く。最後にメニューを閉じる。
+const FIXTURE_ROWS: readonly number[] = [1, 4, 7];
+const hireAndPlace = (harness: Harness): void => {
+  pressIcon('engineer');
+  FIXTURE_ROWS.forEach((row) => {
+    const call = vi.mocked(render.drawEngineerMenu).mock.calls.at(-1);
+    if (call === undefined) throw new Error('エンジニアのメニューが描かれていません');
+    call[2].onHire('junior');
+    harness.pointerDown(cellCenter({ col: ENGINEER_SPAWN_COL, row }));
+  });
+  pressIcon('engineer');
+  if (harness.scene.routes.length !== FIXTURE_ROWS.length) throw new Error('初期配置の間に3人を雇って置けませんでした');
+};
+
 // プレイを始めてアイテムのメニューを開いた状態。倒産の確認以外は資金を RICH にして、月の境界の給料で倒産しないようにする。
 const startPlaying = (funds: number = RICH): Harness => {
   const harness = createHarness();
+  hireAndPlace(harness);
   pressStartButton();
   harness.scene.funds = funds;
   pressIcon('item');
@@ -413,7 +433,12 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
       null,
     ]);
     expect(lastItemMenu().view.pageLabel).toBe('1/1');
+    // リスタート後も0人(#172)なので、雇って置いてから始める（エンジニアのメニューに切り替わるので、始めたあとアイテムのメニューを開き直す）。
+    expect(scene.engineers).toEqual([]);
+    hireAndPlace({ scene, pointerDown });
     pressStartButton();
+    expect(scene.phase).toBe('playing');
+    pressIcon('item');
     expect(lastItemMenu().view.labels).toEqual(labelsOf(['codeRabbit', 'linter', 'testTool']));
   });
 

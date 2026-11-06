@@ -4,6 +4,7 @@ import {
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
+  INITIAL_PLACEMENT_MIN_ENGINEERS,
   INITIAL_PLACEMENT_REMOVE_BUTTON,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_SHORT_NAMES,
@@ -12,7 +13,8 @@ import {
   STAGE_POINTS_INITIAL,
 } from './config';
 import { assignEngineerRoute } from './engineer';
-import type { Engineer } from './engineer';
+import type { Engineer, HireResult } from './engineer';
+import { isBankrupt } from './gameOver';
 import { pointInRect, rectIntersectsCircle, rectsOverlap } from './geometry';
 import { getMessages, interpolate } from './i18n';
 import { getItemPlacement, isItemUnlocked, ITEM_TYPES } from './item';
@@ -185,12 +187,32 @@ export const formatInitialPlacementItemButton = (itemType: ItemType): string =>
 export const formatInitialPlacementEngineerButton = (unplaced: number): string =>
   interpolate(getMessages().initialPlacement.engineerButton, { count: unplaced });
 
-// 未配置（routeId が null）のエンジニアの人数(#157)。初期配置の間は雇えないので、名簿は初期エンジニアだけ。
+// 未配置（routeId が null）のエンジニアの人数(#157)。初期配置の間に雇った人(#172)は、置くまで未配置。
 export const countUnplacedEngineers = (engineers: readonly Engineer[]): number =>
   engineers.filter((engineer) => engineer.routeId === null).length;
 
-// プレイを始められるか(#157)。初期エンジニア全員にルート（出現場所）があるときだけ始められる。アイテムは置かなくてもよい。
-export const canStartPlay = (engineers: readonly Engineer[]): boolean => countUnplacedEngineers(engineers) === 0;
+// 配置済み（routeId がある）のエンジニアの人数(#172)。
+const countPlacedEngineers = (engineers: readonly Engineer[]): number => engineers.length - countUnplacedEngineers(engineers);
+
+// プレイを始められるか(#157)。エンジニア全員にルート（出現場所）があり、INITIAL_PLACEMENT_MIN_ENGINEERS 人以上を置いたときだけ始められる(#172)。
+// アイテムは置かなくてもよい。
+export const canStartPlay = (engineers: readonly Engineer[]): boolean =>
+  countUnplacedEngineers(engineers) === 0 && countPlacedEngineers(engineers) >= INITIAL_PLACEMENT_MIN_ENGINEERS;
+
+// 始められないときのメッセージ(#172)。未配置の人がいれば全員置くよう、いなければ（置いた人が足りなければ）雇って置くよう案内する。
+// 始められる状態（canStartPlay が true）で呼ぶのは呼び出し側の誤りなので投げる。
+export const formatStartPlayBlockedMessage = (engineers: readonly Engineer[]): string => {
+  if (canStartPlay(engineers)) {
+    throw new Error('プレイを始められる状態で、始められない理由を求めました');
+  }
+  const text = getMessages().initialPlacement;
+  return countUnplacedEngineers(engineers) > 0 ? text.placeAllEngineers : text.hireAndPlaceEngineer;
+};
+
+// 初期配置の間の雇用(#172)。雇うと資金が倒産の額（isBankrupt）になるときは、雇えた結果を資金不足（insufficientFunds）に置き換える。
+// 開始前に倒産してゲームオーバーにならないようにするため。雇えなかった結果と、倒産しない額で雇えた結果はそのまま返す。
+export const refuseSetupHireIntoBankruptcy = (result: HireResult): HireResult =>
+  result.ok && isBankrupt(result.fundsAfter) ? { ok: false, reason: 'insufficientFunds' } : result;
 
 const isSameCell = (a: GridCell, b: GridCell): boolean => a.col === b.col && a.row === b.row;
 

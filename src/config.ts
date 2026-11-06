@@ -21,14 +21,10 @@ export const RELEASE_POINT_CELL = {
   row: Math.floor(FIELD_ROWS / 2),
 } as const;
 
-// 仮・要確認: エンジニアの出現セル。企画書には「出現場所の数は雇用したエンジニア数と同じ」とだけあり、
-// 位置と初期の数（ここでは3か所）は未記載。ルートの本数はこの配列の長さと同じになる。
-// これは初期値で、実行時には変更しない。追加分は route.ts の addRoute が返す。
-export const ENGINEER_SPAWN_CELLS = [
-  { col: 0, row: 1 },
-  { col: 0, row: 4 },
-  { col: 0, row: 7 },
-] as const;
+// 仮・要確認(#172): ゲーム開始時のエンジニアの出現セル。企画書には「出現場所の数は雇用したエンジニア数と同じ」とだけある。
+// 初期は0人・0ルート。プレイヤーが初期配置（setup）中に雇い、左端の列の色付きセルを選んで置く。
+// ルートの本数はこの配列の長さと同じになる。実行時には変更しない。追加分は route.ts の addRoute が返す。
+export const ENGINEER_SPAWN_CELLS: readonly { readonly col: number; readonly row: number }[] = [];
 
 // 仮・要確認: エンジニア追加時に出現場所を置く列。企画書に位置の記載なし。
 export const ENGINEER_SPAWN_COL = 0;
@@ -470,8 +466,9 @@ export const ENGINEER_ATTACHMENT_CHANGE: {
 };
 // 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
 export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
-// 仮・要確認(#23): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。
-export const INITIAL_ENGINEER_RANKS = ['junior', 'junior', 'junior'] as const;
+// 仮・要確認(#23, #172): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。
+// 初期は0人。setup 中に雇って配置する(#172)。
+export const INITIAL_ENGINEER_RANKS: readonly (typeof ENGINEER_RANKS)[number]['id'][] = [];
 // 仮・要確認(#23): エンジニアの上限人数。#27 で1人1ルートになるため、ルートの上限と揃える。
 export const MAX_ENGINEERS = MAX_ENGINEER_ROUTES;
 // 仮・要確認(#23): ボタンの色（塗り・枠線・文字）。#156 で雇うボタンは右上のエンジニアのメニューに移したが、メニュー・ポップオーバーのボタンも同じ色を使う。
@@ -880,6 +877,9 @@ export const PLACEMENT_PREVIEW = {
 // 仮・要確認(#157): 後から置いたエンジニアの自動生成ルートが配置済みアイテムに重なるとき、ルートを作り直す回数の上限（最初の1回を含む）。
 // 上限まで重なったら置かない（アイテムは勝手に撤去しない）。
 export const INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS = 20;
+// 仮・要確認(#172): プレイを始めるのに配置しておくエンジニアの最少人数。初期は0人なので、雇って置かずに始めると何も流れない。
+// 0人のまま始めさせないよう1人以上にする（未配置の人がいれば、この人数に関係なく全員置くまで始められない）。
+export const INITIAL_PLACEMENT_MIN_ENGINEERS = 1;
 
 // 仮・要確認(#156): 「画面の情報が多すぎる」への対応。常時表示を経過日数（左上）・右上の3つのアイコン・右下の小さな指標だけにし、
 // 雇用・昇給減給・アイテム購入・開発バランスはアイコンを押すと縦に開くメニュー、休暇・AIエージェントは出現地点を押すと開くポップオーバーに移す。

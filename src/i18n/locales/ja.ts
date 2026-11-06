@@ -161,7 +161,7 @@ export const ja = {
     // 選択中のアイテムと、初期配置の間のアイテムのメニューの枠(#157)。
     itemCost: '{name} {cost}pt',
     startButton: 'プレイ開始',
-    // エンジニアの選択ボタン(#157)。{count} は未配置の初期エンジニアの人数。
+    // エンジニアの選択ボタン(#157)。{count} は未配置のエンジニア（初期配置の間に雇った人 #172）の人数。
     engineerButton: 'エンジニア 残り{count}人',
     placed: '{name}を置きました',
     removed: '{name}を撤去しました',
@@ -171,9 +171,11 @@ export const ja = {
     engineerRemoved: 'エンジニアを外しました',
     engineerNotCandidate: 'エンジニアはここに置けません',
     engineerOverlapsItem: 'アイテムと重なるため置けません',
-    noUnplacedEngineer: '置けるエンジニアがいません',
+    noUnplacedEngineer: '置けるエンジニアがいません。先に雇ってください',
     selectFirst: '先に置くものを選んでください',
     placeAllEngineers: 'エンジニアを全員配置してください',
+    // 置いた人が INITIAL_PLACEMENT_MIN_ENGINEERS 人に足りないとき(#172)。
+    hireAndPlaceEngineer: 'エンジニアを1人以上雇って配置してください',
   },
   aiAgents: {
     // 正式名称。
@@ -284,7 +286,7 @@ export const ja = {
     // {range} は攻撃の射程（px）。
     controls: 'マウスを押し続けると主人公がそこへ動く。主人公をクリックすると{range}px以内の不正なコードを攻撃',
     // {points} はステージポイントの初期値、{start} は開始ボタンの文言。
-    setup: '開始前: 右上のアイテムから選んで床をクリック（{points}pt）。×で取消。エンジニアを全員置いて「{start}」',
+    setup: '開始前: 右上のエンジニアで雇い、色付きの床に置く。アイテムを選んで床をクリック（{points}pt）。×で取消。全員置いて「{start}」',
     popover: '出現地点をクリック: 休暇・復帰とAIエージェント',
     // {reduction}・{max}・{min} はパーセントポイント（四捨五入した整数）。
     vacation: '休暇: 不正率-{reduction}pt/回・最大-{max}pt・下限{min}%。効果は復帰後も維持。給与は継続、休暇中は生産停止',

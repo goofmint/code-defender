@@ -56,6 +56,8 @@ describe('buildHelpLines（日本語）(#165)', () => {
   it('初期配置のポイント・開始ボタンの文言、雇用の上限、レベルの間隔、割合の刻みとボタンの文字は config と同じ', () => {
     expect(lines[2]).toContain(`（${STAGE_POINTS_INITIAL}pt）`);
     expect(lines[2]).toContain(`「${getMessages().initialPlacement.startButton}」`);
+    // 初期は0人なので、初期配置の間にエンジニアを雇って色付きの床に置く手順を書く(#172)。
+    expect(lines[2]).toContain('右上のエンジニアで雇い、色付きの床に置く');
     expect(lines[5]).toContain(`最大${MAX_ENGINEERS}人`);
     expect(lines[7]).toContain(`${LEVEL_UP_INTERVAL_DAYS}日ごと`);
     expect(lines[8]).toContain(`${BALANCE_STEP_BUTTON_LABELS.refactoring} ${BALANCE_STEP_BUTTON_LABELS.feature}で${REFACTORING_RATIO_STEP_PERCENT}%ずつ`);

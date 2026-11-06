@@ -6,6 +6,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { Mock } from 'vitest';
 import {
   CELL_SIZE,
+  ENGINEER_HIRE_COST,
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_FUNDS,
@@ -15,12 +16,14 @@ import {
   ITEM_PAGE_SIZE,
   ITEM_SHORT_NAMES,
   LEVEL_UP_INTERVAL_DAYS,
+  MAX_ENGINEERS,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
   STAGE_POINTS_INITIAL,
 } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
-import type { Engineer } from './engineer';
+import { ENGINEER_HIRED_EVENT, getRankLabel, hireEngineer } from './engineer';
+import type { Engineer, EngineerRank } from './engineer';
 import type { GameOverState } from './gameOver';
 import { MS_PER_GAME_DAY } from './gameTime';
 import {
@@ -32,14 +35,14 @@ import {
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
 import { buildHelpLines } from './help';
-import { getMessages, setLocale } from './i18n';
+import { getMessages, interpolate, setLocale } from './i18n';
 import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import { cellCenter } from './route';
 import type { GridCell, Point, Route } from './route';
-import type { ItemMenuView } from './render';
+import type { EngineerMenuCallbacks, ItemMenuView } from './render';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -172,6 +175,8 @@ type SceneUnderTest = {
   initialPlacement: InitialPlacementState;
   initialPlacementSelection: InitialPlacementSelection;
   engineers: Engineer[];
+  nextEngineerId: number;
+  selectedEngineerId: number | null;
   placedItems: readonly PlacedItem[];
   nextItemId: number;
   itemPage: number;
@@ -194,10 +199,11 @@ type SceneUnderTest = {
     readonly on: (event: string, handler: PointerHandler) => void;
   };
   events: {
-    readonly on: Mock<(event: string) => void>;
+    // 購読（handler と this）は記録するだけ。雇用(#172)のテストでは relayEmitted で ENGINEER_HIRED_EVENT を購読者に渡す。
+    readonly on: Mock<(event: string, handler: (payload: object) => void, context: object) => void>;
     readonly once: Mock<(event: string) => void>;
     readonly off: Mock<(event: string) => void>;
-    readonly emit: Mock<(event: string) => boolean>;
+    readonly emit: Mock<(event: string, payload?: object) => boolean>;
   };
   time: { now: number; readonly delayedCall: Mock<(delay: number, callback: () => void) => void> };
   scene: { readonly restart: Mock<() => void> };
@@ -246,10 +252,10 @@ const createHarness = (): Harness => {
     },
   };
   scene.events = {
-    on: vi.fn<(event: string) => void>(),
+    on: vi.fn<(event: string, handler: (payload: object) => void, context: object) => void>(),
     once: vi.fn<(event: string) => void>(),
     off: vi.fn<(event: string) => void>(),
-    emit: vi.fn<(event: string) => boolean>(() => true),
+    emit: vi.fn<(event: string, payload?: object) => boolean>(() => true),
   };
   scene.time = { now: 0, delayedCall: vi.fn<(delay: number, callback: () => void) => void>() };
   // Phaser と同じく restart は予約だけして、押下の処理が終わってから create() をやり直す。
@@ -395,6 +401,60 @@ const routeOf = (scene: SceneUnderTest, engineer: Engineer): Route => {
   return route;
 };
 
+// 出現列（ENGINEER_SPAWN_COL）の行 row のセルの中心。
+const spawnPoint = (row: number): Point => cellCenter({ col: ENGINEER_SPAWN_COL, row });
+
+// 最後に描いたエンジニアのメニュー(#156)の雇う・選択・給与のコールバック。
+const lastEngineerMenu = (): EngineerMenuCallbacks => {
+  const call = vi.mocked(render.drawEngineerMenu).mock.calls.at(-1);
+  if (call === undefined) throw new Error('エンジニアのメニューが描かれていません');
+  return call[2];
+};
+
+// harness の events.emit は記録するだけなので、fromIndex 番目以降に発行した event を、create() で購読した処理に渡す（Phaser と同じく同期で呼ぶ）。
+const relayEmitted = (scene: SceneUnderTest, event: string, fromIndex: number): void => {
+  const subscription = scene.events.on.mock.calls.filter(([name]) => name === event).at(-1);
+  if (subscription === undefined) throw new Error(`購読がありません: ${event}`);
+  const [, handler, context] = subscription;
+  scene.events.emit.mock.calls.slice(fromIndex).forEach(([name, payload]) => {
+    if (name !== event) return;
+    if (payload === undefined) throw new Error(`ペイロードがありません: ${event}`);
+    handler.call(context, payload);
+  });
+};
+
+// 初期配置の間に、右上のエンジニアのメニューから rank を1人雇う(#172)。雇用のイベント（ENGINEER_HIRED_EVENT）も購読者に渡す。
+const hireInSetup = (scene: SceneUnderTest, rank: EngineerRank = 'junior'): void => {
+  if (scene.openMenu !== 'engineer') pressIcon('engineer');
+  const emitted = scene.events.emit.mock.calls.length;
+  lastEngineerMenu().onHire(rank);
+  relayEmitted(scene, ENGINEER_HIRED_EVENT, emitted);
+};
+
+// 初期配置の間に、行ごとに1人ずつ雇って出現列のその行に置く(#172)。初期は0人なので、以前の初期配置（行1・4・7の3人）はこれで作る。
+const FIXTURE_ROWS: readonly number[] = [1, 4, 7];
+const hireAndPlace = (harness: Harness, rows: readonly number[] = FIXTURE_ROWS): void => {
+  rows.forEach((row) => {
+    hireInSetup(harness.scene);
+    harness.pointerDown(spawnPoint(row));
+  });
+  if (harness.scene.engineers.length !== rows.length || harness.scene.engineers.some((engineer) => engineer.routeId === null)) {
+    throw new Error('雇ったエンジニアを全員置けませんでした');
+  }
+};
+
+// route を担当するジュニア1人(#172)。ルートを固定のもの（fixedRoute）に置き換えるテストで、開始の条件（1人以上を配置）を満たすために使う。
+const engineerOn = (route: Route): Engineer => {
+  const hired = hireEngineer(
+    { engineers: [], funds: ENGINEER_HIRE_COST.junior, nextId: 0 },
+    'junior',
+    { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST },
+    () => 0,
+  );
+  if (!hired.ok) throw new Error(`雇えませんでした: ${hired.reason}`);
+  return { ...hired.engineer, routeId: route.id };
+};
+
 describe('MainScene: 初期配置フェーズ(#47)', () => {
   it('create() は setup・STAGE_POINTS_INITIAL・配置なしで始まり、パネルと開始ボタンを描く', () => {
     const { scene } = createHarness();
@@ -405,18 +465,23 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(render.drawInitialPlacementStartButton).toHaveBeenCalledOnce();
   });
 
-  it('create() は未選択で始まり、エンジニアの選択ボタン・置ける床・初期エンジニア全員の×ボタンを描く(#157)', () => {
+  it('create() は未選択・エンジニア0人・ルート0本で始まり、エンジニアの選択ボタン（残り0人）と出現列の全行の置ける床を描き、×ボタンは描かない(#157, #172)', () => {
     const { scene } = createHarness();
     expect(scene.initialPlacementSelection).toEqual({ kind: 'none' });
+    expect(scene.engineers).toEqual([]);
+    expect(scene.routes).toEqual([]);
+    expect(scene.nextEngineerId).toBe(0);
+    expect(scene.selectedEngineerId).toBeNull();
     expect(render.drawInitialPlacementEngineerButton).toHaveBeenCalledOnce();
-    expect(vi.mocked(render.drawEngineerCandidateOverlay).mock.calls.at(-1)?.[1]).toEqual(
-      listEngineerCandidateCells(scene.routes, []),
-    );
-    expect(scene.engineers.length).toBeGreaterThan(0);
-    expect(render.drawRemoveButton).toHaveBeenCalledTimes(scene.engineers.length);
-    scene.engineers.forEach((engineer) => {
-      expect(() => removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn))).not.toThrow();
-    });
+    expect(vi.mocked(render.drawInitialPlacementEngineerButton).mock.calls[0]?.[1]).toBe('エンジニア 残り0人');
+    const candidates = vi.mocked(render.drawEngineerCandidateOverlay).mock.calls.at(-1)?.[1];
+    expect(candidates).toEqual(listEngineerCandidateCells([], []));
+    expect(candidates).toHaveLength(FIELD_ROWS);
+    expect(render.drawRemoveButton).not.toHaveBeenCalled();
+    // ルートの描画は create() で空の一覧を1回だけ描く。
+    expect(render.drawRoutes).toHaveBeenCalledOnce();
+    expect(vi.mocked(render.drawRoutes).mock.calls[0]?.[1]).toEqual([]);
+    expect(render.drawVacationMarker).not.toHaveBeenCalled();
     // アイテムのメニューは閉じた状態で始まり、開くと setup の文言（ステージポイント）で、強調なし(#156)。
     expect(scene.openMenu).toBeNull();
     expect(render.drawItemMenu).not.toHaveBeenCalled();
@@ -590,7 +655,10 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
   });
 
   it('初期配置で置いた主人公についてまわるアイテム（ペアプロ相棒 #58）は、開始時に followItemViews へ登録する', () => {
-    const { scene, pointerDown } = createHarness();
+    const harness = createHarness();
+    const { scene, pointerDown } = harness;
+    // 開始にはエンジニアが1人以上いる(#172)。
+    hireAndPlace(harness, [1]);
     // ペアプロ相棒は Lv.4 で解放する(#164)。初期配置の間は Lv.1 なので、ここでは経過時間を Lv.4 にして開始時の引き継ぎの経路だけを確かめる。
     scene.elapsedMs = (ITEM_REQUIRED_LEVELS.pairProgrammer - 1) * LEVEL_UP_INTERVAL_DAYS * MS_PER_GAME_DAY;
     scene.initialPlacementSelection = { kind: 'item', itemType: 'pairProgrammer' };
@@ -616,8 +684,9 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
 
   it('開始ボタンで playing に移り、置いたアイテムと id を引き継ぐ。以降は時間が進み、押下で置かない', () => {
     const { scene, pointerDown } = createHarness();
-    // 置けるセルが実行ごとに変わらないよう、ルートを固定のものにする。
+    // 置けるセルが実行ごとに変わらないよう、ルートを固定のものにする（開始の条件 #172 のため、その担当を1人置く）。
     scene.routes = [fixedRoute];
+    scene.engineers = [engineerOn(fixedRoute)];
     const [first, second, third] = placeableCells(scene.routes, 3);
     selectItem(scene, 'linter');
     pointerDown(centerOf(first));
@@ -639,8 +708,10 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(scene.elapsedMs).toBe(1000);
   });
 
-  it('配置ゼロでも開始できる。開始後に開始ボタンのコールバックをもう一度呼んでも何も変わらない', () => {
-    const { scene } = createHarness();
+  it('アイテムの配置ゼロでも（エンジニアを1人置けば #172）開始できる。開始後に開始ボタンのコールバックをもう一度呼んでも何も変わらない', () => {
+    const harness = createHarness();
+    const { scene } = harness;
+    hireAndPlace(harness, [1]);
     const onStart = lastStartButton();
     onStart();
     expect(scene.phase).toBe('playing');
@@ -652,7 +723,9 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
   });
 
   it('倒産後のリスタート（ゲームオーバー中の押下）で setup・STAGE_POINTS_INITIAL・配置なしに戻る', () => {
-    const { scene, pointerDown } = createHarness();
+    const harness = createHarness();
+    const { scene, pointerDown } = harness;
+    hireAndPlace(harness, [1]);
     const [cell] = placeableCells(scene.routes, 1);
     selectItem(scene, 'linter');
     pointerDown(centerOf(cell));
@@ -673,16 +746,22 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
 });
 
 describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', () => {
-  // 出現列（ENGINEER_SPAWN_COL）の行 row のセルの中心。
-  const spawnPoint = (row: number): Point => cellCenter({ col: ENGINEER_SPAWN_COL, row });
+  // 初期は0人(#172)なので、各テストは雇って行1・4・7に置いた3人（hireAndPlace）から始める。
+  const createPlacedHarness = (): Harness => {
+    const harness = createHarness();
+    hireAndPlace(harness);
+    return harness;
+  };
 
   it('×でエンジニアを外すと、ルートの線・出現場所・装飾・休暇マーカー・×ボタンを消し、未配置に戻す。開始ボタンは薄くなる', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     const engineer = scene.engineers[0];
     const route = routeOf(scene, engineer);
-    const routeDrawing = vi.mocked(render.drawRoutes).mock.results[0];
-    if (routeDrawing === undefined || routeDrawing.type !== 'return') throw new Error('ルートが描かれていません');
-    const drawing = routeDrawing.value.get(route.id);
+    // 置くたびにそのルートだけを描く（drawRoutes は1人1回）。
+    const drawing = vi
+      .mocked(render.drawRoutes)
+      .mock.results.flatMap((result) => (result.type === 'return' ? [result.value.get(route.id)] : []))
+      .find((candidate) => candidate !== undefined);
     if (drawing === undefined) throw new Error('ルートの描画がありません');
     const destroyed = [drawing.line, drawing.spawnMarker, drawing.spawnDecoration].map((view) => vi.spyOn(view, 'destroy'));
     const markerIndex = vi.mocked(render.drawVacationMarker).mock.calls.findIndex(([, markerRoute]) => markerRoute.id === route.id);
@@ -711,7 +790,7 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
   });
 
   it('境界値: 未配置が1人でもいると開始できず「エンジニアを全員配置してください」を出す。全員置くと開始できる', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     const engineer = scene.engineers[1];
     removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press();
 
@@ -721,13 +800,14 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
 
     lastEngineerButton().onSelect();
     pointerDown(spawnPoint(0));
+    expect(scene.engineers).toHaveLength(FIXTURE_ROWS.length);
     expect(scene.engineers.every((candidate) => candidate.routeId !== null)).toBe(true);
     pressStart();
     expect(scene.phase).toBe('playing');
   });
 
   it('エンジニアを選んで置ける床を押すと、未配置の人をそこに置いてルートを1本描き、休暇マーカーと×ボタンを付ける。全員置くと未選択に戻る', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     const engineer = scene.engineers[0];
     removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press();
     vi.mocked(render.drawRoutes).mockClear();
@@ -755,7 +835,7 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
   });
 
   it('境界値: エンジニアは出現列の右隣（x=60）や使用中の出現セルには置けず、0.01px 左（x=59.99）の空いた行なら置ける', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, scene.engineers[0]).spawn)).press();
     lastEngineerButton().onSelect();
     pointerDown({ x: CELL_SIZE, y: spawnPoint(0).y });
@@ -767,12 +847,22 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     expect(scene.engineers[0]?.routeId).not.toBeNull();
   });
 
-  it('全員配置済みでエンジニアを選んで押すと「置けるエンジニアがいません」', () => {
+  it('全員配置済みでエンジニアを選んで押すと「置けるエンジニアがいません。先に雇ってください」', () => {
+    const { scene, pointerDown } = createPlacedHarness();
+    lastEngineerButton().onSelect();
+    pointerDown(spawnPoint(0));
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, '置けるエンジニアがいません。先に雇ってください');
+    expect(scene.routes).toHaveLength(FIXTURE_ROWS.length);
+    expect(scene.routes).toHaveLength(scene.engineers.length);
+  });
+
+  it('境界値(#172): 0人のままエンジニアを選んで押しても置かず、「置けるエンジニアがいません。先に雇ってください」', () => {
     const { scene, pointerDown } = createHarness();
     lastEngineerButton().onSelect();
     pointerDown(spawnPoint(0));
-    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, '置けるエンジニアがいません');
-    expect(scene.routes).toHaveLength(scene.engineers.length);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, '置けるエンジニアがいません。先に雇ってください');
+    expect(scene.routes).toEqual([]);
+    expect(scene.engineers).toEqual([]);
   });
 
   it('アイテムを置く・外すたびに置ける床を描き直す（前の床は消す）', () => {
@@ -790,7 +880,7 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
   });
 
   it('開始時に置ける床・すべての×ボタン・エンジニアの選択ボタンを消し、開いているアイテムのメニューを通常の表示（金額・強調なし）に戻す', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     const [cell] = placeableCells(scene.routes, 1);
     selectItem(scene, 'linter');
     pointerDown(centerOf(cell));
@@ -800,7 +890,7 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     const removeButtons = vi
       .mocked(render.drawRemoveButton)
       .mock.results.flatMap((result) => (result.type === 'return' ? [vi.spyOn(result.value, 'destroy')] : []));
-    expect(removeButtons).toHaveLength(scene.engineers.length + 1);
+    expect(removeButtons).toHaveLength(FIXTURE_ROWS.length + 1);
     const engineerButtonDestroy = vi.spyOn(lastEngineerButton().container, 'destroy');
 
     pressStart();
@@ -817,6 +907,137 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     const routes = scene.routes.length;
     pointerDown({ x: CELL_SIZE / 2, y: CELL_SIZE / 2 });
     expect(scene.routes).toHaveLength(routes);
+  });
+});
+
+describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () => {
+  const cost = ENGINEER_HIRE_COST.junior;
+
+  it('0人のままでは開始できず「エンジニアを1人以上雇って配置してください」を出す。開始ボタンは薄い', () => {
+    const { scene } = createHarness();
+    const startButton = vi.mocked(render.drawInitialPlacementStartButton).mock.results[0];
+    if (startButton === undefined || startButton.type !== 'return') throw new Error('開始ボタンがありません');
+    const setAlpha = vi.spyOn(startButton.value, 'setAlpha');
+    pressStart();
+    expect(scene.phase).toBe('setup');
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを1人以上雇って配置してください');
+    // 描き直したときも薄いまま。
+    lastEngineerButton().onSelect();
+    expect(setAlpha).toHaveBeenLastCalledWith(INITIAL_PLACEMENT_START_BUTTON_ALPHA.disabled);
+  });
+
+  it('初期配置の間はエンジニアのアイコンでメニューが開き、開発バランスは開かない', () => {
+    const { scene } = createHarness();
+    pressIcon('balance');
+    expect(scene.openMenu).toBeNull();
+    pressIcon('engineer');
+    expect(scene.openMenu).toBe('engineer');
+    expect(render.drawEngineerMenu).toHaveBeenCalledOnce();
+  });
+
+  it('雇うと未配置が1人増え、資金は雇う費用だけ減り、ルートは足さず、次に置くものがエンジニアになる', () => {
+    const { scene } = createHarness();
+    hireInSetup(scene);
+    expect(scene.engineers).toHaveLength(1);
+    expect(scene.engineers[0]?.routeId).toBeNull();
+    expect(scene.engineers[0]?.rank).toBe('junior');
+    expect(scene.nextEngineerId).toBe(1);
+    expect(scene.funds).toBe(INITIAL_FUNDS - cost);
+    expect(scene.routes).toEqual([]);
+    expect(render.drawRoutes).toHaveBeenCalledOnce();
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer' });
+    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア 残り1人');
+    expect(lastEngineerButton().setSelected).toHaveBeenLastCalledWith(true);
+    expect(render.drawHireMessage).toHaveBeenLastCalledWith(scene, interpolate(getMessages().engineer.hired, { rank: getRankLabel('junior') }));
+    // 置く前は開始できない（未配置の人がいる）。
+    pressStart();
+    expect(scene.phase).toBe('setup');
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを全員配置してください');
+  });
+
+  it('雇った人を置ける床に置くと開始できる', () => {
+    const { scene, pointerDown } = createHarness();
+    hireInSetup(scene);
+    pointerDown(spawnPoint(2));
+    const [engineer] = scene.engineers;
+    if (engineer === undefined) throw new Error('エンジニアがいません');
+    expect(routeOf(scene, engineer).spawn).toEqual({ col: ENGINEER_SPAWN_COL, row: 2 });
+    expect(scene.routes).toHaveLength(1);
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'none' });
+    pressStart();
+    expect(scene.phase).toBe('playing');
+  });
+
+  it('境界値: 雇うと資金がちょうど0円になるなら雇わず資金不足を出し、1円残るなら雇える（開始前に倒産しない）', () => {
+    const { scene } = createHarness();
+    scene.funds = cost;
+    hireInSetup(scene);
+    expect(scene.engineers).toEqual([]);
+    expect(scene.funds).toBe(cost);
+    expect(scene.nextEngineerId).toBe(0);
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'none' });
+    expect(render.drawHireMessage).toHaveBeenLastCalledWith(scene, getMessages().common.insufficientFunds);
+    expect(scene.gameOver.over).toBe(false);
+
+    scene.funds = cost + 1;
+    hireInSetup(scene);
+    expect(scene.engineers).toHaveLength(1);
+    expect(scene.funds).toBe(1);
+    expect(scene.gameOver.over).toBe(false);
+  });
+
+  it('初期配置の間はメニューの選択・昇給減給をしない（雇うだけ）', () => {
+    const { scene } = createHarness();
+    hireInSetup(scene);
+    hireInSetup(scene);
+    expect(scene.engineers).toHaveLength(2);
+    const selected = scene.selectedEngineerId;
+    const salaries = scene.engineers.map((engineer) => engineer.salary);
+    lastEngineerMenu().onSelect('next');
+    lastEngineerMenu().onAdjust('raise');
+    expect(scene.selectedEngineerId).toBe(selected);
+    expect(scene.engineers.map((engineer) => engineer.salary)).toEqual(salaries);
+  });
+
+  it('×で外しても名簿に残り（返金しない）、置き直せる', () => {
+    const harness = createHarness();
+    const { scene, pointerDown } = harness;
+    hireAndPlace(harness, [3]);
+    const [engineer] = scene.engineers;
+    if (engineer === undefined) throw new Error('エンジニアがいません');
+    const fundsAfterHire = scene.funds;
+    expect(fundsAfterHire).toBe(INITIAL_FUNDS - cost);
+    removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press();
+    expect(scene.engineers).toHaveLength(1);
+    expect(scene.engineers[0]?.routeId).toBeNull();
+    expect(scene.routes).toEqual([]);
+    expect(scene.funds).toBe(fundsAfterHire);
+    lastEngineerButton().onSelect();
+    pointerDown(spawnPoint(5));
+    const placed = scene.engineers[0];
+    if (placed === undefined) throw new Error('エンジニアがいません');
+    expect(routeOf(scene, placed).spawn).toEqual({ col: ENGINEER_SPAWN_COL, row: 5 });
+    pressStart();
+    expect(scene.phase).toBe('playing');
+  });
+
+  it('倒産後のリスタートで0人・0ルート・INITIAL_FUNDS・次の id 0 に戻る', () => {
+    const harness = createHarness();
+    const { scene, pointerDown } = harness;
+    hireAndPlace(harness);
+    expect(scene.funds).toBe(INITIAL_FUNDS - cost * FIXTURE_ROWS.length);
+    pressStart();
+    scene.gameOver = { over: true, at: 0 };
+    scene.time.now = Number.MAX_SAFE_INTEGER;
+
+    pointerDown(spawnPoint(0));
+
+    expect(scene.scene.restart).toHaveBeenCalledOnce();
+    expect(scene.phase).toBe('setup');
+    expect(scene.engineers).toEqual([]);
+    expect(scene.routes).toEqual([]);
+    expect(scene.nextEngineerId).toBe(0);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
   });
 });
 
@@ -871,6 +1092,8 @@ describe('MainScene: 描画どおりの配置判定と置けるかどうかの�
   const createFixture = (): Harness => {
     const harness = createHarness();
     harness.scene.routes = [fixedRoute];
+    // 開始の条件(#172)のため、固定のルートの担当を1人置く。
+    harness.scene.engineers = [engineerOn(fixedRoute)];
     harness.scene.initialPlacement = { points: 6, itemState: { placedItems: [], nextId: 0 } };
     return harness;
   };
@@ -1070,6 +1293,8 @@ describe('MainScene: ゲームの説明（右上の ℹ️）(#165)', () => {
   const createFixture = (): Harness => {
     const harness = createHarness();
     harness.scene.routes = [fixedRoute];
+    // 開始の条件(#172)のため、固定のルートの担当を1人置く。
+    harness.scene.engineers = [engineerOn(fixedRoute)];
     return harness;
   };
 

@@ -78,6 +78,7 @@ import { addRoute, createRoutes, nextSpawnCell } from './route';
 import { advanceCode, moveDistanceUnlessPaused, spawnCode, stepSpawnTimerUnlessPaused } from './codeFlow';
 import { checkBankruptcy, INITIAL_GAME_OVER_STATE } from './gameOver';
 import { MS_PER_GAME_DAY } from './gameTime';
+import { createFixtureFleet, FIXTURE_ENGINEER_RANKS, FIXTURE_SPAWN_CELLS } from './testFixtures';
 
 const rules: HireRules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
 const makeEngineer = (id: number, rank: EngineerRank, routeId: number | null): Engineer => ({
@@ -243,26 +244,27 @@ describe('hireEngineer: 副作用と id', () => {
 });
 
 describe('createInitialEngineers', () => {
-  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+  const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0.5);
 
   it('初期ルートと同じ人数で、各ルートの routeId を持つ', () => {
-    const engineers = createInitialEngineers(routes, INITIAL_ENGINEER_RANKS);
-    expect(engineers).toHaveLength(ENGINEER_SPAWN_CELLS.length);
+    const engineers = createInitialEngineers(routes, FIXTURE_ENGINEER_RANKS);
+    expect(engineers).toHaveLength(FIXTURE_SPAWN_CELLS.length);
     expect(engineers.map((engineer) => engineer.routeId)).toEqual(routes.map((route) => route.id));
     expect(engineers.map((engineer) => engineer.id)).toEqual([0, 1, 2]);
   });
   it('初期ランクは全員ジュニア', () => {
-    expect(createInitialEngineers(routes, INITIAL_ENGINEER_RANKS).every((e) => e.rank === 'junior')).toBe(true);
+    expect(createInitialEngineers(routes, FIXTURE_ENGINEER_RANKS).every((e) => e.rank === 'junior')).toBe(true);
   });
-  it('初期ランクの数は出現セルの数と同じ', () => {
+  it('初期ランクの数は出現セルの数と同じ（設定値。#172 からはどちらも0）', () => {
     expect(INITIAL_ENGINEER_RANKS).toHaveLength(ENGINEER_SPAWN_CELLS.length);
+    expect(FIXTURE_ENGINEER_RANKS).toHaveLength(FIXTURE_SPAWN_CELLS.length);
   });
   it('ランクの指定どおりに割り当てる', () => {
     const engineers = createInitialEngineers(routes, ['senior', 'middle', 'junior']);
     expect(engineers.map((engineer) => engineer.rank)).toEqual(['senior', 'middle', 'junior']);
   });
   it('ルートが空なら空', () => {
-    expect(createInitialEngineers([], INITIAL_ENGINEER_RANKS)).toEqual([]);
+    expect(createInitialEngineers([], FIXTURE_ENGINEER_RANKS)).toEqual([]);
   });
 });
 
@@ -367,7 +369,7 @@ describe('assignEngineerRoute: パラメータの保持', () => {
 
 describe('休暇(#35): 初期状態', () => {
   it('初期フリートの全員が休暇中ではない', () => {
-    const { engineers } = createInitialFleet(() => 0.5);
+    const { engineers } = createFixtureFleet(() => 0.5);
     expect(engineers.map(isEngineerOnVacation)).toEqual(engineers.map(() => false));
   });
   it.each(['junior', 'middle', 'senior'] as const)('%s を雇った直後は休暇中ではない', (rank) => {
@@ -506,7 +508,7 @@ describe('休暇(#35): toggleEngineerVacation', () => {
 // 休暇を与えると不正コード率が下がる(#39): 低下量(vacationRateReduction)の境界値。
 describe('休暇(#39): 低下量の初期値', () => {
   it('初期フリートの全員の低下量は 0', () => {
-    const { engineers } = createInitialFleet(() => 0.5);
+    const { engineers } = createFixtureFleet(() => 0.5);
     expect(engineers.length).toBeGreaterThan(0);
     expect(engineers.map((engineer) => engineer.vacationRateReduction)).toEqual(engineers.map(() => 0));
   });
@@ -701,7 +703,7 @@ describe('休暇中はそのエンジニアのコードを止める(#36): isRout
 describe('休暇中はそのエンジニアのコードを止める(#36): 複数フレームの合成', () => {
   // main.ts の updateCodes と同じ順に、休暇の切替 → ルートの判定 → 生成タイマー・移動を組み合わせる。
   const interval = CODE_SPAWN_INTERVAL_MS;
-  const route = createRoutes(ENGINEER_SPAWN_CELLS, () => 0)[0];
+  const route = createRoutes(FIXTURE_SPAWN_CELLS, () => 0)[0];
   const frame = (
     engineers: readonly Engineer[],
     elapsedMs: number,
@@ -725,7 +727,7 @@ describe('休暇中はそのエンジニアのコードを止める(#36): 複数
   });
 
   it('休暇中のルートのコードは進まず、解除後に進む。他のルートは影響を受けない', () => {
-    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0);
+    const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0);
     let engineers: readonly Engineer[] = toggleEngineerVacation(makeEngineers(2), 0);
     const paused = spawnCode(1, 'malicious', routes[0]);
     const working = spawnCode(2, 'normal', routes[1]);
@@ -747,7 +749,7 @@ describe('shouldAddRouteOnHire', () => {
   });
   it('倒産後は雇うことも既存どおり不可（雇ってもルートは増えない判定）', () => {
     // 資金ちょうどで雇うと倒産する（BANKRUPT_INCLUDES_ZERO）。
-    const fleet = createInitialFleet(() => 0);
+    const fleet = createFixtureFleet(() => 0);
     const hired = hireEngineer(
       { engineers: fleet.engineers, funds: ENGINEER_HIRE_COST.junior, nextId: fleet.nextEngineerId },
       'junior',
@@ -765,26 +767,36 @@ describe('shouldAddRouteOnHire', () => {
 });
 
 describe('createInitialFleet（初期化・やり直し）', () => {
-  it('エンジニア3人・ルート3本・routeId 0..2・ランク junior・ルート id と一致', () => {
+  it('ゲーム開始時は0人・0ルートで、次に雇う人の id は 0(#172)', () => {
+    expect(ENGINEER_SPAWN_CELLS).toEqual([]);
+    expect(INITIAL_ENGINEER_RANKS).toEqual([]);
     const fleet = createInitialFleet(() => 0);
-    expect(fleet.engineers).toHaveLength(ENGINEER_SPAWN_CELLS.length);
-    expect(fleet.routes).toHaveLength(ENGINEER_SPAWN_CELLS.length);
-    expect(fleet.engineers.map((e) => e.routeId)).toEqual([0, 1, 2]);
-    expect(fleet.engineers.map((e) => e.routeId)).toEqual(fleet.routes.map((r) => r.id));
-    expect(fleet.engineers.every((e) => e.rank === 'junior')).toBe(true);
-    expect(fleet.nextEngineerId).toBe(3);
+    expect(fleet.engineers).toEqual([]);
+    expect(fleet.routes).toEqual([]);
+    expect(fleet.nextEngineerId).toBe(0);
   });
-  it('雇ったあとに作り直しても前回の状態は残らず、2回呼んでも同じ形', () => {
+  it('雇ったあとに作り直しても前回の状態は残らず、0人・0ルートに戻る(#172)', () => {
     const first = createInitialFleet(() => 0);
     const hired = hireEngineer(
       { engineers: first.engineers, funds: RICH, nextId: first.nextEngineerId },
       'senior',
       rules,
     );
-    expect(hired.ok).toBe(true);
+    if (!hired.ok) throw new Error('雇えるはず');
+    expect(hired.engineers).toHaveLength(1);
+    expect(hired.engineer.id).toBe(0);
     const again = createInitialFleet(() => 0);
     expect(again).toEqual(first);
-    expect(again.engineers).toHaveLength(3);
+    expect(again).toEqual({ routes: [], engineers: [], nextEngineerId: 0 });
+  });
+  it('fixture（従来の初期配置）: エンジニア3人・ルート3本・routeId 0..2・ランク junior・ルート id と一致', () => {
+    const fleet = createFixtureFleet(() => 0);
+    expect(fleet.engineers).toHaveLength(FIXTURE_SPAWN_CELLS.length);
+    expect(fleet.routes).toHaveLength(FIXTURE_SPAWN_CELLS.length);
+    expect(fleet.engineers.map((e) => e.routeId)).toEqual([0, 1, 2]);
+    expect(fleet.engineers.map((e) => e.routeId)).toEqual(fleet.routes.map((r) => r.id));
+    expect(fleet.engineers.every((e) => e.rank === 'junior')).toBe(true);
+    expect(fleet.nextEngineerId).toBe(3);
   });
 });
 
@@ -815,7 +827,7 @@ describe('雇う→ルート追加→routeId 割当（8・9・10人目）', () =
   };
 
   it('3人から9人まで順に雇うとルートが増え、routeId がそのルートの id になる', () => {
-    let fleet = createInitialFleet(() => 0);
+    let fleet = createFixtureFleet(() => 0);
     for (let n = fleet.engineers.length + 1; n <= MAX_ENGINEERS; n++) {
       const step = hireAndRoute(fleet);
       expect(step?.route).toBeDefined();
@@ -828,7 +840,7 @@ describe('雇う→ルート追加→routeId 割当（8・9・10人目）', () =
   });
 
   it('10人目は雇えず、ルートも増えない', () => {
-    let fleet = createInitialFleet(() => 0);
+    let fleet = createFixtureFleet(() => 0);
     while (fleet.engineers.length < MAX_ENGINEERS) {
       const step = hireAndRoute(fleet);
       if (!step) return;
@@ -838,7 +850,7 @@ describe('雇う→ルート追加→routeId 割当（8・9・10人目）', () =
   });
 
   it('addRoute が undefined なら routeId は null のまま（人数だけ増えた状態）', () => {
-    const fleet = createInitialFleet(() => 0);
+    const fleet = createFixtureFleet(() => 0);
     const full = { ...fleet, routes: createRoutes(Array.from({ length: MAX_ENGINEER_ROUTES }, (_, row) => ({ col: 0, row })), () => 0) };
     const step = hireAndRoute(full);
     expect(step?.route).toBeUndefined();
@@ -846,7 +858,7 @@ describe('雇う→ルート追加→routeId 割当（8・9・10人目）', () =
   });
 
   it('追加したルートの出現セルは左の列を上から埋める順（nextSpawnCell と一致）', () => {
-    let fleet = createInitialFleet(() => 0);
+    let fleet = createFixtureFleet(() => 0);
     while (fleet.engineers.length < MAX_ENGINEERS) {
       const expected = nextSpawnCell(fleet.routes.map((r) => r.spawn));
       const step = hireAndRoute(fleet);
@@ -889,7 +901,7 @@ describe('createEngineerParameters / 初期値', () => {
     expect(a).not.toBe(ENGINEER_INITIAL_PARAMETERS.junior);
   });
   it('初期エンジニアは設定表どおりで、人ごとに別オブジェクト（変更しても他に影響しない）', () => {
-    const fleet = createInitialFleet(() => 0);
+    const fleet = createFixtureFleet(() => 0);
     for (const engineer of fleet.engineers) {
       expect(engineer).toMatchObject(createEngineerParameters(engineer.rank, engineer.personality));
     }
@@ -899,7 +911,7 @@ describe('createEngineerParameters / 初期値', () => {
     expect(fleet.engineers[1].fatigue).toBe(ENGINEER_INITIAL_PARAMETERS.junior.fatigue);
   });
   it('createInitialEngineers はランク指定どおりの初期値', () => {
-    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+    const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0.5);
     const engineers = createInitialEngineers(routes, ['senior', 'middle', 'junior'], () => 0);
     expect(engineers.map((e) => e.skill)).toEqual(
       (['senior', 'middle', 'junior'] as const).map((r) => createEngineerParameters(r, 'meticulous').skill),
@@ -1172,25 +1184,25 @@ describe('pickRandomPersonality: 重みを渡す', () => {
 });
 
 describe('性格の付与', () => {
-  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+  const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0.5);
   it('初期の3人に、渡した random どおりの性格が付く', () => {
-    const engineers = createInitialEngineers(routes, INITIAL_ENGINEER_RANKS, sequence([0, 0.5, 0.999]));
+    const engineers = createInitialEngineers(routes, FIXTURE_ENGINEER_RANKS, sequence([0, 0.5, 0.999]));
     expect(engineers.map((e) => e.personality)).toEqual(['meticulous', 'earnest', 'gloomy']);
   });
-  it('createInitialFleet も同じ乱数列で同じルートと性格', () => {
+  it('ルート → エンジニアの順に作る fixture（createFixtureFleet）も同じ乱数列で同じルートと性格', () => {
     const values = [0.1, 0.9, 0.4, 0.6, 0.2, 0.8, 0.3, 0.7, 0.05, 0.95, 0.5, 0.15, 0.85, 0.25, 0.75];
-    const a = createInitialFleet(sequence(values));
-    const b = createInitialFleet(sequence(values));
+    const a = createFixtureFleet(sequence(values));
+    const b = createFixtureFleet(sequence(values));
     expect(a).toEqual(b);
-    expect(a.routes).toEqual(createRoutes(ENGINEER_SPAWN_CELLS, sequence(values)));
+    expect(a.routes).toEqual(createRoutes(FIXTURE_SPAWN_CELLS, sequence(values)));
   });
-  it('createInitialFleet はルート生成の後に同じ random を使う（ルートは性格追加前と同じ）', () => {
-    const fleet = createInitialFleet(() => 0);
-    expect(fleet.routes).toEqual(createRoutes(ENGINEER_SPAWN_CELLS, () => 0));
+  it('fixture（createFixtureFleet）はルート生成の後に同じ random を使う（ルートは性格追加前と同じ）', () => {
+    const fleet = createFixtureFleet(() => 0);
+    expect(fleet.routes).toEqual(createRoutes(FIXTURE_SPAWN_CELLS, () => 0));
     expect(fleet.engineers.every((e) => e.personality === 'meticulous')).toBe(true);
   });
   it('random を渡さなくても有効な性格が付く', () => {
-    for (const engineer of createInitialEngineers(routes, INITIAL_ENGINEER_RANKS)) {
+    for (const engineer of createInitialEngineers(routes, FIXTURE_ENGINEER_RANKS)) {
       expect(PERSONALITY_IDS).toContain(engineer.personality);
     }
     const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, 'junior', rules);
@@ -1417,23 +1429,23 @@ describe('getFatigueRateMultiplier', () => {
 });
 
 describe('性格の初期値と乱数', () => {
-  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+  const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0.5);
   it('最初の3人に性格どおりの初期値が付く', () => {
-    const engineers = createInitialEngineers(routes, INITIAL_ENGINEER_RANKS, sequence([0, 0.5, 0.999]));
+    const engineers = createInitialEngineers(routes, FIXTURE_ENGINEER_RANKS, sequence([0, 0.5, 0.999]));
     expect(engineers.map((e) => [e.personality, e.concentration, e.skill, e.attachment, e.fatigue])).toEqual([
       ['meticulous', 50, 70, 50, 0],
       ['earnest', 70, 50, 70, 0],
       ['gloomy', 70, 70, 30, 0],
     ]);
   });
-  it('createInitialFleet: 同じ乱数列で同じルート・性格・パラメータ', () => {
+  it('fixture（createFixtureFleet）: 同じ乱数列で同じルート・性格・パラメータ', () => {
     const values = [0.1, 0.9, 0.4, 0.6, 0.2, 0.8, 0.3, 0.7, 0.05, 0.95, 0.5, 0.15];
-    expect(createInitialFleet(sequence(values))).toEqual(createInitialFleet(sequence(values)));
+    expect(createFixtureFleet(sequence(values))).toEqual(createFixtureFleet(sequence(values)));
   });
   it('createInitialEngineers が random を呼ぶ回数は人数と同じ', () => {
     const counter = counting(0.5);
-    createInitialEngineers(routes, INITIAL_ENGINEER_RANKS, counter.random);
-    expect(counter.calls()).toBe(INITIAL_ENGINEER_RANKS.length);
+    createInitialEngineers(routes, FIXTURE_ENGINEER_RANKS, counter.random);
+    expect(counter.calls()).toBe(FIXTURE_ENGINEER_RANKS.length);
   });
   it.each(['junior', 'middle', 'senior'] as const)('%s を雇った人に性格どおりの初期値が付く（根暗）', (rank) => {
     const hired = hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, rank, rules, () => 0.999);
@@ -1514,7 +1526,7 @@ describe('給料の初期額をランクで決める(#33)', () => {
   );
 
   it('createInitialEngineers: 各エンジニアの salary は指定したランクの初期額', () => {
-    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+    const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0.5);
     const engineers = createInitialEngineers(routes, ['senior', 'middle', 'junior'], () => 0);
     expect(engineers.map((e) => e.salary)).toEqual([
       ENGINEER_MONTHLY_SALARY_BY_RANK.senior,
@@ -1524,12 +1536,12 @@ describe('給料の初期額をランクで決める(#33)', () => {
   });
 
   it('createInitialEngineers: ルートが0件なら空配列', () => {
-    expect(createInitialEngineers([], INITIAL_ENGINEER_RANKS, () => 0)).toEqual([]);
+    expect(createInitialEngineers([], FIXTURE_ENGINEER_RANKS, () => 0)).toEqual([]);
   });
 
-  it('createInitialFleet: 初期の全員が初期ランクの初期額を持つ', () => {
-    const fleet = createInitialFleet(() => 0);
-    expect(fleet.engineers.map((e) => e.salary)).toEqual(INITIAL_ENGINEER_RANKS.map((rank) => getInitialSalary(rank)));
+  it('fixture（createFixtureFleet）: 初期の全員が初期ランクの初期額を持つ', () => {
+    const fleet = createFixtureFleet(() => 0);
+    expect(fleet.engineers.map((e) => e.salary)).toEqual(FIXTURE_ENGINEER_RANKS.map((rank) => getInitialSalary(rank)));
   });
 
   it('月給の設定で random を余分に呼ばない（雇用1回・初期編成は人数ぶん）', () => {
@@ -1537,7 +1549,7 @@ describe('給料の初期額をランクで決める(#33)', () => {
     hireEngineer({ engineers: [], funds: RICH, nextId: 0 }, 'senior', rules, hireCounter.random);
     expect(hireCounter.calls()).toBe(1);
     const initialCounter = counting(0.5);
-    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+    const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0.5);
     createInitialEngineers(routes, ['junior', 'middle', 'senior'], initialCounter.random);
     expect(initialCounter.calls()).toBe(3);
   });
@@ -1959,7 +1971,7 @@ describe('愛着心の時間変化(#30): 休暇の開始・終了との組み合
 });
 
 describe('月給の初期額 initialSalary(#31)', () => {
-  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+  const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0.5);
   const ranks: EngineerRank[] = ['junior', 'middle', 'senior'];
 
   it('初期エンジニアの initialSalary と salary はランクの月給と同じ', () => {
