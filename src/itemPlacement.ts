@@ -29,6 +29,7 @@ import {
   ITEM_DEFINITIONS,
   ITEM_TYPES,
   isFollowItem,
+  isItemUnlocked,
   isTargetInItemRange,
   isWithinRange,
   itemTargetsNormalCode,
@@ -178,10 +179,11 @@ const isOccupied = (cell: PlacementCell, placedItems: readonly PlacedItem[]): bo
 export const isPlaceableCell = (cell: PlacementCell, context: PlacementContext): boolean =>
   isOpenTerrain(cell, context) && !isOccupied(cell, context.placedItems);
 
-// noEligibleIncident はロールバックボタン(#58)専用。取り消せる直前の障害がない。
+// noEligibleIncident はロールバックボタン(#58)専用。取り消せる直前の障害がない。locked は今のレベルではまだ解放されていない(#164)。
 export type PurchaseFailReason =
   | 'gameOver'
   | 'unknownItem'
+  | 'locked'
   | 'notPlaceable'
   | 'occupied'
   | 'insufficientFunds'
@@ -202,6 +204,8 @@ export type PurchaseState = {
   readonly placedItems: readonly PlacedItem[];
   readonly nextId: number;
   readonly gameOver: boolean;
+  // 今のレベル(#164。level.ts の levelAt)。必要レベル（ITEM_REQUIRED_LEVELS）に届かないアイテムは買えない。省略できない（全解放の既定値は持たない）。
+  readonly level: number;
 };
 
 export type PurchaseOptions = Omit<PlacementContext, 'placedItems'> & {
@@ -212,7 +216,7 @@ export type PurchaseOptions = Omit<PlacementContext, 'placedItems'> & {
 const isItemType = (value: string): value is ItemType =>
   (ITEM_TYPES as readonly string[]).includes(value);
 
-// アイテムを買って置く。判定順: ゲームオーバー → 不明なアイテム → 置けない場所 → 既にある → 資金不足。
+// アイテムを買って置く。判定順: ゲームオーバー → 不明なアイテム → 解放前(#164) → 置けない場所 → 既にある → 資金不足。
 // 資金がちょうど価格なら買えて 0 になる。入力は変更しない。
 // 置かないアイテム（placement: none #58）は purchaseInstantItem で買う。ここに渡すと notPlaceable。
 // 主人公についてまわるアイテム（ペアプロ相棒 #58）はセルにとどまらないので、置けない場所・既にあるの判定をしない（cell は購入時の位置として記録する）。
@@ -224,6 +228,7 @@ export const purchaseItem = (
 ): PurchaseResult => {
   if (state.gameOver) return { ok: false, reason: 'gameOver' };
   if (!isItemType(itemType)) return { ok: false, reason: 'unknownItem' };
+  if (!isItemUnlocked(itemType, state.level)) return { ok: false, reason: 'locked' };
   if (getItemPlacement(itemType) === 'none') return { ok: false, reason: 'notPlaceable' };
   if (!isFollowItem(itemType)) {
     if (!isOpenTerrain(cell, { ...options, placedItems: state.placedItems })) {
@@ -259,10 +264,12 @@ export type InstantPurchaseState = {
   readonly gameOver: boolean;
   // 取り消せる直前の障害があるか（ロールバックボタン #58 の判定だけに使う）。
   readonly hasRollbackTarget: boolean;
+  // 今のレベル(#164)。purchaseItem と同じく、必要レベルに届かないアイテムは買えない。省略できない。
+  readonly level: number;
 };
 
 // 置かないアイテム（placement: none #58）を買う。セルは見ない。placedItems にも入れない。
-// 判定順: ゲームオーバー → 不明なアイテム → 置くアイテム（notPlaceable。purchaseItem で買う） → ロールバックの対象なし → 資金不足。
+// 判定順: ゲームオーバー → 不明なアイテム → 解放前(#164) → 置くアイテム（notPlaceable。purchaseItem で買う） → ロールバックの対象なし → 資金不足。
 // 資金がちょうど価格なら買えて 0 になる。効果の発動は呼び出し側（MainScene）が行う。入力は変更しない。
 export const purchaseInstantItem = (
   state: InstantPurchaseState,
@@ -271,6 +278,7 @@ export const purchaseInstantItem = (
 ): InstantPurchaseResult => {
   if (state.gameOver) return { ok: false, reason: 'gameOver' };
   if (!isItemType(itemType)) return { ok: false, reason: 'unknownItem' };
+  if (!isItemUnlocked(itemType, state.level)) return { ok: false, reason: 'locked' };
   if (getItemPlacement(itemType) !== 'none') return { ok: false, reason: 'notPlaceable' };
   if (ITEM_DEFINITIONS[itemType].effect === 'rollback' && !state.hasRollbackTarget) {
     return { ok: false, reason: 'noEligibleIncident' };
@@ -297,6 +305,8 @@ export const formatItemMessage = (result: PurchaseResult | InstantPurchaseResult
       return messages.common.insufficientFunds;
     case 'noEligibleIncident':
       return messages.items.noEligibleIncident;
+    case 'locked':
+      return messages.common.itemLocked;
     default:
       return messages.common.notPlaceable;
   }

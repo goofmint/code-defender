@@ -17,6 +17,7 @@ import {
   ITEM_PAGE_KEYS,
   ITEM_PAGE_SIZE,
   ITEM_SHORT_NAMES,
+  LEVEL_UP_INTERVAL_DAYS,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
   STAGE_POINTS_INITIAL,
@@ -24,6 +25,7 @@ import {
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import type { Engineer } from './engineer';
 import type { GameOverState } from './gameOver';
+import { MS_PER_GAME_DAY } from './gameTime';
 import {
   engineerRemoveButtonCenter,
   formatInitialPlacementItemButton,
@@ -33,7 +35,7 @@ import {
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
 import { setLocale } from './i18n';
-import { ITEM_TYPES } from './item';
+import { ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
@@ -515,45 +517,61 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(scene.initialPlacement.itemState.placedItems.map((item) => item.cell)).toEqual([cell, neighbour]);
   });
 
-  it('購入キーは setup の間は現在のページの種類を選ぶだけで、買わない。ページ切り替え(#58)は setup の間も動く', () => {
+  it('購入キーは setup の間は解放済み（Lv.1 #164）の一覧の枠の種類を選ぶだけで、買わない。ページ切り替え(#58)は setup の間も動く', () => {
     const { scene, pressKey } = createHarness();
-    const catIndex = ITEM_TYPES.indexOf('cat');
-    const catPage = Math.floor(catIndex / ITEM_PAGE_SIZE);
-    for (let page = 0; page < catPage; page += 1) {
-      pressKey(ITEM_PAGE_KEYS.next);
-    }
-    expect(scene.itemPage).toBe(catPage);
-    pressKey(ITEM_BUY_KEYS[catIndex % ITEM_PAGE_SIZE]);
-    expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'cat' });
+    // Lv.1 は CodeRabbit・Linter・テストツールの1ページだけなので、次のページへ送っても1ページ目に戻る。
+    pressKey(ITEM_PAGE_KEYS.next);
+    expect(scene.itemPage).toBe(0);
+    pressKey(ITEM_BUY_KEYS[2]);
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'testTool' });
     expect(scene.placedItems).toEqual([]);
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(render.drawItemMessage).not.toHaveBeenCalled();
   });
 
-  it('置かないアイテム（placement: none #58）は選べても置けず、「そこには置けません」を出す。資金は変えない', () => {
-    const { scene, pressKey, pointerDown } = createHarness();
-    const index = ITEM_TYPES.indexOf('codeFreeze');
-    for (let page = 0; page < Math.floor(index / ITEM_PAGE_SIZE); page += 1) {
-      pressKey(ITEM_PAGE_KEYS.next);
-    }
-    pressKey(ITEM_BUY_KEYS[index % ITEM_PAGE_SIZE]);
-    expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'codeFreeze' });
+  it('境界値: Lv.1 では4枠目（キー 7）より先は空の枠なので、キーを押しても選択は変わらない(#164)', () => {
+    const { scene, pressKey } = createHarness();
+    pressKey(ITEM_BUY_KEYS[0]);
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'codeRabbit' });
+    for (const key of ITEM_BUY_KEYS.slice(3)) pressKey(key);
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'codeRabbit' });
+  });
+
+  it('初期配置のアイテムのメニューは Lv.1 の3種類だけで、ページは 1/1(#164)', () => {
+    const { scene } = createHarness();
+    pressIcon('item');
+    expect(scene.openMenu).toBe('item');
+    const { view } = lastItemMenu();
+    expect(view.labels).toEqual([
+      formatInitialPlacementItemButton('codeRabbit'),
+      formatInitialPlacementItemButton('linter'),
+      formatInitialPlacementItemButton('testTool'),
+      null,
+      null,
+      null,
+    ]);
+    expect(view.pageLabel).toBe('1/1');
+  });
+
+  it('解放前のアイテム（CI・コードフリーズ）は選択が残っていても置けず、「まだ使えないアイテムです」を出す。ポイント・資金は変えない(#164)', () => {
+    const { scene, pointerDown } = createHarness();
     const [cell] = placeableCells(scene.routes, 1);
-    pointerDown(centerOf(cell));
-    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
-    expect(scene.initialPlacement.points).toBe(STAGE_POINTS_INITIAL);
-    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'そこには置けません');
+    for (const itemType of ['ci', 'codeFreeze'] as const) {
+      scene.initialPlacementSelection = { kind: 'item', itemType };
+      pointerDown(centerOf(cell));
+      expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+      expect(scene.initialPlacement.points).toBe(STAGE_POINTS_INITIAL);
+      expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'まだ使えないアイテムです');
+    }
     expect(render.drawItemMessage).not.toHaveBeenCalled();
     expect(scene.funds).toBe(INITIAL_FUNDS);
   });
 
   it('初期配置で置いた主人公についてまわるアイテム（ペアプロ相棒 #58）は、開始時に followItemViews へ登録する', () => {
     const { scene, pressKey, pointerDown } = createHarness();
-    const index = ITEM_TYPES.indexOf('pairProgrammer');
-    for (let page = 0; page < Math.floor(index / ITEM_PAGE_SIZE); page += 1) {
-      pressKey(ITEM_PAGE_KEYS.next);
-    }
-    pressKey(ITEM_BUY_KEYS[index % ITEM_PAGE_SIZE]);
+    // ペアプロ相棒は Lv.4 で解放する(#164)。初期配置の間は Lv.1 なので、ここでは経過時間を Lv.4 にして開始時の引き継ぎの経路だけを確かめる。
+    scene.elapsedMs = (ITEM_REQUIRED_LEVELS.pairProgrammer - 1) * LEVEL_UP_INTERVAL_DAYS * MS_PER_GAME_DAY;
+    scene.initialPlacementSelection = { kind: 'item', itemType: 'pairProgrammer' };
     const [cell] = placeableCells(scene.routes, 1);
     pointerDown(centerOf(cell));
     const drawing = vi.mocked(render.drawPlacedItem).mock.results[0];

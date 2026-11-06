@@ -50,10 +50,13 @@ export const ja = {
     notPlaceable: 'そこには置けません',
     // {item} は渡された生の識別子（不明なので表示名はない）。
     unknownItem: '不明なアイテムです: {item}',
+    // 解放前のアイテム(#164)。レベルが上がると使えるようになる。
+    itemLocked: 'まだ使えないアイテムです',
   },
   // 常時表示（左上の経過日数、右下の指標 #156）。{amount} は formatYen で整形した円額。
   hud: {
-    elapsedDays: '経過日数: {days}日',
+    // {level} はレベル(#164)、{days} は経過日数。
+    levelAndDays: 'Lv.{level} / {days}日',
     funds: '資金: {amount}',
     cumulativeSales: '累計売上: {amount}',
     // 月末に支払うお金（給料＋月額アイテム＋AIエージェントの月額）。

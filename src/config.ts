@@ -180,7 +180,11 @@ const GAME_DAY_MS = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH;
 // コード速度の間隔（DIFFICULTY_STEP_MS）とは分け、1段階ごとに CODE_MALICIOUS_RATE_INCREMENT（+3 ポイント）ずつ上げる（difficulty.ts の maliciousRateAt）。
 export const MALICIOUS_RATE_STEP_DAYS = 10;
 export const MALICIOUS_RATE_STEP_MS = GAME_DAY_MS * MALICIOUS_RATE_STEP_DAYS;
-// 仮: 経過日数の表示書式「経過日数: N日」は言語カタログ（hud.elapsedDays）に置く(#158)。企画書には表示書式の記載なし。
+// 仮: 経過日数の表示書式は言語カタログ（hud.levelAndDays）に置く(#158)。企画書には表示書式の記載なし。
+// 仮・要確認(#164): #164 でレベルを付けて「Lv.2 / 30日」にした（位置・文字スタイルは変えない）。
+// 仮・要確認(#164): レベルを1つ上げる間隔（ゲーム内の日数）。「30日ごとにレベルを挙げる」(#164)。レベルは経過日数から求める（level.ts の levelAt）。
+// 0〜29日が Lv.1、30〜59日が Lv.2。上限はない（すべてのアイテムを解放した後もレベルは上がり続ける）。
+export const LEVEL_UP_INTERVAL_DAYS = 30;
 // 仮・要確認(#59追加対応): 左上の表示（経過日数・初期配置UI）の左端 x。企画書には未記載。
 // 出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右隣に余白12pxを置く。出現場所は列0の行0〜8のどこにでも出るため、列0の右に置いて重ならないようにする。
 const HUD_LEFT_X = CELL_SIZE * (ENGINEER_SPAWN_COL + 1) + 12;
@@ -607,6 +611,30 @@ export const ITEM_PAGE_SIZE = ITEM_BUY_KEYS.length;
 export const ITEM_PAGE_KEYS = { previous: 'G', next: 'H' } as const;
 // 仮・要確認(#156): アイテムのメニューのページ切替ボタンの文字。キー名は出さない（キー操作 G/H は残す）。
 export const ITEM_PAGE_BUTTON_LABELS = { previous: '◀', next: '▶' } as const;
+// 仮・要確認(#164): アイテムを置ける・使えるようになるレベル（「レベルが上がる毎に、置けるアイテムを追加」「最初から置けるアイテムが多すぎる」）。
+// Lv.1 は CodeRabbit・Linter・テストツールの3種類、Lv.2 で CI、以降は ITEM_TYPES の定義順に1レベル1種類ずつ増え、Lv.16 で18種類すべてになる。
+// 購入（itemPlacement.ts）と初期配置（initialPlacement.ts。初期配置の間は Lv.1）で解放前のアイテムを拒否し、アイテムのメニューには解放済みだけを並べる。
+// AIエージェント(#53)は対象外（レベルに関係なく付けられる）。
+export const ITEM_REQUIRED_LEVEL_BY_TYPE = {
+  codeRabbit: 1,
+  linter: 1,
+  testTool: 1,
+  ci: 2,
+  securityScanner: 3,
+  pairProgrammer: 4,
+  cat: 5,
+  rubberDuck: 6,
+  codeFreeze: 7,
+  specChangeStorm: 8,
+  coffeeMachine: 9,
+  energyDrink: 10,
+  pizza: 11,
+  documentation: 12,
+  fridayDeploy: 13,
+  rollbackButton: 14,
+  worksFine: 15,
+  seniorNote: 16,
+} as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
 // 文言は言語カタログ（items.shortNames / items.marks）に置き、読むたびに現在の言語の値を返す(#158)。
 export const ITEM_SHORT_NAMES = localizedRecord((messages) => messages.items.shortNames);

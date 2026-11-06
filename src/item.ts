@@ -3,6 +3,7 @@
 // AIコーディングエージェント（強い・普通・安い）は別タスクで追加する。価格は itemPlacement.ts（#48）、支払い区分は payment（#51）で持つ。
 import {
   ITEM_POWER_DAMAGE,
+  ITEM_REQUIRED_LEVEL_BY_TYPE,
   LINTER_ATTACK_COOLDOWN_MS,
   ITEM_RANGE_RATIOS,
   ITEM_STRONG_AGAINST_MULTIPLIER,
@@ -345,6 +346,24 @@ export const getItemPlacement = (itemType: ItemType): ItemPlacement => ITEM_DEFI
 
 // 主人公についてまわるか（ペアプロ相棒 #58）。
 export const isFollowItem = (itemType: ItemType): boolean => ITEM_DEFINITIONS[itemType].followsPlayer;
+
+// アイテムを置ける・使えるようになるレベル(#164)。値は config.ts の ITEM_REQUIRED_LEVEL_BY_TYPE。
+export const ITEM_REQUIRED_LEVELS: Readonly<Record<ItemType, number>> = ITEM_REQUIRED_LEVEL_BY_TYPE;
+
+// レベルは 1 以上の整数（level.ts の levelAt が返す値）。それ以外は呼び出し側の誤りなので例外にする（全解放・未解放のどちらにも寄せない）。
+const assertLevel = (level: number): void => {
+  if (!Number.isInteger(level) || level < 1) throw new RangeError(`レベルは 1 以上の整数にする: ${level}`);
+};
+
+// level で解放済みか(#164)。必要レベルちょうどで解放する。
+export const isItemUnlocked = (itemType: ItemType, level: number): boolean => {
+  assertLevel(level);
+  return ITEM_REQUIRED_LEVELS[itemType] <= level;
+};
+
+// level で解放済みのアイテム（ITEM_TYPES の定義順）(#164)。アイテムのメニューとキー 4〜9 はこの一覧のページを使う。
+export const unlockedItemTypes = (level: number): ItemType[] =>
+  ITEM_TYPES.filter((itemType) => isItemUnlocked(itemType, level));
 
 // 範囲の段階をピクセルに変換する。設定値は引数で差し替えられる（既定値は config.ts）。
 // random（猫 #57）は距離の制限がないので Infinity。none（#58、距離を持たない）は 0。
