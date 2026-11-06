@@ -180,7 +180,11 @@ const GAME_DAY_MS = MS_PER_GAME_MONTH / DAYS_PER_GAME_MONTH;
 // コード速度の間隔（DIFFICULTY_STEP_MS）とは分け、1段階ごとに CODE_MALICIOUS_RATE_INCREMENT（+3 ポイント）ずつ上げる（difficulty.ts の maliciousRateAt）。
 export const MALICIOUS_RATE_STEP_DAYS = 10;
 export const MALICIOUS_RATE_STEP_MS = GAME_DAY_MS * MALICIOUS_RATE_STEP_DAYS;
-// 仮: 経過日数の表示書式「経過日数: N日」は言語カタログ（hud.elapsedDays）に置く(#158)。企画書には表示書式の記載なし。
+// 仮: 経過日数の表示書式は言語カタログ（hud.levelAndDays）に置く(#158)。企画書には表示書式の記載なし。
+// 仮・要確認(#164): #164 でレベルを付けて「Lv.2 / 30日」にした（位置・文字スタイルは変えない）。
+// 仮・要確認(#164): レベルを1つ上げる間隔（ゲーム内の日数）。「30日ごとにレベルを挙げる」(#164)。レベルは経過日数から求める（level.ts の levelAt）。
+// 0〜29日が Lv.1、30〜59日が Lv.2。上限はない（すべてのアイテムを解放した後もレベルは上がり続ける）。
+export const LEVEL_UP_INTERVAL_DAYS = 30;
 // 仮・要確認(#59追加対応): 左上の表示（経過日数・初期配置UI）の左端 x。企画書には未記載。
 // 出現列（ENGINEER_SPAWN_COL、x=0〜CELL_SIZE）の右隣に余白12pxを置く。出現場所は列0の行0〜8のどこにでも出るため、列0の右に置いて重ならないようにする。
 const HUD_LEFT_X = CELL_SIZE * (ENGINEER_SPAWN_COL + 1) + 12;
@@ -490,8 +494,11 @@ export const SALARY_ADJUST_KEYS = { raise: 'R', cut: 'F' } as const;
 // 仮・要確認(#34): ボタンのラベルは言語カタログ（engineer.salaryButtons）に置く(#158)。#156 でエンジニアのメニューに移し、キー名は出さない（キー操作は残す）。
 // 仮・要確認(#53): AIコーディングエージェント（強い・普通・安い）。企画書(8)は「エンジニアに付けて出力ペースを上げる」「普通は強いより、安いは最も不正なコードを混ぜやすい」
 // 「価格は高い・普通・安い」「月額」とだけで、具体的な数値・操作は未記載。以下はすべて仮の値。
-// 価格の段階（ITEM_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
+// 価格の段階（AI_AGENT_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
 export const AI_AGENT_PRICE_TIER_BY_TYPE = { strong: 'expensive', normal: 'normal', cheap: 'cheap' } as const;
+// 仮・要確認(#164): AIエージェントの価格の段階表（円）。アイテムの半額化(#164)はアイテムだけが対象のため、AIエージェントは半額前の
+// ITEM_PRICE_TIERS と同じ値を別に持つ（アイテムの価格を変えても AIエージェントの価格は変わらない）。キーは ITEM_PRICE_TIERS と同じ。
+export const AI_AGENT_PRICE_TIERS = { cheap: 25000, normal: 50000, expensive: 100000 } as const;
 // 仮・要確認(#53): 装着中のエンジニアが担当するルートのコード生成間隔に掛ける倍率。0.5 なら間隔が半分（出力ペース2倍）。
 // 企画書は3種とも「出力ペースを上げる」とだけで差の記載がないため、全種同じ値にする。0 以下・有限でない値は 1（効果なし）として扱う。
 export const AI_AGENT_SPAWN_INTERVAL_MULTIPLIER_BY_TYPE = { strong: 0.5, normal: 0.5, cheap: 0.5 } as const;
@@ -562,7 +569,9 @@ export const ITEM_STRONG_AGAINST_MULTIPLIER = 2;
 // 仮・要確認(#48): 企画書(8)は「リリースで稼いだポイントでプレイ中にアイテムを追加できる」とだけで、通貨・操作・置ける場所は未記載。以下はすべて仮の値。
 // 通貨: 別のポイントは作らず資金(funds)で買う。正常コードのリリースは売上として資金に入り(#17)、スコアも累計売上(#22)で、別通貨が存在しないため。
 // 価格の段階(円)。企画書の「安い・普通・高い」に対応。1回の購入額。月額払いの毎月の引き落としは #51。
-export const ITEM_PRICE_TIERS = { cheap: 25000, normal: 50000, expensive: 100000 } as const;
+// 仮・要確認(#164): 「アイテムの金額が全体的に高い。半額でいい」により半額にした（旧 cheap 25,000・normal 50,000・expensive 100,000）。
+// 月額払いの月額は購入価格 × ITEM_MONTHLY_FEE_RATIO なので月額も半額になる。AIエージェントは AI_AGENT_PRICE_TIERS で旧価格のまま。
+export const ITEM_PRICE_TIERS = { cheap: 12500, normal: 25000, expensive: 50000 } as const;
 // アイテムごとの価格の段階（企画書 8 の価格列）。
 export const ITEM_PRICE_TIER_BY_TYPE = {
   codeRabbit: 'expensive',
@@ -602,6 +611,30 @@ export const ITEM_PAGE_SIZE = ITEM_BUY_KEYS.length;
 export const ITEM_PAGE_KEYS = { previous: 'G', next: 'H' } as const;
 // 仮・要確認(#156): アイテムのメニューのページ切替ボタンの文字。キー名は出さない（キー操作 G/H は残す）。
 export const ITEM_PAGE_BUTTON_LABELS = { previous: '◀', next: '▶' } as const;
+// 仮・要確認(#164): アイテムを置ける・使えるようになるレベル（「レベルが上がる毎に、置けるアイテムを追加」「最初から置けるアイテムが多すぎる」）。
+// Lv.1 は CodeRabbit・Linter・テストツールの3種類、Lv.2 で CI、以降は ITEM_TYPES の定義順に1レベル1種類ずつ増え、Lv.16 で18種類すべてになる。
+// 購入（itemPlacement.ts）と初期配置（initialPlacement.ts。初期配置の間は Lv.1）で解放前のアイテムを拒否し、アイテムのメニューには解放済みだけを並べる。
+// AIエージェント(#53)は対象外（レベルに関係なく付けられる）。
+export const ITEM_REQUIRED_LEVEL_BY_TYPE = {
+  codeRabbit: 1,
+  linter: 1,
+  testTool: 1,
+  ci: 2,
+  securityScanner: 3,
+  pairProgrammer: 4,
+  cat: 5,
+  rubberDuck: 6,
+  codeFreeze: 7,
+  specChangeStorm: 8,
+  coffeeMachine: 9,
+  energyDrink: 10,
+  pizza: 11,
+  documentation: 12,
+  fridayDeploy: 13,
+  rollbackButton: 14,
+  worksFine: 15,
+  seniorNote: 16,
+} as const;
 // 仮・要確認(#48): ボタン・メッセージに使う短い名前と、フィールド上の短い文字。
 // 文言は言語カタログ（items.shortNames / items.marks）に置き、読むたびに現在の言語の値を返す(#158)。
 export const ITEM_SHORT_NAMES = localizedRecord((messages) => messages.items.shortNames);
@@ -902,7 +935,7 @@ export const MENU_PANEL_PADDING = 8;
 export const MENU_BUTTON_GAP_X = 4;
 export const MENU_PANEL_GAP_Y = 4;
 // 仮・要確認(#156): メニューの幅（ピクセル）。各行の最長の文言（全角 1 文字 = 12px で見積もる）が内側（幅 − 余白 × 2）に収まる幅にする（hudLayout.test.ts で検証）。
-// エンジニア: 「月給 1,000,000円 AI: なし」（20 文字）。アイテム: 「CodeRabbit 10万/月」（16 文字）。開発バランス: 「機能100:リファ0」（10 文字）。
+// エンジニア: 「月給 1,000,000円 AI: なし」（20 文字）。アイテム: 「FriDeploy 1.25万円」（16 文字。#164 の半額後）。開発バランス: 「機能100:リファ0」（10 文字）。
 export const MENU_PANEL_WIDTH = { engineer: 260, item: 216, balance: 160 } as const;
 // 仮・要確認(#156): メニューとポップオーバーの背景。半透明の濃紺に枠線。背景全体が押下を受け止める（下のフィールドで移動・攻撃・配置が起きない）。
 export const MENU_PANEL_COLORS = { fill: 0x0b1020, fillAlpha: 0.92, stroke: 0x6c8cff, strokeWidth: 2 } as const;

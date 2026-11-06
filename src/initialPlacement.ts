@@ -15,7 +15,7 @@ import { assignEngineerRoute } from './engineer';
 import type { Engineer } from './engineer';
 import { pointInRect, rectIntersectsCircle, rectsOverlap } from './geometry';
 import { getMessages, interpolate } from './i18n';
-import { getItemPlacement, ITEM_TYPES } from './item';
+import { getItemPlacement, isItemUnlocked, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { createItemState, isPlaceableCell, itemFootprint, SPAWN_CLEARANCE_RADIUS } from './itemPlacement';
 import type { ItemPriceTier, ItemState, PlacedItem, PlacementCell, PlacementContext } from './itemPlacement';
@@ -39,7 +39,8 @@ export const getStagePointCost = (
   table: Readonly<Record<ItemPriceTier, number>> = STAGE_POINT_COST_BY_TIER,
 ): number => table[ITEM_PRICE_TIER_BY_TYPE[itemType]];
 
-export type InitialPlacementFailReason = 'unknownItem' | 'notPlaceable' | 'occupied' | 'insufficientPoints';
+// locked は今のレベルではまだ解放されていない(#164)。
+export type InitialPlacementFailReason = 'unknownItem' | 'locked' | 'notPlaceable' | 'occupied' | 'insufficientPoints';
 
 export type InitialPlacementResult =
   | {
@@ -62,11 +63,13 @@ export type InitialRemovalResult =
 // 初期配置の判定に使う設定。placedItems は state から渡すので含めない。コスト表は差し替えられる。
 export type InitialPlacementContext = Omit<PlacementContext, 'placedItems'> & {
   readonly costTable?: Readonly<Record<ItemPriceTier, number>>;
+  // 今のレベル(#164)。初期配置の間は経過時間 0 なので Lv.1。必要レベルに届かないアイテムは置けない。省略できない（全解放の既定値は持たない）。
+  readonly level: number;
 };
 
 const isItemType = (value: string): value is ItemType => (ITEM_TYPES as readonly string[]).includes(value);
 
-// ステージポイントでアイテムを置く。判定順: 不明なアイテム → 置かないアイテム（placement: none #58）・置けない場所 → 既にある → ポイント不足。
+// ステージポイントでアイテムを置く。判定順: 不明なアイテム → 解放前(#164) → 置かないアイテム（placement: none #58）・置けない場所 → 既にある → ポイント不足。
 // 置かないアイテムは購入時に効果を発動するもので、セルに置けないため初期配置では notPlaceable にする。
 // cell は配置グリッド（16px #151）のセル。「既にある」はフットプリント（itemFootprint）が既存アイテムと重なるか（辺の接触は重なりとしない）で判定し、
 // 初期配置では主人公についてまわるアイテム（ペアプロ相棒 #58）も含める（初期配置の間は動かないため）。
@@ -79,6 +82,7 @@ export const placeInitialItem = (
   context: InitialPlacementContext,
 ): InitialPlacementResult => {
   if (!isItemType(itemType)) return { ok: false, reason: 'unknownItem' };
+  if (!isItemUnlocked(itemType, context.level)) return { ok: false, reason: 'locked' };
   if (getItemPlacement(itemType) === 'none') return { ok: false, reason: 'notPlaceable' };
   const placedItems = state.itemState.placedItems;
   // 既存アイテムを除いた地形だけで判定してから、占有を別に判定する（purchaseItem と同じく occupied を区別するため）。
@@ -141,6 +145,8 @@ export const formatInitialPlacementMessage = (
       return interpolate(common.unknownItem, { item: itemType });
     case 'insufficientPoints':
       return text.insufficientPoints;
+    case 'locked':
+      return common.itemLocked;
     case 'notFound':
       return text.noItemThere;
     default:

@@ -118,7 +118,6 @@ import type { CodeReleasedPayload, FlowingCode } from './codeFlow';
 import {
   advanceElapsedMs,
   createMonthElapsedEvent,
-  formatElapsedDays,
   getCrossedMonths,
   getElapsedDays,
   MONTH_ELAPSED_EVENT,
@@ -213,8 +212,9 @@ import {
   isFollowItem,
   isRandomDeleteItem,
   ITEM_DEFINITIONS,
-  ITEM_TYPES,
+  unlockedItemTypes,
 } from './item';
+import { formatLevelAndDays, levelAt } from './level';
 import { advanceHold, applyHold, getItemHoldMs } from './itemHold';
 import { ciSlowedDistance, hasActiveCi, rollCiInterception } from './ci';
 import { pickMaliciousType } from './maliciousCode';
@@ -259,7 +259,7 @@ import {
   removeInitialItem,
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
-import { formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, stepItemPage } from './itemBar';
+import { clampItemPage, formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, stepItemPage } from './itemBar';
 import type { ItemPageDirection } from './itemBar';
 import {
   canRollback,
@@ -381,7 +381,8 @@ class MainScene extends Phaser.Scene {
     this.attackPointerHeld = this.input.activePointer.isDown;
     this.gameOver = INITIAL_GAME_OVER_STATE;
     drawField(this);
-    this.elapsedDaysText = drawElapsedDays(this, getElapsedDays(this.elapsedMs));
+    // 経過時間 0 なので Lv.1（初期配置の間も Lv.1 / 0日のまま #164）。
+    this.elapsedDaysText = drawElapsedDays(this, levelAt(this.elapsedMs), getElapsedDays(this.elapsedMs));
     this.funds = INITIAL_FUNDS;
     this.score = INITIAL_SCORE;
     this.techDebt = TECH_DEBT_INITIAL;
@@ -595,6 +596,7 @@ class MainScene extends Phaser.Scene {
     const result = placeInitialItem(this.initialPlacement, itemType, cell, {
       routes: this.routes,
       blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS],
+      level: this.currentLevel(),
     });
     this.showInitialPlacementMessage(formatInitialPlacementMessage(result, itemType));
     if (!result.ok) {
@@ -891,9 +893,16 @@ class MainScene extends Phaser.Scene {
     const prev = this.elapsedMs;
     this.elapsedMs = advanceElapsedMs(prev, delta);
     const days = getElapsedDays(this.elapsedMs);
+    const level = levelAt(this.elapsedMs);
     if (days !== this.displayedDays) {
       this.displayedDays = days;
-      this.elapsedDaysText?.setText(formatElapsedDays(days));
+      this.elapsedDaysText?.setText(formatLevelAndDays(level, days));
+    }
+    // レベルが上がったら(#164)解放済みのアイテムが増えるので、アイテムのメニューを描き直す（通知は出さない）。
+    // 大きな delta で複数レベルを越えても、到達したレベルの一覧でまとめて1回描き直す。ページは残し、なくなっていれば最後のページに寄せる。
+    if (level !== levelAt(prev)) {
+      this.itemPage = clampItemPage(this.itemPage, getItemPageCount(unlockedItemTypes(level).length));
+      this.refreshItemMenu();
     }
     for (const month of getCrossedMonths(prev, this.elapsedMs)) {
       // 倒産したら残りの月は発行しない（倒産後に給料を引かない）。
@@ -1019,8 +1028,9 @@ class MainScene extends Phaser.Scene {
   }
 
   // アイテムのメニューの現在ページの枠 slot のアイテムを買う(#58)。空の枠なら何もしない。
+  // 枠は今のレベルで解放済みのアイテム（unlockedItems #164）の並び。
   private buyItemSlot(slot: number): void {
-    const itemType = getItemOnPageSlot(ITEM_TYPES, this.itemPage, slot);
+    const itemType = getItemOnPageSlot(this.unlockedItems(), this.itemPage, slot);
     if (itemType === undefined) {
       return;
     }
@@ -1029,8 +1039,18 @@ class MainScene extends Phaser.Scene {
 
   // アイテムのメニューのページを切り替える(#58)。ゲームオーバー中も切り替えられる（購入は buyItem が止める）。
   private changeItemPage(direction: ItemPageDirection): void {
-    this.itemPage = stepItemPage(this.itemPage, direction, getItemPageCount(ITEM_TYPES.length));
+    this.itemPage = stepItemPage(this.itemPage, direction, getItemPageCount(this.unlockedItems().length));
     this.refreshItemMenu();
+  }
+
+  // 今のレベル(#164)。別のカウンターは持たず、経過時間から求める（初期配置の間は経過時間 0 なので Lv.1）。
+  private currentLevel(): number {
+    return levelAt(this.elapsedMs);
+  }
+
+  // 今のレベルで解放済みのアイテム（ITEM_TYPES の定義順 #164）。アイテムのメニュー・キー 4〜9・ページ数はこの一覧を使う。
+  private unlockedItems(): ItemType[] {
+    return unlockedItemTypes(this.currentLevel());
   }
 
   // アイテムのメニューが開いていれば今のページ・phase で描き直す（閉じていれば何もしない）(#156)。
@@ -1042,7 +1062,8 @@ class MainScene extends Phaser.Scene {
   // 最後のページの空いた枠は null（ボタンを出さない）。
   private itemMenuView(): ItemMenuView {
     const setup = this.phase === 'setup';
-    const items = getItemsOnPage(ITEM_TYPES, this.itemPage);
+    const unlocked = this.unlockedItems();
+    const items = getItemsOnPage(unlocked, this.itemPage);
     const labels = Array.from({ length: ITEM_PAGE_SIZE }, (_, slot): string | null => {
       const itemType: ItemType | undefined = items[slot];
       if (itemType === undefined) return null;
@@ -1052,7 +1073,7 @@ class MainScene extends Phaser.Scene {
     const selectedSlot = setup && selection.kind === 'item' ? items.indexOf(selection.itemType) : -1;
     return {
       labels,
-      pageLabel: formatItemPage(this.itemPage, getItemPageCount(ITEM_TYPES.length)),
+      pageLabel: formatItemPage(this.itemPage, getItemPageCount(unlocked.length)),
       selectedSlot: selectedSlot === -1 ? null : selectedSlot,
     };
   }
@@ -1242,7 +1263,13 @@ class MainScene extends Phaser.Scene {
       return;
     }
     const result = purchaseItem(
-      { funds: this.funds, placedItems: this.placedItems, nextId: this.nextItemId, gameOver: this.gameOver.over },
+      {
+        funds: this.funds,
+        placedItems: this.placedItems,
+        nextId: this.nextItemId,
+        gameOver: this.gameOver.over,
+        level: this.currentLevel(),
+      },
       itemType,
       pointToPlacementCell({ x: player.x, y: player.y }),
       { routes: this.routes },
@@ -1272,7 +1299,12 @@ class MainScene extends Phaser.Scene {
       return;
     }
     const result = purchaseInstantItem(
-      { funds: this.funds, gameOver: this.gameOver.over, hasRollbackTarget: canRollback(this.lastIncident) },
+      {
+        funds: this.funds,
+        gameOver: this.gameOver.over,
+        hasRollbackTarget: canRollback(this.lastIncident),
+        level: this.currentLevel(),
+      },
       itemType,
     );
     this.itemMessageText?.destroy();

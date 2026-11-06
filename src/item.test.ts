@@ -16,8 +16,11 @@ import {
   getItemLabel,
   getItemRange,
   ITEM_DEFINITIONS,
+  ITEM_REQUIRED_LEVELS,
   ITEM_TYPES,
   getItemPlacement,
+  isItemUnlocked,
+  unlockedItemTypes,
   isAttackItem,
   isFollowItem,
   isItemSpecialty,
@@ -502,5 +505,55 @@ describe('アイテムの表示名（英語 #158）', () => {
     expect(Object.keys(ITEM_MARKS)).toEqual([...ITEM_TYPES]);
     expect(ITEM_SHORT_NAMES.securityScanner).toBe('Scanner');
     expect(ITEM_MARKS.securityScanner).toBe('Sec');
+  });
+});
+
+describe('レベルによる解放(#164)', () => {
+  it('Lv.1 は CodeRabbit・Linter・テストツールの3種類', () => {
+    expect(unlockedItemTypes(1)).toEqual(['codeRabbit', 'linter', 'testTool']);
+  });
+
+  it('Lv.2 で CI が増える', () => {
+    expect(unlockedItemTypes(2)).toEqual(['codeRabbit', 'linter', 'testTool', 'ci']);
+  });
+
+  it('Lv.2 以降は ITEM_TYPES の定義順に1レベル1種類ずつ増える', () => {
+    for (let level = 2; level <= 16; level += 1) {
+      expect(unlockedItemTypes(level)).toEqual(ITEM_TYPES.slice(0, level + 2));
+    }
+  });
+
+  it('必要レベルは定義順に 1, 1, 1, 2, 3, …, 16', () => {
+    expect(ITEM_TYPES.map((itemType) => ITEM_REQUIRED_LEVELS[itemType])).toEqual([
+      1, 1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+    ]);
+  });
+
+  it('境界値: Lv.15 は17種類（書き置きだけ未解放）、Lv.16 で18種類すべて、それ以降も18種類のまま', () => {
+    expect(unlockedItemTypes(15)).toHaveLength(17);
+    expect(unlockedItemTypes(15)).not.toContain('seniorNote');
+    expect(unlockedItemTypes(16)).toEqual([...ITEM_TYPES]);
+    expect(unlockedItemTypes(17)).toEqual([...ITEM_TYPES]);
+    expect(unlockedItemTypes(1000)).toEqual([...ITEM_TYPES]);
+  });
+
+  it('isItemUnlocked は必要レベルちょうどで true、1つ下で false', () => {
+    for (const itemType of ITEM_TYPES) {
+      const required = ITEM_REQUIRED_LEVELS[itemType];
+      expect(isItemUnlocked(itemType, required)).toBe(true);
+      if (required > 1) expect(isItemUnlocked(itemType, required - 1)).toBe(false);
+    }
+  });
+
+  it('返す一覧は呼び出しごとに新しい配列で、ITEM_TYPES を変えない', () => {
+    const list = unlockedItemTypes(1);
+    list.push('ci');
+    expect(unlockedItemTypes(1)).toHaveLength(3);
+    expect(ITEM_TYPES).toHaveLength(18);
+  });
+
+  it.each([0, -1, 1.5, Number.NaN, Infinity])('レベル %s は例外（全解放・未解放のどちらにも寄せない）', (level) => {
+    expect(() => unlockedItemTypes(level)).toThrow(RangeError);
+    expect(() => isItemUnlocked('linter', level)).toThrow(RangeError);
   });
 });

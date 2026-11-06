@@ -17,6 +17,7 @@ import {
   getItemPlacement,
   getItemRange,
   ITEM_DEFINITIONS,
+  ITEM_REQUIRED_LEVELS,
   ITEM_TYPES,
   isTargetInItemRange,
   itemTargetsNormalCode,
@@ -97,11 +98,14 @@ const colRoute = (col: number): Route => ({
     { col: FIELD_COLS - 1, row: 7 },
   ],
 });
+// すべてのアイテムを解放したレベル(#164)。解放の判定以外のテストは解放済みで行う。
+const ALL_UNLOCKED_LEVEL = Math.max(...Object.values(ITEM_REQUIRED_LEVELS));
 const state = (overrides: Partial<PurchaseState> = {}): PurchaseState => ({
   funds: 1000000,
   placedItems: [],
   nextId: 0,
   gameOver: false,
+  level: ALL_UNLOCKED_LEVEL,
   ...overrides,
 });
 // セルに置くアイテム（placement: cell）と、置かずに購入時に発動するアイテム（placement: none #58）。
@@ -114,26 +118,27 @@ const placed = (id: number, cell: GridCell, itemType: ItemType = 'linter'): Plac
   lastAttackTime: null,
 });
 
+// #164 で半額にした価格（安い 12,500・普通 25,000・高い 50,000）。
 describe('getItemPrice: 18アイテムの価格', () => {
   it.each([
-    ['codeRabbit', 100000],
-    ['linter', 25000],
-    ['testTool', 50000],
-    ['ci', 50000],
-    ['securityScanner', 100000],
-    ['pairProgrammer', 50000],
-    ['cat', 25000],
-    ['rubberDuck', 25000],
-    ['codeFreeze', 50000],
-    ['specChangeStorm', 50000],
-    ['coffeeMachine', 25000],
-    ['energyDrink', 25000],
-    ['pizza', 25000],
-    ['documentation', 50000],
-    ['fridayDeploy', 25000],
-    ['rollbackButton', 100000],
-    ['worksFine', 25000],
-    ['seniorNote', 100000],
+    ['codeRabbit', 50000],
+    ['linter', 12500],
+    ['testTool', 25000],
+    ['ci', 25000],
+    ['securityScanner', 50000],
+    ['pairProgrammer', 25000],
+    ['cat', 12500],
+    ['rubberDuck', 12500],
+    ['codeFreeze', 25000],
+    ['specChangeStorm', 25000],
+    ['coffeeMachine', 12500],
+    ['energyDrink', 12500],
+    ['pizza', 12500],
+    ['documentation', 25000],
+    ['fridayDeploy', 12500],
+    ['rollbackButton', 50000],
+    ['worksFine', 12500],
+    ['seniorNote', 50000],
   ] as const)('%s は %i 円', (itemType, price) => {
     expect(getItemPrice(itemType)).toBe(price);
   });
@@ -528,29 +533,30 @@ describe('formatItemMessage / formatItemOption', () => {
     expect(formatItemMessage({ ok: false, reason: 'insufficientFunds' }, 'linter')).toBe('資金が足りません');
     expect(formatItemMessage({ ok: false, reason: 'notPlaceable' }, 'linter')).toBe('そこには置けません');
     expect(formatItemMessage({ ok: false, reason: 'occupied' }, 'linter')).toBe('そこには置けません');
+    expect(formatItemMessage({ ok: false, reason: 'locked' }, 'ci')).toBe('まだ使えないアイテムです');
   });
 
   it('メニューの枠の文言は名前と価格で、キー名は出さない（#156）', () => {
-    expect(formatItemOption('linter')).toBe('Linter 2.5万円');
-    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit 10万/月');
-    expect(formatItemOption('securityScanner')).toBe('Scanner 10万/月');
-    expect(formatItemOption('cat')).toBe('Cat 2.5万円');
-    expect(formatItemOption('seniorNote')).toBe('Senior 10万円');
+    expect(formatItemOption('linter')).toBe('Linter 1.25万円');
+    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit 5万/月');
+    expect(formatItemOption('securityScanner')).toBe('Scanner 5万/月');
+    expect(formatItemOption('cat')).toBe('Cat 1.25万円');
+    expect(formatItemOption('seniorNote')).toBe('Senior 5万円');
   });
 
   it('6個ずつ3ページの文言（#58, #156）', () => {
     const pages = [ITEM_TYPES.slice(0, 6), ITEM_TYPES.slice(6, 12), ITEM_TYPES.slice(12, 18)];
     expect(pages.map((page) => page.map((itemType) => formatItemOption(itemType)))).toEqual([
-      ['CodeRabbit 10万/月', 'Linter 2.5万円', 'Test 5万円', 'CI 5万/月', 'Scanner 10万/月', 'Pair 5万/月'],
-      ['Cat 2.5万円', 'Duck 2.5万円', 'Freeze 5万円', 'SpecStorm 5万円', 'Coffee 2.5万円', 'Energy 2.5万円'],
-      ['Pizza 2.5万円', 'Docs 5万円', 'FriDeploy 2.5万円', 'Rollback 10万円', 'Yoshi! 2.5万円', 'Senior 10万円'],
+      ['CodeRabbit 5万/月', 'Linter 1.25万円', 'Test 2.5万円', 'CI 2.5万/月', 'Scanner 5万/月', 'Pair 2.5万/月'],
+      ['Cat 1.25万円', 'Duck 1.25万円', 'Freeze 2.5万円', 'SpecStorm 2.5万円', 'Coffee 1.25万円', 'Energy 1.25万円'],
+      ['Pizza 1.25万円', 'Docs 2.5万円', 'FriDeploy 1.25万円', 'Rollback 5万円', 'Yoshi! 1.25万円', 'Senior 5万円'],
     ]);
   });
 
   it('月額の表示は精算と同じ倍率を使う（1回払いは倍率に関係なく購入価格）', () => {
-    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit 5万/月');
+    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit 2.5万/月');
     expect(formatItemOption('codeRabbit', 0)).toBe('CodeRabbit 0万/月');
-    expect(formatItemOption('linter', 0.5)).toBe('Linter 2.5万円');
+    expect(formatItemOption('linter', 0.5)).toBe('Linter 1.25万円');
   });
 });
 
@@ -803,6 +809,7 @@ describe('purchaseInstantItem: 置かないアイテム(#58)の購入', () => {
     funds: 1000000,
     gameOver: false,
     hasRollbackTarget: true,
+    level: ALL_UNLOCKED_LEVEL,
     ...overrides,
   });
 
@@ -861,6 +868,86 @@ describe('purchaseInstantItem: 置かないアイテム(#58)の購入', () => {
     expect(formatItemMessage({ ok: false, reason: 'noEligibleIncident' }, 'rollbackButton')).toBe(
       '取り消せる障害がありません',
     );
+  });
+});
+
+// 解放前のアイテム(#164)。CI（置くアイテム）は Lv.2、コードフリーズ（置かないアイテム）は Lv.7 で解放する（ITEM_REQUIRED_LEVELS）。
+describe('purchaseItem / purchaseInstantItem: レベルによる解放(#164)', () => {
+  const instantState = (overrides: Partial<InstantPurchaseState> = {}): InstantPurchaseState => ({
+    funds: 1000000,
+    gameOver: false,
+    hasRollbackTarget: true,
+    level: ALL_UNLOCKED_LEVEL,
+    ...overrides,
+  });
+
+  it('必要レベル: CI は 2、コードフリーズは 7', () => {
+    expect(ITEM_REQUIRED_LEVELS.ci).toBe(2);
+    expect(ITEM_REQUIRED_LEVELS.codeFreeze).toBe(7);
+  });
+
+  it('境界値: 置くアイテム（CI）は Lv.1 で locked、Lv.2 ちょうどで買える', () => {
+    expect(purchaseItem(state({ level: 1 }), 'ci', free, options)).toEqual({ ok: false, reason: 'locked' });
+    const result = purchaseItem(state({ level: 2 }), 'ci', free, options);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.fundsAfter).toBe(1000000 - getItemPrice('ci'));
+  });
+
+  it('境界値: 置かないアイテム（コードフリーズ）は Lv.6 で locked、Lv.7 ちょうどで買える', () => {
+    expect(purchaseInstantItem(instantState({ level: 6 }), 'codeFreeze')).toEqual({ ok: false, reason: 'locked' });
+    expect(purchaseInstantItem(instantState({ level: 7 }), 'codeFreeze')).toEqual({
+      ok: true,
+      itemType: 'codeFreeze',
+      fundsAfter: 1000000 - getItemPrice('codeFreeze'),
+      price: getItemPrice('codeFreeze'),
+    });
+  });
+
+  it('Lv.1 で買えるのは CodeRabbit・Linter・テストツールだけ（置くアイテムの残りと置かないアイテムはすべて locked）', () => {
+    for (const itemType of CELL_ITEM_TYPES) {
+      const unlocked = ['codeRabbit', 'linter', 'testTool'].includes(itemType);
+      const result = purchaseItem(state({ level: 1 }), itemType, free, options);
+      expect(result.ok ? 'ok' : result.reason).toBe(unlocked ? 'ok' : 'locked');
+    }
+    for (const itemType of INSTANT_ITEM_TYPES) {
+      expect(purchaseInstantItem(instantState({ level: 1 }), itemType)).toEqual({ ok: false, reason: 'locked' });
+    }
+  });
+
+  it('拒否しても入力（資金・配置・id）を変えない', () => {
+    const items = [placed(0, { col: 1, row: 1 })];
+    const input = state({ level: 1, placedItems: items, nextId: 1 });
+    const snapshot = structuredClone(input);
+    expect(purchaseItem(input, 'ci', free, options)).toEqual({ ok: false, reason: 'locked' });
+    expect(input).toEqual(snapshot);
+    const instant = instantState({ level: 6 });
+    const instantSnapshot = structuredClone(instant);
+    purchaseInstantItem(instant, 'codeFreeze');
+    expect(instant).toEqual(instantSnapshot);
+  });
+
+  it.each([
+    ['ゲームオーバーかつ解放前', state({ gameOver: true, level: 1 }), 'ci', free, 'gameOver'],
+    ['不明（レベルに関係なく unknownItem）', state({ level: 1 }), 'x', free, 'unknownItem'],
+    ['解放前かつ置けない場所', state({ level: 1 }), 'ci', { col: -1, row: 0 }, 'locked'],
+    ['解放前かつ既にある', state({ level: 1, placedItems: [placed(0, free)] }), 'ci', free, 'locked'],
+    ['解放前かつ資金不足', state({ level: 1, funds: 0 }), 'ci', free, 'locked'],
+  ] as const)('purchaseItem の判定順: %s → %s', (_name, input, itemType, cell, reason) => {
+    expect(purchaseItem(input, itemType, cell, options)).toEqual({ ok: false, reason });
+  });
+
+  it.each([
+    ['ゲームオーバーかつ解放前', instantState({ gameOver: true, level: 1 }), 'codeFreeze', 'gameOver'],
+    ['解放前かつ置くアイテム', instantState({ level: 1 }), 'ci', 'locked'],
+    ['解放前かつ対象なし', instantState({ level: 13, hasRollbackTarget: false }), 'rollbackButton', 'locked'],
+    ['解放前かつ資金不足', instantState({ level: 1, funds: 0 }), 'pizza', 'locked'],
+  ] as const)('purchaseInstantItem の判定順: %s → %s', (_name, input, itemType, reason) => {
+    expect(purchaseInstantItem(input, itemType)).toEqual({ ok: false, reason });
+  });
+
+  it.each([0, -1, 1.5, Number.NaN])('レベル %s は呼び出し側の誤りなので例外にする', (level) => {
+    expect(() => purchaseItem(state({ level }), 'linter', free, options)).toThrow(RangeError);
+    expect(() => purchaseInstantItem(instantState({ level }), 'pizza')).toThrow(RangeError);
   });
 });
 
@@ -1016,14 +1103,15 @@ describe('アイテムの文言（英語 #158）', () => {
     expect(formatItemMessage({ ok: false, reason: 'insufficientFunds' }, 'linter')).toBe('Not enough funds');
     expect(formatItemMessage({ ok: false, reason: 'notPlaceable' }, 'linter')).toBe("Can't place it there");
     expect(formatItemMessage({ ok: false, reason: 'unknownItem' }, 'foo')).toBe('Unknown item: foo');
+    expect(formatItemMessage({ ok: false, reason: 'locked' }, 'ci')).toBe('Item not unlocked yet');
   });
 
   it('メニューの枠は千円単位（1回払いは ¥…K、月額は ¥…K/mo）で、金額の計算は変えない', () => {
-    expect(formatItemOption('linter')).toBe('Linter ¥25K');
-    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit ¥100K/mo');
-    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit ¥50K/mo');
+    expect(formatItemOption('linter')).toBe('Linter ¥12.5K');
+    expect(formatItemOption('codeRabbit')).toBe('CodeRabbit ¥50K/mo');
+    expect(formatItemOption('codeRabbit', 0.5)).toBe('CodeRabbit ¥25K/mo');
     expect(formatItemOption('codeRabbit', 0)).toBe('CodeRabbit ¥0K/mo');
-    expect(formatItemOption('seniorNote')).toBe('Senior ¥100K');
+    expect(formatItemOption('seniorNote')).toBe('Senior ¥50K');
   });
 });
 

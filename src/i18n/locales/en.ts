@@ -27,9 +27,10 @@ export const en: Messages = {
     noTargetEngineer: 'No engineer selected',
     notPlaceable: "Can't place it there",
     unknownItem: 'Unknown item: {item}',
+    itemLocked: 'Item not unlocked yet',
   },
   hud: {
-    elapsedDays: 'Days elapsed: {days}',
+    levelAndDays: 'Lv.{level} / Day {days}',
     funds: 'Funds: {amount}',
     cumulativeSales: 'Total sales: {amount}',
     monthEndPayment: 'Month-end costs: {amount}',
