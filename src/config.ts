@@ -519,7 +519,7 @@ export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
 //   休暇ボタンで休暇/復帰（給与は継続）
 //   不正率-10pt/回・最大-20pt・下限5%
 //   効果は復帰後も維持。休暇中は生産停止
-// ポップオーバーは setup 中は開かない（openEngineerPopover）ので「プレイ開始後」は添えない。低下量は復帰後も維持し(#39)、休暇中は生成・移動が止まり(#36)、給料は引かれる(#37)。
+// ポップオーバーは setup 中は開かない（openEngineerPopover）ので「プレイ開始後」は添えない。低下量は復帰後も維持し(#39)、休暇中は新規生成だけが止まり(#36, #163。生成済みのコードは流れ続ける)、給料は引かれる(#37)。
 // 各行はポップオーバーの幅（ENGINEER_POPOVER_WIDTH）に収める（hudLayout.test.ts で検証）。
 export const VACATION_HINT_FORMAT = {
   operation: '休暇ボタンで休暇/復帰（給与は継続）',
