@@ -1,7 +1,6 @@
 // ルートの進行方向の矢印（シェブロン）の位置と向き(#144)。描画は Phaser に依存するため、純粋な計算だけを確かめる。
 import { describe, expect, it } from 'vitest';
 import {
-  ENGINEER_SPAWN_CELLS,
   ROUTE_LINE_STYLE,
   SPAWN_MARKER_DECOR_STYLE,
   FIELD_FLOOR_STYLE,
@@ -9,6 +8,7 @@ import {
 import { CELL_SIZE } from './field';
 import { createRoutes, routeChevrons, routePixelPoints, SPAWN_MARKER_STYLE } from './route';
 import type { Point } from './route';
+import { FIXTURE_SPAWN_CELLS } from './testFixtures';
 
 // 点 p が線分 a-b 上（端点を含む）にあるか。
 const isOnSegment = (p: Point, a: Point, b: Point): boolean => {
@@ -69,7 +69,7 @@ describe('routeChevrons', () => {
   });
 
   it('実際の初期3本のルートで、すべての矢印がいずれかの区間上にあり、その区間の終点を向く', () => {
-    const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0.5);
+    const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0.5);
     routes.forEach((route) => {
       const points = routePixelPoints(route);
       const chevrons = routeChevrons(points, ROUTE_LINE_STYLE.chevronSpacing);

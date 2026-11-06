@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINEER_SPAWN_CELLS } from './config';
 import {
   advanceCode,
   initialSpawnElapsed,
@@ -15,9 +14,10 @@ import {
 import type { FlowingCode } from './codeFlow';
 import { RELEASE_POINT_CENTER } from './releasePoint';
 import { cellCenter, createRoutes, routePixelPoints } from './route';
+import { FIXTURE_SPAWN_CELLS } from './testFixtures';
 
 // 乱数を固定してルートの形を決める（常に 0 なら曲がり列は最左、曲がる回数は最小）。
-const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0);
+const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0);
 const topRoute = routes[0];
 const middleRoute = routes[1];
 

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { setLocale } from './i18n';
 import {
-  ENGINEER_SPAWN_CELLS,
   ENGINEER_SPAWN_COL,
   FIELD_COLS,
   FIELD_ROWS,
@@ -30,6 +29,7 @@ import {
   SPAWN_MARKER_STYLE,
   VACATION_MARKER_STYLE,
 } from './route';
+import { FIXTURE_SPAWN_CELLS } from './testFixtures';
 
 // シード付き擬似乱数（mulberry32）。0 以上 1 未満を返す。
 const seededRandom = (seed: number): (() => number) => {
@@ -199,26 +199,26 @@ describe('createRoute', () => {
 });
 
 describe('createRoutes', () => {
-  const routes = createRoutes(ENGINEER_SPAWN_CELLS, seededRandom(3));
+  const routes = createRoutes(FIXTURE_SPAWN_CELLS, seededRandom(3));
 
   it('ルートの数は出現セルの数と同じで、id は出現セルのインデックスと対応する', () => {
-    expect(routes).toHaveLength(ENGINEER_SPAWN_CELLS.length);
+    expect(routes).toHaveLength(FIXTURE_SPAWN_CELLS.length);
     routes.forEach((route, i) => {
       expect(route.id).toBe(i);
-      expect(route.spawn).toEqual(ENGINEER_SPAWN_CELLS[i]);
+      expect(route.spawn).toEqual(FIXTURE_SPAWN_CELLS[i]);
       expectValidRoute(route);
     });
   });
 
   it('出現セル同士、および出現セルとリリース地点は重ならない', () => {
-    const keys = ENGINEER_SPAWN_CELLS.map(spawnKey);
+    const keys = FIXTURE_SPAWN_CELLS.map(spawnKey);
     expect(new Set(keys).size).toBe(keys.length);
     expect(keys).not.toContain(spawnKey(RELEASE_POINT_CELL));
   });
 
   it('縦区間は他の出現セル・リリースセルを通らない', () => {
     const cells = new Set(
-      [...ENGINEER_SPAWN_CELLS, RELEASE_POINT_CELL].map(spawnKey),
+      [...FIXTURE_SPAWN_CELLS, RELEASE_POINT_CELL].map(spawnKey),
     );
     for (const route of routes) {
       const passed = expandCells(route.waypoints).filter(
@@ -229,7 +229,7 @@ describe('createRoutes', () => {
   });
 
   it('同じ乱数列から同じルートを返す', () => {
-    expect(createRoutes(ENGINEER_SPAWN_CELLS, seededRandom(3))).toEqual(routes);
+    expect(createRoutes(FIXTURE_SPAWN_CELLS, seededRandom(3))).toEqual(routes);
   });
 });
 
@@ -253,7 +253,7 @@ describe('nextSpawnCell', () => {
   });
 
   it('初期の出現セルがあっても最初の空き行を返す', () => {
-    expect(nextSpawnCell(ENGINEER_SPAWN_CELLS)).toEqual(spawnAt(0));
+    expect(nextSpawnCell(FIXTURE_SPAWN_CELLS)).toEqual(spawnAt(0));
   });
 
   it('最後の1行だけ空いていればその行を返す', () => {
@@ -278,7 +278,7 @@ describe('nextSpawnCell', () => {
 
 describe('addRoute', () => {
   const initial = (): Route[] =>
-    createRoutes(ENGINEER_SPAWN_CELLS, seededRandom(1));
+    createRoutes(FIXTURE_SPAWN_CELLS, seededRandom(1));
 
   it('空の一覧に追加すると id 0・先頭行のルートを返す', () => {
     const route = addRoute([], alwaysMin);
@@ -330,7 +330,7 @@ describe('addRoute', () => {
   });
 
   it('初期3本へ追加すると id は 3 になる', () => {
-    expect(addRoute(initial(), alwaysMin)?.id).toBe(ENGINEER_SPAWN_CELLS.length);
+    expect(addRoute(initial(), alwaysMin)?.id).toBe(FIXTURE_SPAWN_CELLS.length);
   });
 
   it('欠番があっても既存の最大 id + 1 になる', () => {
@@ -356,7 +356,7 @@ describe('addRoute', () => {
     for (const seed of seeds) {
       const random = seededRandom(seed);
       const routes = initial();
-      for (let i = 0; i < MAX_ENGINEERS - ENGINEER_SPAWN_CELLS.length; i++) {
+      for (let i = 0; i < MAX_ENGINEERS - FIXTURE_SPAWN_CELLS.length; i++) {
         const route = addRoute(routes, random);
         expect(route).toBeDefined();
         if (route === undefined) return;
@@ -380,7 +380,7 @@ describe('addRoute', () => {
 });
 
 describe('removeRoute（退職でルートが消える #32）', () => {
-  const initial = (): Route[] => createRoutes(ENGINEER_SPAWN_CELLS, seededRandom(1));
+  const initial = (): Route[] => createRoutes(FIXTURE_SPAWN_CELLS, seededRandom(1));
 
   it.each([
     ['先頭', 0, [1, 2]],
@@ -436,7 +436,7 @@ describe('removeRoute（退職でルートが消える #32）', () => {
     // 初期の出現行は 1・4・7。行0 は空いているので先に使われ、消した行4 はその後の空きとして残る。
     const removed = removeRoute(initial(), 1);
     expect(nextSpawnCell(removed.map((route) => route.spawn))).toEqual(spawnAt(0));
-    expect(removed.map((route) => route.spawn)).not.toContainEqual(ENGINEER_SPAWN_CELLS[1]);
+    expect(removed.map((route) => route.spawn)).not.toContainEqual(FIXTURE_SPAWN_CELLS[1]);
   });
 });
 
@@ -458,7 +458,7 @@ describe('休暇マーカーの文字 #158', () => {
 });
 
 describe('addRouteAt（出現セルを指定して追加する #157）', () => {
-  const initial = (): Route[] => createRoutes(ENGINEER_SPAWN_CELLS, seededRandom(1));
+  const initial = (): Route[] => createRoutes(FIXTURE_SPAWN_CELLS, seededRandom(1));
 
   it('多数のシード × 出現列の全行で、指定した出現セルから接続・範囲・単調・主人公セル回避を満たす', () => {
     for (const seed of seeds) {

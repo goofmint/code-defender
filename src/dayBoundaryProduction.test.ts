@@ -17,7 +17,6 @@ import {
 } from './config';
 import { CODE_RELEASED_EVENT } from './codeFlow';
 import type { CodeReleasedPayload } from './codeFlow';
-import { createInitialFleet } from './engineer';
 import type { Engineer } from './engineer';
 import { FUNDS_CHANGED_EVENT } from './funds';
 import type { FundsChangedEvent } from './funds';
@@ -34,6 +33,7 @@ import type { GridCell, Point, Route } from './route';
 import { getEngineerSalaries, getMonthlyPayroll, SALARY_PAID_EVENT } from './salary';
 import { getReleaseRevenue } from './sales';
 import { techDebtSpawnIntervalMs } from './techDebt';
+import { createFixtureFleet } from './testFixtures';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -168,7 +168,7 @@ beforeEach(() => {
 
 // create() が設定するフィールドを明示的に初期化する（Object.create はクラスフィールドの初期値を設定しない）。
 const createScene = (funds: number): SceneUnderTest => {
-  const fleet = createInitialFleet(FIXED_RANDOM);
+  const fleet = createFixtureFleet(FIXED_RANDOM);
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
   scene.elapsedMs = 0;
   scene.displayedDays = 0;

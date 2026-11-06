@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import type { FlowingCode } from './codeFlow';
 import { spawnCode } from './codeFlow';
-import { DEFAULT_REFACTORING_RATIO, ENGINEER_SPAWN_CELLS, ITEM_ATTACK_COOLDOWN_MS } from './config';
+import { DEFAULT_REFACTORING_RATIO, ITEM_ATTACK_COOLDOWN_MS } from './config';
 import { getInitialHp } from './defeat';
 import type { Engineer } from './engineer';
 import type { GameOverState } from './gameOver';
@@ -17,6 +17,7 @@ import { drawCode } from './render';
 import { createRoutes } from './route';
 import type { Route } from './route';
 import type { ActiveEffect, IncidentRecord } from './itemEffect';
+import { FIXTURE_SPAWN_CELLS } from './testFixtures';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -89,7 +90,7 @@ type SceneUnderTest = {
 
 const NOT_OVER: GameOverState = { over: false, at: null };
 const OVER: GameOverState = { over: true, at: 1000 };
-const route = createRoutes(ENGINEER_SPAWN_CELLS, () => 0)[0];
+const route = createRoutes(FIXTURE_SPAWN_CELLS, () => 0)[0];
 const scannerCell = { col: 5, row: 5 };
 
 let mainScenePrototype: object;
