@@ -9,6 +9,7 @@ import {
   ITEM_POWER_DAMAGE,
   ITEM_RANGE_RATIOS,
 } from './config';
+import { toNormalCode } from './codeFlow';
 import { CODE_DEFEATED_EVENT } from './defeat';
 import { createEngineerParameters } from './engineer';
 import type { Engineer } from './engineer';
@@ -24,7 +25,7 @@ import { ITEM_FEE_PAID_EVENT } from './itemFee';
 import { getItemMonthlyFee, getItemPrice, ITEM_PLACED_EVENT, placementCellCenter } from './itemPlacement';
 import type { ActiveEffect } from './itemEffect';
 import type { PlacedItem } from './itemPlacement';
-import { drawDefeatEffect, drawItemAttackEffect, flashCode } from './render';
+import { drawCode, drawDefeatEffect, drawItemAttackEffect, flashCode } from './render';
 import type { GridCell, Point, Route } from './route';
 import { SALARY_PAID_EVENT } from './salary';
 
@@ -60,6 +61,8 @@ vi.mock('./render', async (importOriginal) => ({
   drawPlacedItem: vi.fn(),
   drawItemMessage: vi.fn(() => ({ destroy: vi.fn() })),
   drawGameOver: vi.fn(),
+  // 撃破したコードを正常なコードとして描き直す(#173)。
+  drawCode: vi.fn(() => ({ destroy: vi.fn() })),
 }));
 
 // テストで触る MainScene の private メンバーだけを表す型。キャストはこのテストファイルの中に閉じる。
@@ -244,13 +247,39 @@ describe('MainScene.updateItems: CodeRabbit の自動攻撃と撃破', () => {
     expect(emittedEvents(scene)).not.toContain(CODE_DEFEATED_EVENT);
 
     scene.updateItems(T0 + ITEM_ATTACK_COOLDOWN_MS);
-    expect(scene.codes).toEqual([]);
+    // 撃破したコードは消えずに、同じ id・位置の正常なコードに直って残る(#173)。
+    expect(scene.codes).toHaveLength(1);
+    const converted = scene.codes[0];
+    expect(converted).toEqual({ ...toNormalCode(code), graphics: vi.mocked(drawCode).mock.results[0]?.value });
+    expect(converted?.id).toBe(1);
+    expect(converted?.kind).toBe('normal');
+    expect(converted).not.toHaveProperty('maliciousType');
+    expect(converted).not.toHaveProperty('revealed');
     expect(scene.codeHp.has(1)).toBe(false);
     expect(scene.placedItems[0]?.lastAttackTime).toBe(T0 + ITEM_ATTACK_COOLDOWN_MS);
+    // 古い描画は Tween を止めて破棄し、正常なコードとして同じ位置に描き直す。
     expect(code.graphics.destroy).toHaveBeenCalledTimes(1);
     expect(scene.tweens.killTweensOf).toHaveBeenCalledWith(code.graphics);
+    expect(drawCode).toHaveBeenCalledExactlyOnceWith(scene, 'normal', code.position);
     expect(drawDefeatEffect).toHaveBeenCalledExactlyOnceWith(scene, code.position);
     expect(scene.events.emit).toHaveBeenCalledExactlyOnceWith(CODE_DEFEATED_EVENT, { id: 1, routeId: ROUTE.id });
+  });
+
+  it('同じフレームで2台目は、1台目が正常に直したコードを攻撃せず、クールダウンも使わない(#173)', () => {
+    const code = makeCode(1, 0);
+    const second: PlacedItem = { ...placedCodeRabbit(), id: 1 };
+    const scene = createScene({ codes: [code], placedItems: [placedCodeRabbit(), second] });
+    // 1台目の1回で撃破できる hp にする。
+    scene.codeHp.set(1, DAMAGE);
+
+    scene.updateItems(T0);
+
+    expect(scene.placedItems[0]?.lastAttackTime).toBe(T0);
+    expect(scene.placedItems[1]?.lastAttackTime).toBeNull();
+    expect(drawItemAttackEffect).toHaveBeenCalledTimes(1);
+    expect(flashCode).toHaveBeenCalledTimes(1);
+    expect(scene.codes.map((c) => c.kind)).toEqual(['normal']);
+    expect(emittedEvents(scene).filter((event) => event === CODE_DEFEATED_EVENT)).toHaveLength(1);
   });
 
   it.each([

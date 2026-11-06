@@ -98,6 +98,7 @@ import {
   remainingPathDistance,
   rewindCode,
   spawnCode,
+  toNormalCode,
   stepSpawnTimerUnlessPaused,
 } from './codeFlow';
 import type { CodeReleasedPayload, FlowingCode } from './codeFlow';
@@ -280,7 +281,7 @@ import { getMessages, setLocale } from './i18n';
 import { applyDocumentLang, getBrowserLanguages, getLocationSearch } from './i18n/browserEnvironment';
 import { resolveLocale } from './i18n/resolveLocale';
 
-// revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま。
+// revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま（攻撃で正常なコードに直ったとき(#173)は外す）。
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics; readonly revealed?: boolean };
 
 class MainScene extends Phaser.Scene {
@@ -1785,6 +1786,7 @@ class MainScene extends Phaser.Scene {
   }
 
   // 不正なコードの hp を減らし、0以下なら撃破する（主人公・アイテム共通）。正常なコードや hp を持たないコードは何もしない。
+  // 撃破したコードは消さずに、その場で正常なコードに直して流し続ける(#173)。撃破の演出は「直った」表示として残す。
   private damageMaliciousCode(target: ActiveCode, damage: number): void {
     const hp = this.codeHp.get(target.id);
     if (target.kind !== 'malicious' || hp === undefined) {
@@ -1795,13 +1797,33 @@ class MainScene extends Phaser.Scene {
     if (!result.defeated) {
       return;
     }
-    this.removeActiveCode(target);
+    this.convertToNormalCode(target);
     drawDefeatEffect(this, target.position);
     const payload: CodeDefeatedPayload = { id: target.id, routeId: target.routeId };
     this.events.emit(CODE_DEFEATED_EVENT, payload);
   }
 
-  // 流れているコードを精算せずに場から取り除く（撃破・猫 #57 共通）。this.codes から外し、hp・tween・描画は discardCode(#32) で片付ける。
+  // hp が尽きた不正なコードを、同じ id・位置のまま正常なコードに置き換える(#173)。描き直しはラバーダック(revealCodes)と同じ手順。
+  // hp と足止めの記録は消す（正常なコードは hp を持たず、足止めもしない）。revealed は付けない（drawCode は種類に関係なく濃い色にするため）。
+  // 以降は正常なコードとして扱われる（アイテムの攻撃対象外・主人公が攻撃すると減点・リリースで売上と技術的負債の精算）。
+  private convertToNormalCode(target: ActiveCode): void {
+    if (!this.codes.some((code) => code.id === target.id)) {
+      throw new Error(`正常なコードに直す対象が場にありません: id=${target.id}`);
+    }
+    this.codeHp.delete(target.id);
+    this.codeHold.delete(target.id);
+    this.codes = this.codes.map((code) => {
+      if (code.id !== target.id) {
+        return code;
+      }
+      this.tweens.killTweensOf(code.graphics);
+      code.graphics.destroy();
+      const normal = toNormalCode(code);
+      return { ...normal, graphics: drawCode(this, normal.kind, normal.position) };
+    });
+  }
+
+  // 流れているコードを精算せずに場から取り除く（猫 #57）。撃破は消さずに正常なコードへ直す(#173 convertToNormalCode)。this.codes から外し、hp・tween・描画は discardCode(#32) で片付ける。
   // イベントは呼び出し側が、この後（配列を更新した後）に発行する。
   private removeActiveCode(target: ActiveCode): void {
     this.codes = this.codes.filter((code) => code.id !== target.id);
