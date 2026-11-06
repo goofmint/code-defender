@@ -115,6 +115,9 @@ vi.mock('./render', () => {
     drawItemMessage: vi.fn(object),
     drawOutageText: vi.fn(),
     drawPlacedItem: vi.fn(object),
+    // 置けるかどうかの枠(#162)。
+    drawPlacementPreview: vi.fn(object),
+    updatePlacementPreview: vi.fn(),
     drawPenaltyText: vi.fn(),
     drawPlayer: vi.fn(object),
     drawReleasePoint: vi.fn(),
@@ -213,8 +216,9 @@ const createHarness = (): Harness => {
         return key;
       },
     },
-    on: (_event, handler) => {
-      pointerHandlers.push(handler);
+    // 押下（pointerdown）のハンドラーだけを記録する（置けるかどうかの枠 #162 の pointermove はこのファイルでは使わない）。
+    on: (event, handler) => {
+      if (event === 'pointerdown') pointerHandlers.push(handler);
     },
   };
   scene.events = {

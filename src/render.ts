@@ -121,12 +121,14 @@ import {
   ITEM_PAGE_BUTTON_LABELS,
   PLACEMENT_CELL_SIZE,
   PLACEMENT_COLS,
+  PLACEMENT_PREVIEW,
   PLACEMENT_ROWS,
   REVEALED_CODE_STYLE,
 } from './config';
 import type { ItemPageDirection } from './itemBar';
 import { placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
+import type { PlacementPreviewView } from './placementPreview';
 import { formatRefactoringAllocation, isSameRefactoringOption } from './refactoringRatioControl';
 import { formatAiAgentOption } from './aiAgent';
 import type { AiAgentType } from './aiAgent';
@@ -800,6 +802,32 @@ export const drawPlacedItem = (scene: Phaser.Scene, item: PlacedItem): Phaser.Ga
     })
     .setOrigin(0.5);
   return scene.add.container(x, y, [box, mark]).setDepth(ITEM_DEPTH);
+};
+
+// 置けるかどうかを示す枠（配置プレビュー #162）。塗りのない一辺 ITEM_BOX_SIZE の四角（アイテムの見た目・フットプリントと同じ大きさ）。
+// create() で1つだけ作り、隠した状態で返す。位置・色・表示は updatePlacementPreview で変える。
+export const drawPlacementPreview = (scene: Phaser.Scene): Phaser.GameObjects.Rectangle =>
+  scene.add
+    .rectangle(0, 0, ITEM_BOX_SIZE, ITEM_BOX_SIZE)
+    .setStrokeStyle(PLACEMENT_PREVIEW.lineWidth, PLACEMENT_PREVIEW.okColor, PLACEMENT_PREVIEW.alpha)
+    .setDepth(PLACEMENT_PREVIEW.depth)
+    .setVisible(false);
+
+// 枠を状態に合わせる(#162)。出さないなら隠すだけ。出すならセルの中心（placementCellCenter）に動かし、置けるかどうかで枠の色を変える。
+export const updatePlacementPreview = (preview: Phaser.GameObjects.Rectangle, view: PlacementPreviewView): void => {
+  if (!view.visible) {
+    preview.setVisible(false);
+    return;
+  }
+  const { x, y } = placementCellCenter(view.cell);
+  preview
+    .setPosition(x, y)
+    .setStrokeStyle(
+      PLACEMENT_PREVIEW.lineWidth,
+      view.placeable ? PLACEMENT_PREVIEW.okColor : PLACEMENT_PREVIEW.ngColor,
+      PLACEMENT_PREVIEW.alpha,
+    )
+    .setVisible(true);
 };
 
 // アイテムの攻撃演出（アイテムから対象への線）。一定時間表示して消す。

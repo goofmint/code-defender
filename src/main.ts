@@ -82,6 +82,7 @@ import {
   drawMenuIcons,
   drawOutageText,
   drawPlacedItem,
+  drawPlacementPreview,
   drawPenaltyText,
   drawPlayer,
   drawReleaseBurst,
@@ -92,6 +93,7 @@ import {
   drawVacationMarker,
   flashCode,
   setPlayerFacing,
+  updatePlacementPreview,
 } from './render';
 import type {
   EngineerSelectButton,
@@ -259,7 +261,14 @@ import {
   removeInitialEngineer,
   removeInitialItem,
 } from './initialPlacement';
-import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
+import type { InitialPlacementContext, InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
+import {
+  getPlayingPlacementPreview,
+  getSetupPlacementPreview,
+  HIDDEN_PLACEMENT_PREVIEW,
+  isSamePlacementPreview,
+} from './placementPreview';
+import type { PlacementPreviewView } from './placementPreview';
 import { formatItemPage, getItemOnPageSlot, getItemPageCount, getItemsOnPage, stepItemPage } from './itemBar';
 import type { ItemPageDirection } from './itemBar';
 import {
@@ -368,6 +377,12 @@ class MainScene extends Phaser.Scene {
   private initialPlacementPanelText?: Phaser.GameObjects.Text;
   private initialPlacementStartButton?: Phaser.GameObjects.Container;
   private initialPlacementMessageText?: Phaser.GameObjects.Text;
+  // 置けるかどうかを示す枠(#162)と、いま描いている状態（変わったときだけ描き直す）。create() で作る。
+  // 初期配置ではポインターの下のセル、プレイ中は主人公がアイテムを置くセルに出す。
+  private placementPreview?: Phaser.GameObjects.Rectangle;
+  private placementPreviewView: PlacementPreviewView = HIDDEN_PLACEMENT_PREVIEW;
+  // 初期配置で最後にポインターを動かした（押した）点と、その下にボタンなどの UI があったか。置く・外す・選ぶの直後に枠を出し直すのに使う。
+  private lastSetupPointer: { readonly point: Point; readonly overUi: boolean } | null = null;
 
   constructor() {
     super('main');
@@ -433,6 +448,10 @@ class MainScene extends Phaser.Scene {
     this.initialPlacementSelection = { kind: 'none' };
     this.initialPlacementDrawings = new Map();
     this.initialPlacementMessageText = undefined;
+    // 置けるかどうかを示す枠(#162)。隠した状態で作る（前回の枠は Phaser が破棄済みなので作り直す）。
+    this.placementPreview = drawPlacementPreview(this);
+    this.placementPreviewView = HIDDEN_PLACEMENT_PREVIEW;
+    this.lastSetupPointer = null;
     // 右下の指標(#156)。月末に支払うお金は setup の配置（initialPlacement）から求めるので、phase と初期配置を戻したあとに描く。
     this.statusPanel = drawStatusPanel(this, {
       funds: this.funds,
@@ -502,7 +521,10 @@ class MainScene extends Phaser.Scene {
       }
       // 初期配置(#47)の間は、押したセルにアイテムを置く・撤去する。主人公の移動・攻撃はしない。
       if (this.phase === 'setup') {
+        // タッチ操作では pointermove が来ないことがあるので、押した点も置けるかどうかの枠(#162)の位置にする。
+        this.lastSetupPointer = { point: { x: pointer.worldX, y: pointer.worldY }, overUi: currentlyOver.length > 0 };
         this.onInitialPlacementPointerDown({ x: pointer.worldX, y: pointer.worldY }, currentlyOver);
+        this.refreshSetupPlacementPreview();
         return;
       }
       // アイコン・メニュー・ポップオーバー（背景を含む）・休暇マーカー上の押下では、離すまで主人公の移動・攻撃をしない。
@@ -530,6 +552,62 @@ class MainScene extends Phaser.Scene {
         this.tryAttack();
       }
     });
+    // 初期配置(#47)の間は、ポインターの下のセルに置けるかどうかの枠を出す(#162)。プレイ中の枠は update() で主人公の位置に出す。
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
+      if (this.phase !== 'setup') {
+        return;
+      }
+      this.lastSetupPointer = { point: { x: pointer.worldX, y: pointer.worldY }, overUi: currentlyOver.length > 0 };
+      this.refreshSetupPlacementPreview();
+    });
+  }
+
+  // 置けるかどうかの枠(#162)を view にする。いま描いている状態と同じなら描き直さない。枠を作る前（create() の前）は何もしない。
+  private showPlacementPreview(view: PlacementPreviewView): void {
+    const preview = this.placementPreview;
+    if (preview === undefined || isSamePlacementPreview(this.placementPreviewView, view)) {
+      return;
+    }
+    this.placementPreviewView = view;
+    updatePlacementPreview(preview, view);
+  }
+
+  // 初期配置(#47)のアイテムの判定に使う設定。押下とプレビュー(#162)で同じものを使う。
+  // 初期配置UIの矩形（INITIAL_PLACEMENT_UI_BOUNDS #162）と重なる位置は、初期配置の間だけ置けない（UI はプレイ開始で消える）。
+  private getInitialItemPlacementContext(): InitialPlacementContext {
+    return { routes: this.routes, blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS] };
+  }
+
+  // 初期配置の枠を、最後にポインターを動かした点で出し直す(#162)。ポインターを動かしていなければ出さない。
+  // 可否は押下（onInitialPlacementPointerDown）と同じ placeInitialItem の結果で決める（getSetupPlacementPreview）。
+  private refreshSetupPlacementPreview(): void {
+    const pointer = this.lastSetupPointer;
+    if (this.phase !== 'setup' || pointer === null) {
+      this.showPlacementPreview(HIDDEN_PLACEMENT_PREVIEW);
+      return;
+    }
+    this.showPlacementPreview(
+      getSetupPlacementPreview(
+        pointer.point,
+        pointer.overUi,
+        this.initialPlacementSelection,
+        this.initialPlacement,
+        this.getInitialItemPlacementContext(),
+      ),
+    );
+  }
+
+  // プレイ中の枠を、主人公がアイテムを置くセル（buyItem と同じく主人公の位置を含むセル）に出す(#162)。主人公がいなければ隠す。
+  // 可否は既定の置けない範囲（ITEM_BLOCKED_RECTS）での isPlaceableCell。毎フレーム呼ぶが、セルか可否が変わったときだけ描き直す。
+  private refreshPlayingPlacementPreview(): void {
+    const player = this.player;
+    if (!player) {
+      this.showPlacementPreview(HIDDEN_PLACEMENT_PREVIEW);
+      return;
+    }
+    this.showPlacementPreview(
+      getPlayingPlacementPreview({ x: player.x, y: player.y }, { routes: this.routes, placedItems: this.placedItems }),
+    );
   }
 
   // 初期配置(#47)で置くアイテムの種類を選び、パネルとアイテムのメニューの表示を更新する。
@@ -564,6 +642,8 @@ class MainScene extends Phaser.Scene {
       canStartPlay(this.engineers) ? INITIAL_PLACEMENT_START_BUTTON_ALPHA.enabled : INITIAL_PLACEMENT_START_BUTTON_ALPHA.disabled,
     );
     this.refreshItemMenu();
+    // 選ぶ・置く・外すと可否が変わるので、置けるかどうかの枠も出し直す(#162)。
+    this.refreshSetupPlacementPreview();
   }
 
   private showInitialPlacementMessage(message: string): void {
@@ -592,11 +672,8 @@ class MainScene extends Phaser.Scene {
     }
     const itemType = selection.itemType;
     const cell = pointToPlacementCell(point);
-    // 初期配置UIの矩形（INITIAL_PLACEMENT_UI_BOUNDS #162）と重なる位置は、初期配置の間だけ置けない（UI はプレイ開始で消える）。
-    const result = placeInitialItem(this.initialPlacement, itemType, cell, {
-      routes: this.routes,
-      blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS],
-    });
+    // 判定の設定は置けるかどうかの枠(#162)と同じ（getInitialItemPlacementContext）。
+    const result = placeInitialItem(this.initialPlacement, itemType, cell, this.getInitialItemPlacementContext());
     this.showInitialPlacementMessage(formatInitialPlacementMessage(result, itemType));
     if (!result.ok) {
       return;
@@ -738,6 +815,9 @@ class MainScene extends Phaser.Scene {
     this.engineerRemoveButtons.forEach((button) => button.destroy());
     this.engineerRemoveButtons = new Map();
     this.initialPlacementSelection = { kind: 'none' };
+    // 初期配置の枠(#162)を消す。プレイ中は update() で主人公が置くセルに出す。
+    this.lastSetupPointer = null;
+    this.showPlacementPreview(HIDDEN_PLACEMENT_PREVIEW);
     // 初期配置で置いた主人公についてまわるアイテム（ペアプロ相棒 #58）は、購入時と同じく followItemViews で主人公に付ける。
     this.placedItems
       .filter((item) => isFollowItem(item.itemType))
@@ -788,6 +868,8 @@ class MainScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (this.gameOver.over) {
+      // ゲームオーバー中は置けるかどうかの枠(#162)を出さない。
+      this.showPlacementPreview(HIDDEN_PLACEMENT_PREVIEW);
       return;
     }
     // 初期配置(#47)の間は時間を止める（時限効果の期限・予約した障害・時計・月の精算・コードの出現・アイテムの攻撃・愛着心・退職・大障害の判定をしない）。
@@ -819,6 +901,7 @@ class MainScene extends Phaser.Scene {
     // ゲーム内時計と同じ経過時間で愛着心を進める(#30、休暇中は上がり、配属中に高疲労なら下がる)。
     this.engineers = advanceEngineersAttachment(this.engineers, this.elapsedMs - prevElapsedMs);
     this.updatePlayer(delta);
+    this.refreshPlayingPlacementPreview();
     this.moveFollowItems();
     this.updateCodes(delta);
     this.revealCodes();
