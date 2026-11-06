@@ -289,7 +289,7 @@ const placeableCells = (routes: readonly Route[], count: number): GridCell[] => 
         isPlaceableCell(cell, {
           routes,
           placedItems,
-          blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS],
+          blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS],
         })
       ) {
         cells.push(cell);
@@ -494,7 +494,7 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
   it('置いたアイテムの上（フットプリント内）を押しても撤去しない（撤去は×だけ #157）。右端ちょうど（右隣のセル #154）は隣に新しく置く', () => {
     const { scene, pointerDown } = createHarness();
     // 右隣のセルも置けるセル（初期配置UIの範囲の左隣などは右隣が置けないので除く）。
-    const setupContext = { routes: scene.routes, placedItems: [], blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS] };
+    const setupContext = { routes: scene.routes, placedItems: [], blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS] };
     const cell = placeableCells(scene.routes, PLACEMENT_COLS).find((candidate) =>
       isPlaceableCell({ col: candidate.col + 1, row: candidate.row }, setupContext),
     );

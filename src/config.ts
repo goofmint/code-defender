@@ -691,9 +691,18 @@ export const ROUTE_LINE_STYLE = {
   chevronWidth: 2,
   chevronAlpha: 0.85,
 } as const;
-// 仮・要確認(#151): ルートの中心線からアイテムのフットプリントを離す距離（px）。下地線の幅の半分（6px）と矢印の大きさ（8px）を覆う値。
+// 仮・要確認(#151, #162): ルートの中心線からアイテムのフットプリントを離す距離（px）。描いているルートの外形（中心線から最も遠い所）までの距離にする。
+// #151 では矢印の大きさ（8px）をそのまま半幅に使っていたため、見た目より 2px 広く置けなかった(#162)。描画（render.ts の drawRoutes）の内訳は次のとおり。
+// - 下地線: 太さ underlayWidth（12px）の線なので、中心線から 6px。
+// - 折れ点・端点の丸: 半径 underlayWidth / 2（6px）。線分の端を四方に広げる帯（rectIntersectsThickSegment）で覆う。
+// - 本線: 太さ mainWidth（4px）で下地線の内側（2px）。
+// - 矢印（「>」）: 横幅は中心線から chevronSize / 2（4px）に、線の太さの半分 chevronWidth / 2（1px）を足した 5px で、下地線の内側。
 // フットプリントとルートの中心線の距離がこの値未満なら置けない（ちょうどは置ける）。
-export const ITEM_ROUTE_CLEARANCE = Math.max(ROUTE_LINE_STYLE.underlayWidth / 2, ROUTE_LINE_STYLE.chevronSize);
+export const ITEM_ROUTE_CLEARANCE = Math.max(
+  ROUTE_LINE_STYLE.underlayWidth / 2,
+  ROUTE_LINE_STYLE.mainWidth / 2,
+  ROUTE_LINE_STYLE.chevronSize / 2 + ROUTE_LINE_STYLE.chevronWidth / 2,
+);
 // 仮(#144): 出現場所の円（半径 SPAWN_MARKER_STYLE.radius）の外側の細いリングと、内側の小さな再生マーク（▶）の見た目。
 // リングはセル内（中心から CELL_SIZE / 2 未満）に収め、休暇マーカーの当たり判定（円の半径）は変えない。
 export const SPAWN_MARKER_DECOR_COLORS = {
@@ -755,7 +764,7 @@ export const INITIAL_PLACEMENT_START_KEYS = ['ENTER'] as const;
 // 仮・要確認(#47): 初期配置UI（残ポイント・選択中のアイテム・操作説明のパネル、開始ボタン、メッセージ）の配置。
 // 仮・要確認(#156): 右上はアイコンとアイテムのメニューを開く場所になったため、左の HUD を撤去して空いた左上に移す。
 // 左端は経過日数と同じ x=72（出現列 x<60 の右）、上端は上帯（行0、y<60）の下に余白 8px をあけた y=68。
-// この範囲（INITIAL_PLACEMENT_UI_BOUNDS）に重なる位置は初期配置フェーズの間だけ置けない（#151 で矩形のまま判定する）。
+// これらの矩形（INITIAL_PLACEMENT_UI_BOUNDS #162）に重なる位置は初期配置フェーズの間だけ置けない（#151 で矩形のまま判定する）。
 const INITIAL_PLACEMENT_UI_MARGIN = 8;
 export const INITIAL_PLACEMENT_PANEL_POSITION = {
   x: HUD_LEFT_X,
@@ -802,20 +811,34 @@ export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
 } as const;
 export const INITIAL_PLACEMENT_MESSAGE_COLOR = ITEM_MESSAGE_COLOR;
 export const INITIAL_PLACEMENT_MESSAGE_DURATION_MS = ITEM_MESSAGE_DURATION_MS;
-// 仮・要確認(#47, #156): 初期配置UIが占める範囲（ピクセル）。#156 で左上に移した（x=72〜464、y=68〜188）。
-// 幅は日本語の最も長い操作説明の行（全角 1 文字 = 文字サイズで見積もる。14px × 28 文字 = 392px）、下端はメッセージの下端（1 行の高さぶん）。
-// 文言は言語ごとに変わるが、配置判定の範囲は言語で変えない（#158。どの言語の文言もこの幅に収めることを hudLayout.test.ts で言語ごとに確かめる）。
-// hudLayout.test.ts でパネル・ボタン・メッセージが範囲に収まることを確かめる。この矩形に重なる位置は初期配置の間だけ置けない
+// 仮・要確認(#47, #156, #162): 初期配置UIが占める範囲（ピクセル）。パネル・エンジニアの選択ボタン・開始ボタン・メッセージの矩形の配列。
+// #156 までは全体を1つの外接矩形（x=72〜464、y=68〜188）にしていたため、開始ボタンの右など何も描いていない所にも置けなかった(#162)。
+// 各矩形は次のとおり（左上に置く #156）。矩形どうしの間（縦横 6px の隙間と、開始ボタンの右）は置ける。
+// - パネル: x=72〜464、y=68〜128。幅は日本語の最も長い操作説明の行（全角 1 文字 = 文字サイズで見積もる。14px × 28 文字 = 392px）、高さは 3 行ぶん。
+// - エンジニアの選択ボタン: x=72〜222、y=134〜162。開始ボタン: x=228〜356、y=134〜162（ボタンの大きさそのまま。枠線 2px の外側半分の 1px は、
+//   ボタンの間・行の間の隙間（6px）と配置グリッド（16px）の位置の関係で、どのセルの可否も変えないため含めない）。
+// - メッセージ: x=72〜464、y=168〜188。幅はパネルと同じ見積もり、高さは 1 行ぶん。
+// 文言は言語ごとに変わるが、配置判定の範囲は言語で変えない（#158。どの言語の文言もパネル・メッセージの幅に収めることを hudLayout.test.ts で言語ごとに確かめる）。
+// hudLayout.test.ts でパネル・ボタン・メッセージがそれぞれ対応する矩形に収まることを確かめる。これらの矩形に重なる位置は初期配置の間だけ置けない
 // （プレイ開始で UI を消すので、プレイ中の購入では置ける #151）。
 const INITIAL_PLACEMENT_UI_WIDTH_CHARS = 28;
 const INITIAL_PLACEMENT_UI_WIDTH = INITIAL_PLACEMENT_UI_WIDTH_CHARS * parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10);
-const INITIAL_PLACEMENT_UI_BOTTOM = INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT;
-export const INITIAL_PLACEMENT_UI_BOUNDS = {
-  x: INITIAL_PLACEMENT_PANEL_POSITION.x,
-  y: INITIAL_PLACEMENT_PANEL_POSITION.y,
-  width: INITIAL_PLACEMENT_UI_WIDTH,
-  height: INITIAL_PLACEMENT_UI_BOTTOM - INITIAL_PLACEMENT_PANEL_POSITION.y,
-} as const;
+export const INITIAL_PLACEMENT_UI_BOUNDS = [
+  {
+    x: INITIAL_PLACEMENT_PANEL_POSITION.x,
+    y: INITIAL_PLACEMENT_PANEL_POSITION.y,
+    width: INITIAL_PLACEMENT_UI_WIDTH,
+    height: INITIAL_PLACEMENT_PANEL_LINES * INITIAL_PLACEMENT_LINE_HEIGHT,
+  },
+  { ...INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION, ...INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE },
+  { ...INITIAL_PLACEMENT_START_BUTTON_POSITION, ...INITIAL_PLACEMENT_START_BUTTON_SIZE },
+  {
+    x: INITIAL_PLACEMENT_MESSAGE_POSITION.x,
+    y: INITIAL_PLACEMENT_MESSAGE_POSITION.y,
+    width: INITIAL_PLACEMENT_UI_WIDTH,
+    height: INITIAL_PLACEMENT_LINE_HEIGHT,
+  },
+] as const;
 
 // 仮・要確認(#157): 初期配置でエンジニアを置ける床（ENGINEER_SPAWN_COL の空いた行）の色分け。setup の間だけ床(-1)とルート(-0.5)の間に重ねる。
 export const ENGINEER_CANDIDATE_OVERLAY = {
@@ -838,6 +861,16 @@ export const INITIAL_PLACEMENT_REMOVE_BUTTON = {
   fontSize: '11px',
   labelColor: '#ffffff',
   depth: 0.6,
+} as const;
+// 仮・要確認(#162): 置けるかどうかを示す枠（配置プレビュー）。一辺 ITEM_BOX_SIZE の枠を配置グリッドのセルの中心に描く。
+// 初期配置ではポインターの下のセル、プレイ中は主人公がアイテムを置くセルに出す。置けるなら ok の色、置けないなら ng の色。
+// アイテム(0.4)より手前、×ボタン(0.6)・主人公(1)・UI より奥に描く。
+export const PLACEMENT_PREVIEW = {
+  okColor: 0x69f0ae,
+  ngColor: 0xff5252,
+  lineWidth: 2,
+  alpha: 0.9,
+  depth: 0.45,
 } as const;
 // 仮・要確認(#157): 後から置いたエンジニアの自動生成ルートが配置済みアイテムに重なるとき、ルートを作り直す回数の上限（最初の1回を含む）。
 // 上限まで重なったら置かない（アイテムは勝手に撤去しない）。

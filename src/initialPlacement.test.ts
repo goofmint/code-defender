@@ -229,8 +229,8 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
     expect(reasonAt({ col: 28, row: 20 })).toBe('notPlaceable'); // 行5の線（y=330）の上
     expect(reasonAt(spawnCell)).toBe('notPlaceable');
     expect(reasonAt(releaseCell)).toBe('notPlaceable');
-    expect(reasonAt({ col: 28, row: 18 })).toBe('ok'); // 下端 y=304、行5の線のクリアランス（y≧322）の上
-    expect(reasonAt({ col: 28, row: 21 })).toBe('notPlaceable'); // 上端 y=336、クリアランス（y≦338）に 2px 重なる
+    expect(reasonAt({ col: 28, row: 18 })).toBe('ok'); // 下端 y=304、行5の線のクリアランス（y≧324 #162）の上
+    expect(reasonAt({ col: 28, row: 21 })).toBe('ok'); // 上端 y=336、描いている線の外形（y<336）に接するだけ(#162)
     expect(reasonAt({ col: 28, row: 22 })).toBe('ok'); // 上端 y=352、クリアランスの下
     expect(reasonAt({ col: 55, row: 16 })).toBe('ok'); // 右端 x=896、リリース地点の円（半径 28。左端 x=902）の左
     expect(reasonAt({ col: 56, row: 16 })).toBe('notPlaceable'); // 右端 x=912、円に重なる
@@ -245,22 +245,39 @@ describe('placeInitialItem: 置けるセルの境界値（配置グリッド #15
     expect(reasonAt({ col: 10, row: 22 })).toBe('ok'); // y=352〜368
   });
 
-  it('blockedRects に初期配置UIの範囲を足すと、その中は notPlaceable、左隣・右隣・下隣は置ける。プレイ中の既定では置ける', () => {
-    const setupContext = { ...context, blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS] };
+  it('blockedRects に初期配置UIの矩形を足すと、パネル・ボタン・メッセージの上は notPlaceable、その間と外は置ける。プレイ中の既定では置ける', () => {
+    const setupContext = { ...context, blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS] };
     const reasonInSetup = (cell: GridCell): string => {
       const result = placeInitialItem(big, 'linter', cell, setupContext);
       return result.ok ? 'ok' : result.reason;
     };
-    // 初期配置UIの範囲は左上へ移した x=72〜464、y=68〜188（#156）。
-    expect(INITIAL_PLACEMENT_UI_BOUNDS).toEqual({ x: 72, y: 68, width: 392, height: 120 });
-    const inside: GridCell = { col: 10, row: 8 }; // x=160〜176、y=128〜144
-    expect(reasonInSetup(inside)).toBe('notPlaceable');
-    expect(reasonAt(inside)).toBe('ok');
-    expect(reasonInSetup({ col: 4, row: 8 })).toBe('notPlaceable'); // x=64〜80（左端 72 に 8px 重なる）
+    // 初期配置UIは左上（#156）。#162 で外接矩形（x=72〜464、y=68〜188）をパネル・エンジニアの選択ボタン・開始ボタン・メッセージの矩形に分けた。
+    expect(INITIAL_PLACEMENT_UI_BOUNDS).toEqual([
+      { x: 72, y: 68, width: 392, height: 60 },
+      { x: 72, y: 134, width: 150, height: 28 },
+      { x: 228, y: 134, width: 128, height: 28 },
+      { x: 72, y: 168, width: 392, height: 20 },
+    ]);
+    // 本体の上は置けない（プレイ中の既定では置ける）。
+    const onEngineerButton: GridCell = { col: 10, row: 8 }; // x=160〜176、y=128〜144（エンジニアの選択ボタン y≧134 に重なる）
+    expect(reasonInSetup(onEngineerButton)).toBe('notPlaceable');
+    expect(reasonAt(onEngineerButton)).toBe('ok');
+    expect(reasonInSetup({ col: 10, row: 5 })).toBe('notPlaceable'); // x=160〜176、y=80〜96（パネル）
+    expect(reasonInSetup({ col: 16, row: 9 })).toBe('notPlaceable'); // x=256〜272、y=144〜160（開始ボタン）
+    expect(reasonInSetup({ col: 10, row: 11 })).toBe('notPlaceable'); // x=160〜176、y=176〜192（メッセージ）
+    // 開始ボタンの右（x=356〜464、y=128〜168）は何も描いていないので置ける(#162)。#156 の外接矩形では置けなかった。
+    expect(reasonInSetup({ col: 23, row: 9 })).toBe('ok'); // x=368〜384、y=144〜160（開始ボタンの右端 356 まで 12px 空く）
+    expect(reasonInSetup({ col: 22, row: 9 })).toBe('notPlaceable'); // x=352〜368（開始ボタンの右端 356 に 4px 重なる）
+    expect(reasonInSetup({ col: 28, row: 8 })).toBe('ok'); // x=448〜464、y=128〜144（上端がパネルの下端 128 に接するだけ）
+    expect(reasonInSetup({ col: 25, row: 7 })).toBe('notPlaceable'); // y=112〜128（パネル）
+    expect(reasonInSetup({ col: 25, row: 9 })).toBe('ok'); // y=144〜160（パネルとメッセージの間）
+    expect(reasonInSetup({ col: 25, row: 10 })).toBe('notPlaceable'); // y=160〜176（メッセージの上端 168 に 8px 重なる）
+    // 外接矩形の外側の辺は #156 と同じ。
+    expect(reasonInSetup({ col: 4, row: 8 })).toBe('notPlaceable'); // x=64〜80（エンジニアの選択ボタンの左端 72 に 8px 重なる）
     expect(reasonInSetup({ col: 3, row: 8 })).toBe('ok'); // x=48〜64（8px 空く）
-    expect(reasonInSetup({ col: 28, row: 8 })).toBe('notPlaceable'); // x=448〜464（範囲の中。右端に内側から接する）
-    expect(reasonInSetup({ col: 29, row: 8 })).toBe('ok'); // x=464〜480（右端 464 に辺が接する）
-    expect(reasonInSetup({ col: 25, row: 11 })).toBe('notPlaceable'); // y=176〜192（下端 188 に 4px 重なる）
+    expect(reasonInSetup({ col: 28, row: 5 })).toBe('notPlaceable'); // x=448〜464（パネルの中。右端に内側から接する）
+    expect(reasonInSetup({ col: 29, row: 5 })).toBe('ok'); // x=464〜480（パネルの右端 464 に辺が接する）
+    expect(reasonInSetup({ col: 25, row: 11 })).toBe('notPlaceable'); // y=176〜192（メッセージの下端 188 に 4px 重なる）
     expect(reasonInSetup({ col: 25, row: 12 })).toBe('ok'); // y=192〜208（4px 空く。ルートの線からも離れている）
   });
 });

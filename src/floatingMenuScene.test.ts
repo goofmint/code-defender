@@ -305,7 +305,7 @@ const firstPlaceableCell = (routes: readonly Route[]): GridCell => {
   for (let row = 0; row < PLACEMENT_ROWS; row += 1) {
     for (let col = 0; col < PLACEMENT_COLS; col += 1) {
       const cell = { col, row };
-      if (isPlaceableCell(cell, { routes, placedItems: [], blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS] })) {
+      if (isPlaceableCell(cell, { routes, placedItems: [], blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS] })) {
         return cell;
       }
     }

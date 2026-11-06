@@ -1,7 +1,7 @@
 // 配置判定(#151)で使う矩形・円・線分の純粋な幾何関数。Phaser には依存しない（テスト可能にするため）。
 import type { Point } from './route';
 
-// 左上 (x, y) と幅・高さで表す矩形（ピクセル）。config.ts の INITIAL_PLACEMENT_UI_BOUNDS / ITEM_BLOCKED_RECTS と同じ形。
+// 左上 (x, y) と幅・高さで表す矩形（ピクセル）。config.ts の INITIAL_PLACEMENT_UI_BOUNDS / ITEM_BLOCKED_RECTS の各要素と同じ形。
 export type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
 
 // 2つの矩形が面積を持って重なるか。辺や角が接するだけ（共有する面積が 0）なら重ならない（hudLayout.test.ts の intersects と同じ規約）。

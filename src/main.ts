@@ -592,10 +592,10 @@ class MainScene extends Phaser.Scene {
     }
     const itemType = selection.itemType;
     const cell = pointToPlacementCell(point);
-    // 初期配置UIの範囲（INITIAL_PLACEMENT_UI_BOUNDS）と重なる位置は、初期配置の間だけ置けない（UI はプレイ開始で消える）。
+    // 初期配置UIの矩形（INITIAL_PLACEMENT_UI_BOUNDS #162）と重なる位置は、初期配置の間だけ置けない（UI はプレイ開始で消える）。
     const result = placeInitialItem(this.initialPlacement, itemType, cell, {
       routes: this.routes,
-      blockedRects: [...ITEM_BLOCKED_RECTS, INITIAL_PLACEMENT_UI_BOUNDS],
+      blockedRects: [...ITEM_BLOCKED_RECTS, ...INITIAL_PLACEMENT_UI_BOUNDS],
     });
     this.showInitialPlacementMessage(formatInitialPlacementMessage(result, itemType));
     if (!result.ok) {
