@@ -9,7 +9,6 @@ import {
   CODE_FREEZE_DURATION_MS,
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_REFACTORING_RATIO,
-  ENGINEER_HIRE_COST,
   FRIDAY_DEPLOY_INCIDENT_DAMAGE_POINTS,
   FRIDAY_DEPLOY_INCIDENT_DELAY_MS,
   FRIDAY_DEPLOY_SALES,
@@ -243,7 +242,6 @@ import {
   listEngineerCandidateCells,
   placeInitialEngineer,
   placeInitialItem,
-  refuseSetupHireIntoBankruptcy,
   removeInitialEngineer,
   removeInitialItem,
 } from './initialPlacement';
@@ -989,19 +987,14 @@ class MainScene extends Phaser.Scene {
     this.refreshMenu('balance');
   }
 
-  // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
+  // ランクを指定して雇う。ゲームオーバー中は何もしない。初期配置の間もプレイ中も雇える(#172)。
+  // 雇うときの費用はない(#179)ので資金は変えない（資金のイベントも倒産判定も起こさない）。エンジニアにかかるお金は月末の給料だけ。
   // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う（初期配置の間は追加せず、未配置のまま置かせる #172）。
-  // 初期配置の間も雇える(#172)。ただし雇うと倒産する額になるときは資金不足として断る（refuseSetupHireIntoBankruptcy）。
   private hire(rank: string): void {
     if (this.gameOver.over) {
       return;
     }
-    const hired = hireEngineer(
-      { engineers: this.engineers, funds: this.funds, nextId: this.nextEngineerId },
-      rank,
-      { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST },
-    );
-    const result = this.phase === 'setup' ? refuseSetupHireIntoBankruptcy(hired) : hired;
+    const result = hireEngineer({ engineers: this.engineers, nextId: this.nextEngineerId }, rank, { max: MAX_ENGINEERS });
     this.hireMessageText?.destroy();
     this.hireMessageText = drawHireMessage(this, formatHireMessage(result, rank));
     if (!result.ok) {
@@ -1017,8 +1010,7 @@ class MainScene extends Phaser.Scene {
     // エンジニアのメニューの人数・選択中の表示と、月末に支払うお金（雇った人の月給）を更新する(#156)。
     this.refreshSelectedEngineer();
     this.refreshMonthEndPayment();
-    this.changeFunds(result.fundsAfter, 'hire');
-    const payload: EngineerHiredPayload = { engineer: result.engineer, cost: result.cost };
+    const payload: EngineerHiredPayload = { engineer: result.engineer };
     this.events.emit(ENGINEER_HIRED_EVENT, payload);
   }
 
@@ -1150,7 +1142,7 @@ class MainScene extends Phaser.Scene {
           {
             count: this.engineers.length,
             max: MAX_ENGINEERS,
-            hireOptions: ENGINEER_RANKS.map((entry) => ({ rank: entry.id, cost: ENGINEER_HIRE_COST[entry.id] })),
+            hireOptions: ENGINEER_RANKS.map((entry) => ({ rank: entry.id })),
             selected: this.findSelectedEngineer(),
           },
           {

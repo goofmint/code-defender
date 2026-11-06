@@ -23,7 +23,7 @@ import {
 import type { EngineerTendency } from './config';
 import type { AiAgentType } from './aiAgent';
 import { MS_PER_GAME_DAY } from './gameTime';
-import { formatShortAmount, formatYen, getMessages, interpolate } from './i18n';
+import { formatYen, getMessages, interpolate } from './i18n';
 import { createRoutes } from './route';
 import type { Route } from './route';
 
@@ -86,7 +86,6 @@ export type Engineer = {
 
 export type EngineerHiredPayload = {
   readonly engineer: Engineer;
-  readonly cost: number;
 };
 
 // routeId は退職者の担当ルート（ルートなしなら null）。engineer.routeId と同じ値。
@@ -95,27 +94,24 @@ export type EngineerResignedPayload = {
   readonly routeId: number | null;
 };
 
-export type HireFailureReason = 'unknownRank' | 'limit' | 'insufficientFunds';
+// 雇うときの費用はない(#179)ので、資金不足で断る理由はない。
+export type HireFailureReason = 'unknownRank' | 'limit';
 
 export type HireResult =
   | {
       readonly ok: true;
       readonly engineer: Engineer;
       readonly engineers: readonly Engineer[];
-      readonly fundsAfter: number;
-      readonly cost: number;
     }
   | { readonly ok: false; readonly reason: HireFailureReason };
 
 export type HireState = {
   readonly engineers: readonly Engineer[];
-  readonly funds: number;
   readonly nextId: number;
 };
 
 export type HireRules = {
   readonly max: number;
-  readonly costs: Readonly<Record<EngineerRank, number>>;
 };
 
 export const isEngineerRank = (value: string): value is EngineerRank =>
@@ -417,10 +413,8 @@ export const createInitialFleet = (
   return { routes, engineers, nextEngineerId: engineers.length };
 };
 
-// 費用が不正（負・NaN・Infinity）なら雇えない扱いにする。
-const isValidCost = (cost: number): boolean => Number.isFinite(cost) && cost >= 0;
-
-// 雇えるか判定して結果を返す。判定順は unknownRank → limit → insufficientFunds。入力は変更しない。
+// 雇えるか判定して結果を返す。判定順は unknownRank → limit。入力は変更しない。
+// 雇うときの費用はない(#179)。資金は変えず、エンジニアにかかるお金は月末の給料だけ。
 export const hireEngineer = (
   state: HireState,
   rank: string,
@@ -432,10 +426,6 @@ export const hireEngineer = (
   }
   if (state.engineers.length >= rules.max) {
     return { ok: false, reason: 'limit' };
-  }
-  const cost = rules.costs[rank];
-  if (!isValidCost(cost) || !(state.funds >= cost)) {
-    return { ok: false, reason: 'insufficientFunds' };
   }
   const personality = pickRandomPersonality(random);
   const engineer: Engineer = {
@@ -454,15 +444,13 @@ export const hireEngineer = (
     ok: true,
     engineer,
     engineers: [...state.engineers, engineer],
-    fundsAfter: state.funds - cost,
-    cost,
   };
 };
 
 // ランクの表示名。現在の言語のカタログから読む(#158)。
 export const getRankLabel = (rank: EngineerRank): string => getMessages().engineer.ranks[rank];
 
-// ランクで決まる月給の初期額（円）(#33)。雇ったとき・初期編成のときに Engineer.salary に入れる。雇用費(ENGINEER_HIRE_COST)とは別。
+// ランクで決まる月給の初期額（円）(#33)。雇ったとき・初期編成のときに Engineer.salary に入れる。雇うときの費用はない(#179)。
 export const getInitialSalary = (rank: EngineerRank): number => ENGINEER_MONTHLY_SALARY_BY_RANK[rank];
 
 export const formatEngineerCount = (count: number, max: number): string =>
@@ -472,9 +460,10 @@ export const formatEngineerCount = (count: number, max: number): string =>
 export const formatResignedMessage = (engineer: Engineer): string =>
   interpolate(getMessages().engineer.resigned, { id: engineer.id, rank: getRankLabel(engineer.rank) });
 
-// エンジニアのメニュー(#156)の雇うボタンの文言。「ジュニアを雇う 10万円」（英語は「Hire Junior ¥100K」#158）。キー名（1〜3）は出さない。
-export const formatHireOption = (rank: EngineerRank, cost: number): string =>
-  interpolate(getMessages().engineer.hireOption, { rank: getRankLabel(rank), cost: formatShortAmount(cost, 'oneTime') });
+// エンジニアのメニュー(#156)の雇うボタンの文言。「ジュニアを雇う」（英語は「Hire Junior」#158）。キー名（1〜3）は出さない。
+// 雇うときの費用はない(#179)ので金額は出さない。
+export const formatHireOption = (rank: EngineerRank): string =>
+  interpolate(getMessages().engineer.hireOption, { rank: getRankLabel(rank) });
 
 export const formatHireMessage = (
   result: HireResult,
@@ -486,9 +475,6 @@ export const formatHireMessage = (
   }
   if (result.reason === 'limit') {
     return messages.engineer.hireLimit;
-  }
-  if (result.reason === 'insufficientFunds') {
-    return messages.common.insufficientFunds;
   }
   return interpolate(messages.engineer.unknownRank, { rank });
 };
@@ -598,7 +584,7 @@ const formatAiAgentName = (engineer: Engineer): string =>
   engineer.aiAgent === null ? getMessages().engineer.aiNone : AI_AGENT_SHORT_NAMES[engineer.aiAgent];
 
 // 選択中のエンジニアの情報（エンジニアのメニュー #156 では幅に収めるため2行）。
-// 「選択: #id ランク」「月給 300,000円 AI: 強い」（AIエージェント(#53)を付けていなければ「AI: なし」）。対象がいなければ「選択: 対象なし」の1行。
+// 「選択: #id ランク」「月給 200,000円 AI: 強い」（AIエージェント(#53)を付けていなければ「AI: なし」）。対象がいなければ「選択: 対象なし」の1行。
 export const formatSelectedEngineerLines = (engineer: Engineer | null): readonly string[] => {
   const text = getMessages().engineer;
   return engineer === null

@@ -8,7 +8,6 @@ import {
   CODE_SPEED_INCREMENT,
   CODE_SPEED_MAX,
   DIFFICULTY_STEP_MS,
-  ENGINEER_HIRE_COST,
   ENGINEER_RANKS,
   MALICIOUS_RATE_STEP_DAYS,
   MALICIOUS_RATE_STEP_MS,
@@ -376,8 +375,7 @@ describe('生成経路の接続（初期配置・追加雇用・割当解除）'
     let index = 0;
     return () => values[index++ % values.length];
   };
-  const rules = { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST };
-  const RICH = 100_000_000;
+  const rules = { max: MAX_ENGINEERS };
   // 0ms と、全ランク・共通率が上限に達した後の2点。
   const capMs = RATE_STEP * (Math.max(rateCapStep, ...ENGINEER_RANKS.map(rankCapStep)) + 1);
   const TIMES = [
@@ -397,14 +395,14 @@ describe('生成経路の接続（初期配置・追加雇用・割当解除）'
     const fleet = createFixtureFleet(() => 0);
     const maxRouteId = Math.max(...fleet.routes.map((route) => route.id));
     const middle = hireEngineer(
-      { engineers: fleet.engineers, funds: RICH, nextId: fleet.nextEngineerId },
+      { engineers: fleet.engineers, nextId: fleet.nextEngineerId },
       'middle',
       rules,
       () => 0,
     );
     if (!middle.ok) throw new Error('middle を雇えない');
     const senior = hireEngineer(
-      { engineers: middle.engineers, funds: middle.fundsAfter, nextId: middle.engineer.id + 1 },
+      { engineers: middle.engineers, nextId: middle.engineer.id + 1 },
       'senior',
       rules,
       () => 0,

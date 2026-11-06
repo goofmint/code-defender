@@ -1205,7 +1205,8 @@ export const drawFloatingPanel = (
 export type EngineerMenuView = {
   readonly count: number;
   readonly max: number;
-  readonly hireOptions: readonly { readonly rank: EngineerRank; readonly cost: number }[];
+  // 雇うときの費用はない(#179)ので、雇うボタンはランクだけで作る。
+  readonly hireOptions: readonly { readonly rank: EngineerRank }[];
   readonly selected: Engineer | null;
 };
 export type EngineerMenuCallbacks = {
@@ -1225,7 +1226,7 @@ export const drawEngineerMenu = (
     ...view.hireOptions.map(
       (option): PanelEntry => ({
         kind: 'buttons',
-        buttons: [{ label: formatHireOption(option.rank, option.cost), onPress: () => callbacks.onHire(option.rank), selected: false }],
+        buttons: [{ label: formatHireOption(option.rank), onPress: () => callbacks.onHire(option.rank), selected: false }],
       }),
     ),
     { kind: 'text', lines: formatSelectedEngineerLines(view.selected) },

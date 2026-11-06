@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ENGINEER_HIRE_COST,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
   ENGINEER_RANKS,
   ENGINEER_SALARY_MAX,
@@ -97,8 +96,8 @@ describe('getEngineerSalaries', () => {
     expect(getMonthlyPayroll(salaries)).toBe(ranks.reduce((sum, rank) => sum + ENGINEER_MONTHLY_SALARY_BY_RANK[rank], 0));
   });
 
-  it('全員ジュニア9人は 300000×9 円', () => {
-    expect(getMonthlyPayroll(getEngineerSalaries(staff(...Array<EngineerRank>(9).fill('junior'))))).toBe(2700000);
+  it('全員ジュニア9人は 200000×9 円(#179)', () => {
+    expect(getMonthlyPayroll(getEngineerSalaries(staff(...Array<EngineerRank>(9).fill('junior'))))).toBe(1800000);
   });
 
   it('入力を変更しない', () => {
@@ -134,13 +133,13 @@ describe('getEngineerSalaries', () => {
   });
 
   it.each([
-    ['ちょうど0円', 1200000, 0],
-    ['1円残る', 1200001, 1],
-    ['マイナスになる', 1199999, -1],
+    ['ちょうど0円', 900000, 0],
+    ['1円残る', 900001, 1],
+    ['マイナスになる', 899999, -1],
   ])('ランク混在の支払後の資金が%s', (_name, funds, expected) => {
-    // junior + middle + senior = 1,200,000 円
+    // junior + middle + senior = 200,000 + 300,000 + 400,000 = 900,000 円(#179)
     const paid = settleMonthlySalary(funds, 1, getEngineerSalaries(staff('junior', 'middle', 'senior')));
-    expect(paid.amount).toBe(1200000);
+    expect(paid.amount).toBe(900000);
     expect(paid.fundsAfter).toBe(expected);
   });
 });
@@ -383,9 +382,9 @@ describe('休暇中・未割当でも給料対象(#37)', () => {
 
   it('雇った直後（routeId: null）のエンジニアも、休暇にしても給料対象', () => {
     const result = hireEngineer(
-      { engineers: makeRoster(2, 0, 'unassigned'), funds: ENGINEER_HIRE_COST.senior, nextId: 2 },
+      { engineers: makeRoster(2, 0, 'unassigned'), nextId: 2 },
       'senior',
-      { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST },
+      { max: MAX_ENGINEERS },
       () => 0,
     );
     if (!result.ok) throw new Error(`雇えませんでした: ${result.reason}`);
