@@ -1,5 +1,6 @@
 import { INCIDENT_DAMAGE_UNIT_YEN, INCIDENT_DEFAULT_DAMAGE_POINTS } from './config';
 import type { CodeReleasedPayload } from './codeFlow';
+import { getInitialHp } from './defeat';
 import type { GameOverState } from './gameOver';
 import { MALICIOUS_CODE_TYPE_DEFINITIONS } from './maliciousCode';
 import type { MaliciousCodeType } from './maliciousCode';
@@ -56,8 +57,23 @@ export const incidentDamage = (maliciousType: MaliciousCodeType | undefined): nu
       : MALICIOUS_CODE_TYPE_DEFINITIONS[maliciousType].damage,
   );
 
+// 攻撃で弱った不正コードの損害額(#173)。満額 × (残り hp ÷ 初期 hp) を [0, 1] に収めた割合で減らし、円単位で丸める。
+// 残り hp が undefined・NaN・±Infinity のときは減らさず満額（残り hp を渡さない既存の呼び出し元と同じ結果にする）。
+export const scaledIncidentDamage = (
+  maliciousType: MaliciousCodeType | undefined,
+  remainingHp: number | undefined,
+): number => {
+  const fullDamage = incidentDamage(maliciousType);
+  if (remainingHp === undefined || !Number.isFinite(remainingHp)) {
+    return fullDamage;
+  }
+  const ratio = Math.min(Math.max(remainingHp / getInitialHp(maliciousType), 0), 1);
+  return Math.round(fullDamage * ratio);
+};
+
 // リリースされたコードの障害を精算する。ゲームオーバー後と正常コードは障害にならず null。
 // 不正コードは損害ぶん資金を引く（マイナスもそのまま）。倒産判定は呼び出し側（checkBankruptcy）が行う。
+// 損害は残り hp(#173)に応じて減らす（scaledIncidentDamage）。残り hp のないペイロードは満額。
 export const settleIncident = (
   funds: number,
   payload: CodeReleasedPayload,
@@ -66,7 +82,7 @@ export const settleIncident = (
   if (gameOver.over || payload.kind !== 'malicious') {
     return null;
   }
-  const damage = incidentDamage(payload.maliciousType);
+  const damage = scaledIncidentDamage(payload.maliciousType, payload.remainingHp);
   return createIncidentEvent(
     payload.id,
     payload.maliciousType,

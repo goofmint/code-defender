@@ -11,6 +11,7 @@ import {
   spawnCode,
   stepSpawnTimer,
   stepSpawnTimerUnlessPaused,
+  toNormalCode,
 } from './codeFlow';
 import type { FlowingCode } from './codeFlow';
 import { RELEASE_POINT_CENTER } from './releasePoint';
@@ -447,5 +448,51 @@ describe('rewindCode: 仕様変更の嵐(#58)でルートの始点に戻す', ()
   it('path が空のコードは例外', () => {
     const code: FlowingCode = { ...spawnCode(1, 'normal', topRoute), path: [] };
     expect(() => rewindCode(code)).toThrow();
+  });
+});
+
+describe('toNormalCode: 攻撃で hp が尽きた不正なコードを正常なコードに直す(#173)', () => {
+  it('途中まで進んだコードの id・ルート・経路・区間・位置・リリース済みかを保ち、種類を正常にして種別を外す', () => {
+    const spawned: FlowingCode = spawnCode(7, 'malicious', middleRoute, 'vulnerabilityCritical');
+    const moved = advanceCode(spawned, pathLength(spawned.path) / 2);
+    expect(moved.segmentIndex).toBeGreaterThan(0);
+
+    const normal = toNormalCode(moved);
+
+    expect(normal).toEqual({
+      id: 7,
+      kind: 'normal',
+      routeId: middleRoute.id,
+      path: moved.path,
+      segmentIndex: moved.segmentIndex,
+      position: moved.position,
+      released: false,
+    });
+    expect(normal).not.toHaveProperty('maliciousType');
+  });
+
+  it('spawnCode の正常なコードと同じ形になる（生成直後の位置）', () => {
+    const spawned = spawnCode(3, 'malicious', topRoute, 'bug');
+    expect(toNormalCode(spawned)).toEqual(spawnCode(3, 'normal', topRoute));
+  });
+
+  it('リリース済みのフラグもそのまま保つ', () => {
+    const released = advanceCode(spawnCode(1, 'malicious', topRoute, 'typo'), pathLength(routePixelPoints(topRoute)));
+    expect(released.released).toBe(true);
+    expect(toNormalCode(released).released).toBe(true);
+  });
+
+  it('シーン側の追加の値（Graphics・revealed など）は引き継がない', () => {
+    const code = { ...spawnCode(1, 'malicious', topRoute, 'bug'), graphics: { name: 'g' }, revealed: true };
+    const normal = toNormalCode(code);
+    expect(normal).not.toHaveProperty('graphics');
+    expect(normal).not.toHaveProperty('revealed');
+  });
+
+  it('入力は変更しない', () => {
+    const moved = advanceCode(spawnCode(1, 'malicious', topRoute, 'bug'), 100);
+    const snapshot = JSON.stringify(moved);
+    toNormalCode(moved);
+    expect(JSON.stringify(moved)).toBe(snapshot);
   });
 });

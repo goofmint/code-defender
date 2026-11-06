@@ -25,6 +25,8 @@ export type CodeReleasedPayload = {
   readonly kind: CodeKind;
   readonly routeId: number;
   readonly maliciousType?: MaliciousCodeType;
+  // リリース時点の残り hp(#173)。不正なコードのときだけ入る。障害の損害額をこの割合で減らす（settleIncident）。
+  readonly remainingHp?: number;
 };
 
 // maliciousType は不正なコードのときだけ設定する。省略時（または正常なコード）は種別を持たない。
@@ -46,6 +48,18 @@ export const spawnCode = (
   };
   return kind === 'malicious' && maliciousType !== undefined ? { ...code, maliciousType } : code;
 };
+
+// 攻撃で hp が尽きた不正なコードを正常なコードに直す(#173)。id・ルート・経路・区間・位置・リリース済みかはそのまま。
+// 種別は持たせない（spawnCode の正常なコードと同じ形）。必要な項目だけを詰め直すので、シーン側の描画や revealed も引き継がない。入力は変更しない。
+export const toNormalCode = (code: FlowingCode): FlowingCode => ({
+  id: code.id,
+  kind: 'normal',
+  routeId: code.routeId,
+  path: code.path,
+  segmentIndex: code.segmentIndex,
+  position: code.position,
+  released: code.released,
+});
 
 // 距離ぶん進める。残距離は次の区間へ持ち越し、終点を越えない。入力は変更しない。
 export const advanceCode = (code: FlowingCode, distance: number): FlowingCode => {

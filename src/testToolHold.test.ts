@@ -48,6 +48,8 @@ vi.mock('./render', async (importOriginal) => ({
   drawItemAttackEffect: vi.fn(),
   flashCode: vi.fn(),
   drawDefeatEffect: vi.fn(),
+  // 撃破したコードを正常なコードとして描き直す(#173)。
+  drawCode: vi.fn(() => ({ setPosition: vi.fn(), destroy: vi.fn() })),
 }));
 
 // テストで触る MainScene の private メンバーだけを表す型。キャストはこのテストファイルの中に閉じる。
@@ -307,9 +309,14 @@ describe('MainScene: 足止めの後片付けと対象外', () => {
 
     scene.updateItems(T0);
 
-    expect(scene.codes).toEqual([]);
+    // 撃破したコードは正常なコードに直って残る(#173)が、足止めは付かない。
+    expect(scene.codes.map((code) => [code.id, code.kind])).toEqual([[1, 'normal']]);
     expect(scene.codeHold.has(1)).toBe(false);
     expect(scene.events.emit).toHaveBeenCalledWith(CODE_DEFEATED_EVENT, { id: 1, routeId: 0 });
+
+    // 正常なコードは攻撃の対象外なので、クールダウン明けでも足止めは付かない。
+    scene.updateItems(T0 + ITEM_ATTACK_COOLDOWN_MS);
+    expect(scene.codeHold.has(1)).toBe(false);
   });
 
   it('足止め中のコードを撃破すると、足止めの記録も消える', () => {
@@ -319,7 +326,7 @@ describe('MainScene: 足止めの後片付けと対象外', () => {
 
     scene.updateItems(T0 + ITEM_ATTACK_COOLDOWN_MS);
 
-    expect(scene.codes).toEqual([]);
+    expect(scene.codes.map((code) => [code.id, code.kind])).toEqual([[1, 'normal']]);
     expect(scene.codeHold.has(1)).toBe(false);
   });
 

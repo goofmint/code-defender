@@ -314,9 +314,10 @@ describe('「動いてるからヨシ！」(#58)', () => {
     scene.elapsedMs = NOW + WORKS_FINE_DURATION_MS;
     scene.updateItems(NOW + WORKS_FINE_DURATION_MS);
     expect(scene.placedItems[0].lastAttackTime).toBe(NOW + WORKS_FINE_DURATION_MS);
-    // 主人公とCodeRabbitの1回ずつで hp が 0 になり撃破される。
+    // 主人公とCodeRabbitの1回ずつで hp が 0 になり撃破され、正常なコードに直って残る(#173)。
     expect(DEFAULT_MALICIOUS_CODE_HP - ATTACK_DAMAGE - ITEM_POWER_DAMAGE.medium).toBe(0);
-    expect(scene.codes).toEqual([]);
+    expect(scene.codes.map((c) => [c.id, c.kind])).toEqual([[1, 'normal']]);
+    expect(scene.codeHp.has(1)).toBe(false);
   });
 });
 
