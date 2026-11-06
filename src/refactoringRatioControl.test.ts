@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { setLocale } from './i18n';
-import { DEFAULT_REFACTORING_RATIO, REFACTORING_RATIO_STEP_PERCENT } from './config';
-import {
-  formatRefactoringAllocation,
-  getRefactoringRatioOptions,
-  isSameRefactoringOption,
-  stepRefactoringRatio,
-} from './refactoringRatioControl';
+import { DEFAULT_REFACTORING_RATIO, MENU_PANEL_PADDING, MENU_PANEL_WIDTH, REFACTORING_RATIO_STEP_PERCENT } from './config';
+import { formatRefactoringAllocation, gaugeSegmentWidths, stepRefactoringRatio } from './refactoringRatioControl';
 import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import { sanitizeRefactoringRatio } from './techDebt';
 
@@ -134,36 +129,48 @@ describe('設定の整合性', () => {
   });
 });
 
-describe('getRefactoringRatioOptions: 開発バランスのメニューの選択肢(#156)', () => {
-  it('既定の刻み（10%）では 0 から 1 までの 11 個で、端点は 0 と 1', () => {
-    const options = getRefactoringRatioOptions();
-    expect(options).toHaveLength(11);
-    expect(options[0]).toBe(0);
-    expect(options[options.length - 1]).toBe(1);
-    expect(options).toEqual(gridValues);
+describe('gaugeSegmentWidths: 開発バランスのゲージの2色の幅(#165)', () => {
+  // メニューの内側の幅（実際のゲージの幅）。
+  const gaugeWidth = MENU_PANEL_WIDTH.balance - MENU_PANEL_PADDING * 2;
+
+  it.each([
+    [0, { feature: 144, refactoring: 0 }],
+    [0.2, { feature: 115, refactoring: 29 }],
+    [1, { feature: 0, refactoring: 144 }],
+  ])('境界値: 割合 %d の幅は %j（左が機能開発）', (ratio, expected) => {
+    expect(gaugeWidth).toBe(144);
+    expect(gaugeSegmentWidths(ratio, gaugeWidth)).toEqual(expected);
   });
 
-  it('値は刻みの倍数をちょうど 100 で割った値（0.1 を足していく誤差がない）', () => {
-    expect(getRefactoringRatioOptions()[3]).toBe(0.3);
-    expect(getRefactoringRatioOptions()[7]).toBe(0.7);
+  it.each(gridValues)('割合 %d（11段階）でも2つの幅は整数で、和はゲージの幅と同じ', (ratio) => {
+    const { feature, refactoring } = gaugeSegmentWidths(ratio, gaugeWidth);
+    expect(Number.isInteger(feature)).toBe(true);
+    expect(Number.isInteger(refactoring)).toBe(true);
+    expect(feature).toBeGreaterThanOrEqual(0);
+    expect(refactoring).toBeGreaterThanOrEqual(0);
+    expect(feature + refactoring).toBe(gaugeWidth);
   });
 
-  it('既定の割合（DEFAULT_REFACTORING_RATIO）は選択肢のどれかと同じ', () => {
-    expect(getRefactoringRatioOptions().some((option) => isSameRefactoringOption(option, DEFAULT_REFACTORING_RATIO))).toBe(true);
+  it('11段階では割合が増えるほどリファクタリングの幅が広がる（単調）', () => {
+    const widths = gridValues.map((ratio) => gaugeSegmentWidths(ratio, gaugeWidth).refactoring);
+    expect(widths).toHaveLength(11);
+    widths.slice(1).forEach((width, index) => expect(width).toBeGreaterThan(widths[index]));
   });
 
-  it('刻みを変えると数が変わる（50% なら 0・0.5・1 の 3 個、100% なら 0・1 の 2 個）', () => {
-    expect(getRefactoringRatioOptions(50)).toEqual([0, 0.5, 1]);
-    expect(getRefactoringRatioOptions(100)).toEqual([0, 1]);
+  it('割合は表示と同じ整数パーセントで丸める（0.1 + 0.2 は 0.3 と同じ幅、範囲外は端に寄せる）', () => {
+    expect(gaugeSegmentWidths(0.1 + 0.2, 100)).toEqual(gaugeSegmentWidths(0.3, 100));
+    expect(gaugeSegmentWidths(-1, 100)).toEqual({ feature: 100, refactoring: 0 });
+    expect(gaugeSegmentWidths(2, 100)).toEqual({ feature: 0, refactoring: 100 });
   });
 
-  it.each([0, -10, 3, 7.5, 101])('100 を割り切らない・正の整数でない刻み（%d）は例外', (step) => {
-    expect(() => getRefactoringRatioOptions(step)).toThrow(RangeError);
+  it('境界値: 幅 0 は両方 0。負・整数でない・NaN の幅は例外', () => {
+    expect(gaugeSegmentWidths(0.5, 0)).toEqual({ feature: 0, refactoring: 0 });
+    for (const width of [-1, 10.5, Number.NaN]) expect(() => gaugeSegmentWidths(0.5, width)).toThrow(RangeError);
   });
 
-  it('isSameRefactoringOption は整数パーセントで比べる（0.1 + 0.2 と 0.3 は同じ、0.3 と 0.4 は違う）', () => {
-    expect(isSameRefactoringOption(0.1 + 0.2, 0.3)).toBe(true);
-    expect(isSameRefactoringOption(0.3, 0.4)).toBe(false);
+  it('既定の割合（DEFAULT_REFACTORING_RATIO）でも和は幅と同じ', () => {
+    const { feature, refactoring } = gaugeSegmentWidths(DEFAULT_REFACTORING_RATIO, gaugeWidth);
+    expect(feature + refactoring).toBe(gaugeWidth);
   });
 });
 

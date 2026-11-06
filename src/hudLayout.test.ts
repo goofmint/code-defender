@@ -1,12 +1,10 @@
 // 画面の常時表示（左上の経過日数・右上のアイコン・右下の指標）、アイコンで開くメニュー、エンジニアのポップオーバー、初期配置UIの配置(#156)。
+// #165 で右上にゲームの説明のアイコン（ℹ️）を足し、右下の指標を絵文字＋数字の2列 × 2行にした。
 // 文字列の幅は textMetrics.ts の推定幅（全角 1 文字 = フォントpx、半角はその比率 #158）で見積もり、重ならないこと・枠に収まることを確かめる。
 // 文言に依存する検査は対応言語ごとに行う(#158)。言語が変わってもレイアウトの値（位置・大きさ）は変えず、収まらない文言は短くする。
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   AI_AGENT_BUTTON_ORDER,
-  AI_AGENT_BUY_KEYS,
-  ATTACK_KEYS,
-  CODE_MALICIOUS_RATE_MIN,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
   ENGINEER_HIRE_COST,
@@ -14,8 +12,8 @@ import {
   ENGINEER_RANKS,
   ENGINEER_SALARY_MAX,
   ENGINEER_SPAWN_COL,
-  GAME_OVER_RESTART_KEYS,
-  HIRE_KEYS,
+  HELP_ICON_RECT,
+  HUD_ICONS,
   HIRE_MESSAGE_POSITION,
   INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION,
   INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE,
@@ -28,31 +26,21 @@ import {
   INITIAL_PLACEMENT_START_BUTTON_SIZE,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
-  ITEM_BUY_KEYS,
   ITEM_MESSAGE_POSITION,
-  ITEM_PAGE_KEYS,
   ITEM_PAGE_SIZE,
   ITEM_SHORT_NAMES,
   MAX_ENGINEERS,
   MENU_FONT_SIZE,
-  PLAYER_MOVE_KEYS,
-  REFACTORING_RATIO_KEYS,
   RELEASE_POINT_CELL,
-  SALARY_ADJUST_KEYS,
-  SALARY_SELECT_KEYS,
   STAGE_POINTS_INITIAL,
+  BALANCE_STEP_BUTTON_LABELS,
+  STATUS_PANEL_COLUMN_WIDTH,
   STATUS_PANEL_FONT_SIZE,
-  STATUS_PANEL_INDICATOR_GAP,
-  STATUS_PANEL_INDICATOR_RADIUS,
-  STATUS_PANEL_INDICATOR_WIDTH,
   STATUS_PANEL_LINE_HEIGHT,
-  STATUS_PANEL_LINES,
   STATUS_PANEL_PADDING,
   STATUS_PANEL_RECT,
+  STATUS_PANEL_ROWS,
   TECH_DEBT_LEVELS,
-  VACATION_HINT_LINES,
-  VACATION_MALICIOUS_RATE_REDUCTION,
-  VACATION_MALICIOUS_RATE_REDUCTION_MAX,
 } from './config';
 import { formatAiAgentMessage, formatAiAgentOption } from './aiAgent';
 import {
@@ -65,7 +53,6 @@ import {
   formatSalaryMessage,
   formatSelectedEngineerLines,
   formatVacationButton,
-  formatVacationHint,
   getInitialSalary,
 } from './engineer';
 import type { Engineer } from './engineer';
@@ -79,14 +66,14 @@ import type { InitialPlacementSelection } from './initialPlacement';
 import { formatItemPage, getItemPageCount } from './itemBar';
 import { formatItemOption } from './itemPlacement';
 import { formatMonthEndPayment } from './monthBoundary';
-import { formatRefactoringAllocation, getRefactoringRatioOptions } from './refactoringRatioControl';
+import { formatRefactoringAllocation, stepRefactoringRatio } from './refactoringRatioControl';
 import { SPAWN_MARKER_STYLE } from './route';
 import { formatLevelAndDays, levelAt } from './level';
 import { MS_PER_GAME_DAY } from './gameTime';
 import { getCatalogue, getMessages, interpolate, setLocale } from './i18n';
 import { SUPPORTED_LOCALES } from './i18n/resolveLocale';
-import { formatTechDebtLevel } from './techDebt';
-import type { TechDebtLevel } from './techDebt';
+import { STATUS_PANEL_CELLS, statusPanelCellRect } from './statusPanel';
+import { formatTechDebtStatus } from './techDebt';
 import { estimateTextWidth } from './textMetrics';
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
@@ -137,7 +124,11 @@ const NOTIFICATION_MAX_CHARS = 30;
 const notificationRect = textRect(HIRE_MESSAGE_POSITION, 'あ'.repeat(NOTIFICATION_MAX_CHARS), NOTIFICATION_FONT_PX);
 // 購入結果のメッセージ（最長の書き置きのメッセージ）。現在の言語の文言で見積もる(#158)。
 const itemMessageRect = (): Rect => textRect(ITEM_MESSAGE_POSITION, getMessages().items.seniorNotePrevented, NOTIFICATION_FONT_PX);
-const iconRects = MENU_KINDS.map((kind) => ({ kind, rect: menuIconRect(kind) }));
+// 右上のアイコン。メニューの3つとゲームの説明(#165)の4つ。
+const iconRects: readonly { readonly kind: string; readonly rect: Rect }[] = [
+  ...MENU_KINDS.map((kind) => ({ kind, rect: menuIconRect(kind) })),
+  { kind: 'help', rect: HELP_ICON_RECT },
+];
 
 // 休暇マーカーの当たり判定（出現セル中心の半径 SPAWN_MARKER_STYLE.radius の円）を外接する正方形で過大に見積もる。
 const vacationMarkerRect = (row: number): Rect => {
@@ -218,13 +209,24 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(formatLevelAndDays(33334, LONGEST_DAYS)).toContain('Lv.33334');
     });
 
+    it('経過日数は語の代わりに 📅 で出し、言語によらず同じ文字列（「Lv.33334 📅999999」#165）', () => {
+      expect(formatLevelAndDays(33334, LONGEST_DAYS)).toBe(`Lv.33334 ${HUD_ICONS.days}999999`);
+      expect(formatLevelAndDays(33334, LONGEST_DAYS)).not.toMatch(/日|Day/);
+    });
+
     it('通知・右上のアイコンと交差しない', () => {
       expect(intersects(elapsedDaysRect(), notificationRect)).toBe(false);
       for (const { rect } of iconRects) expect(intersects(elapsedDaysRect(), rect)).toBe(false);
     });
   });
 
-  describe('右上のアイコンのレイアウト(#156)', () => {
+  describe('右上のアイコンのレイアウト(#156, #165)', () => {
+    it('アイコンはメニューの3つとゲームの説明の4つで、ゲームの説明が一番右', () => {
+      expect(iconRects.map(({ kind }) => kind)).toEqual(['engineer', 'item', 'balance', 'help']);
+      const rights = iconRects.map(({ rect }) => rect.x);
+      rights.slice(1).forEach((x, index) => expect(x).toBeGreaterThan(rights[index]));
+    });
+
     it.each(iconRects)('$kind のアイコンは上帯の内側に収まる', ({ rect }) => {
       expect(within(rect, topBand)).toBe(true);
     });
@@ -304,17 +306,23 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(fitsWidth(formatItemOption('codeRabbit'), slotWidth)).toBe(true);
     });
 
-    it('開発バランスのメニューの見出しと 11 段階の文言（機能100:リファ0 など）は幅に収まる', () => {
+    it('開発バランスのメニューの見出し、ゲージの下の 11 段階の文言（機能100:リファ0 など）と ◀ / ▶ は幅に収まる(#165)', () => {
       const { rows } = menuPanelLayout('balance');
-      expect(fitsWidth(getMessages().balance.title, rows[0].width)).toBe(true);
-      const options = getRefactoringRatioOptions();
-      expect(options).toHaveLength(11);
-      options.forEach((ratio, index) => {
-        expect(fitsWidth(formatRefactoringAllocation(ratio), rows[index + 1].width)).toBe(true);
-      });
+      const [titleRow, gaugeRow, allocationRow, buttonRow] = rows;
+      expect(rows).toHaveLength(4);
+      expect(fitsWidth(getMessages().balance.title, titleRow.width)).toBe(true);
+      // 0 からリファクタリングへ1段階ずつ寄せた11段階（0%〜100%。◀ を押していく）。
+      const ratios = [0];
+      while (ratios.length < 11) ratios.push(stepRefactoringRatio(ratios[ratios.length - 1], 'refactoring'));
+      expect(ratios.at(-1)).toBe(1);
+      for (const ratio of ratios) expect(fitsWidth(formatRefactoringAllocation(ratio), allocationRow.width)).toBe(true);
+      expect(gaugeRow.width).toBe(allocationRow.width);
+      const [left, right] = splitRow(buttonRow, 2);
+      expect(fitsWidth(BALANCE_STEP_BUTTON_LABELS.refactoring, left.width)).toBe(true);
+      expect(fitsWidth(BALANCE_STEP_BUTTON_LABELS.feature, right.width)).toBe(true);
     });
 
-    it('キー名（[1] や ◀G など）を出さない（キー操作は残す）', () => {
+    it('キー名（[1] や ◀G など）を出さない(#156。キー操作は #165 で廃止)', () => {
       const labels = [
         ...ENGINEER_RANKS.map((entry) => formatHireOption(entry.id, ENGINEER_HIRE_COST[entry.id])),
         ...Object.values(salaryButtons()),
@@ -335,11 +343,10 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(rect.height).toBe(height);
     });
 
-    it('見出し・状態・休暇ボタン・AIエージェントのボタン・休暇の案内文は幅（ENGINEER_POPOVER_WIDTH）の内側に収まる', () => {
+    it('見出し・状態・休暇ボタン・AIエージェントのボタンは幅（ENGINEER_POPOVER_WIDTH）の内側に収まる（休暇の案内文は #165 でゲームの説明に移した）', () => {
       const { rows } = popoverLayout({ x: CELL_SIZE / 2, y: 270 });
-      const [headingRow, vacationRow, ...rest] = rows;
-      const aiRows = rest.slice(0, AI_AGENT_BUTTON_ORDER.length);
-      const hintRow = rest[AI_AGENT_BUTTON_ORDER.length];
+      const [headingRow, vacationRow, ...aiRows] = rows;
+      expect(aiRows).toHaveLength(AI_AGENT_BUTTON_ORDER.length);
       for (const engineer of engineerVariants) {
         for (const line of formatEngineerPopoverLines(engineer)) expect(fitsWidth(line, headingRow.width)).toBe(true);
         expect(fitsWidth(formatVacationButton(engineer), vacationRow.width)).toBe(true);
@@ -347,64 +354,72 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       AI_AGENT_BUTTON_ORDER.forEach((agentType, index) => {
         expect(fitsWidth(formatAiAgentOption(agentType), aiRows[index].width)).toBe(true);
       });
-      for (const line of formatVacationHint()) expect(fitsWidth(line, hintRow.width)).toBe(true);
-      expect(hintRow.width).toBeLessThan(ENGINEER_POPOVER_WIDTH);
+      expect(headingRow.width).toBeLessThan(ENGINEER_POPOVER_WIDTH);
     });
   });
 
-  describe('右下の指標のレイアウト(#156)', () => {
+  describe('右下の指標のレイアウト(#156, #165)', () => {
     const statusFontPx = parseInt(STATUS_PANEL_FONT_SIZE, 10);
-    const linesWidth = STATUS_PANEL_RECT.width - STATUS_PANEL_INDICATOR_WIDTH;
-
-    it('境界値: 下帯（y=480〜540）の右端に収まる（x=612〜952、y=480〜532）', () => {
-      expect(STATUS_PANEL_RECT).toEqual({ x: 612, y: 480, width: 340, height: 52 });
-      expect(within(STATUS_PANEL_RECT, bottomBand)).toBe(true);
-      expect(STATUS_PANEL_RECT.height).toBe(STATUS_PANEL_LINE_HEIGHT * STATUS_PANEL_LINES + STATUS_PANEL_PADDING * 2);
+    const cells = Object.entries(STATUS_PANEL_CELLS).map(([name, { column, row }]) => ({ name, rect: statusPanelCellRect(column, row) }));
+    // 各枠の最長想定の文言（現在の言語。数値は 10 桁の円額・負債の上限）。
+    const longestTexts = (): Readonly<Record<keyof typeof STATUS_PANEL_CELLS, string>> => ({
+      funds: formatFunds(-9_999_999_999),
+      monthEndPayment: formatMonthEndPayment(9_999_999_999),
+      sales: formatCumulativeSales(9_999_999_999),
+      techDebt: formatTechDebtStatus(TECH_DEBT_LEVELS.critical.max),
     });
 
-    it('購入結果のメッセージ・最終行の休暇マーカー・リリース地点と交差しない', () => {
+    it('境界値: 下帯（y=480〜540）の右端に収まる（x=684〜952、y=496〜532）', () => {
+      expect(STATUS_PANEL_RECT).toEqual({ x: 684, y: 496, width: 268, height: 36 });
+      expect(within(STATUS_PANEL_RECT, bottomBand)).toBe(true);
+      expect(STATUS_PANEL_RECT.height).toBe(STATUS_PANEL_LINE_HEIGHT * STATUS_PANEL_ROWS + STATUS_PANEL_PADDING * 2);
+      expect(STATUS_PANEL_RECT.x + STATUS_PANEL_RECT.width).toBe(FIELD_WIDTH - 8);
+    });
+
+    it('購入結果のメッセージ・最終行の休暇マーカー・リリース地点・左上の表示と交差しない', () => {
       expect(intersects(STATUS_PANEL_RECT, itemMessageRect())).toBe(false);
       expect(intersects(STATUS_PANEL_RECT, vacationMarkerRect(FIELD_ROWS - 1))).toBe(false);
       expect(intersects(STATUS_PANEL_RECT, cellRect(RELEASE_POINT_CELL.col, RELEASE_POINT_CELL.row))).toBe(false);
+      expect(intersects(STATUS_PANEL_RECT, elapsedDaysRect())).toBe(false);
     });
 
-    it('資金・累計売上・月末支払の最長想定の文言は3行の欄に収まる', () => {
-      expect(fitsWidth(formatFunds(-9_999_999_999), linesWidth, statusFontPx)).toBe(true);
-      expect(fitsWidth(formatCumulativeSales(9_999_999_999), linesWidth, statusFontPx)).toBe(true);
-      expect(fitsWidth(formatMonthEndPayment(9_999_999_999), linesWidth, statusFontPx)).toBe(true);
+    it('4つの枠（💰・💸・📈・負債）は背景の内側で、互いに重ならない', () => {
+      expect(cells.map(({ name }) => name)).toEqual(['funds', 'monthEndPayment', 'sales', 'techDebt']);
+      for (const { rect } of cells) expect(within(rect, STATUS_PANEL_RECT)).toBe(true);
+      cells.forEach((a, i) => cells.slice(i + 1).forEach((b) => expect(intersects(a.rect, b.rect)).toBe(false)));
     });
 
-    it('負債の丸と最長の段階の語（「負債 要解消」）は左の欄に収まる', () => {
-      const levels = Object.keys(TECH_DEBT_LEVELS) as TechDebtLevel[];
-      const longest = Math.max(...levels.map((level) => estimateTextWidth(formatTechDebtLevel(level), statusFontPx)));
-      const indicator = STATUS_PANEL_PADDING + STATUS_PANEL_INDICATOR_RADIUS * 2 + STATUS_PANEL_INDICATOR_GAP + longest;
-      expect(indicator).toBeLessThanOrEqual(STATUS_PANEL_INDICATOR_WIDTH);
+    it('最長想定の文言（💰-9,999,999,999円・💸9,999,999,999円・📈9,999,999,999円・🔴100）は枠の幅に収まる（絵文字は全角で見積もる）', () => {
+      const texts = longestTexts();
+      for (const { name, rect } of cells) {
+        const text = texts[name as keyof typeof STATUS_PANEL_CELLS];
+        expect(fitsWidth(text, rect.width, statusFontPx), text).toBe(true);
+        expect(rect.width).toBe(STATUS_PANEL_COLUMN_WIDTH);
+      }
+    });
+
+    it('語（資金・累計売上・月末支払・負債・Funds など）を出さず、絵文字と数字だけにする', () => {
+      const texts = Object.values(longestTexts());
+      expect(texts[0].startsWith(HUD_ICONS.funds)).toBe(true);
+      expect(texts[1].startsWith(HUD_ICONS.monthEndPayment)).toBe(true);
+      expect(texts[2].startsWith(HUD_ICONS.sales)).toBe(true);
+      expect(texts[3]).toBe(`${TECH_DEBT_LEVELS.critical.icon}100`);
+      for (const text of texts) expect(text).not.toMatch(/資金|売上|支払|負債|Funds|sales|costs|Debt/i);
+    });
+
+    it('境界値: 負債の枠は 30 が 🔵、31 が 🟡、60 が 🟡、61 が 🔴', () => {
+      expect(formatTechDebtStatus(30)).toBe('🔵30');
+      expect(formatTechDebtStatus(31)).toBe('🟡31');
+      expect(formatTechDebtStatus(60)).toBe('🟡60');
+      expect(formatTechDebtStatus(61)).toBe('🔴61');
     });
   });
 
-  describe('キー操作（画面には出さないが残す #156）', () => {
-    it('購入キー・ページの枠数はすべて6で一致し、18個は3ページになる', () => {
-      expect(ITEM_BUY_KEYS).toHaveLength(6);
-      expect(ITEM_PAGE_SIZE).toBe(ITEM_BUY_KEYS.length);
+  describe('アイテムのメニューのページ', () => {
+    it('ページの枠数は6で、18個は3ページになる（購入キーは #165 で廃止）', () => {
+      expect(ITEM_PAGE_SIZE).toBe(6);
       expect(ITEM_TYPES).toHaveLength(18);
       expect(getItemPageCount(ITEM_TYPES.length)).toBe(3);
-    });
-
-    it('ページ切替キーは他の操作キーと重ならない', () => {
-      const others: readonly string[] = [
-        ...ITEM_BUY_KEYS,
-        ...HIRE_KEYS,
-        ...Object.values(PLAYER_MOVE_KEYS).flat(),
-        ...ATTACK_KEYS,
-        ...GAME_OVER_RESTART_KEYS,
-        ...Object.values(SALARY_SELECT_KEYS),
-        ...Object.values(SALARY_ADJUST_KEYS),
-        ...Object.values(REFACTORING_RATIO_KEYS),
-        ...Object.values(AI_AGENT_BUY_KEYS),
-      ];
-      for (const key of Object.values(ITEM_PAGE_KEYS)) {
-        expect(others).not.toContain(key);
-      }
     });
   });
 
@@ -466,18 +481,20 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       { name: 'メッセージ', rect: messageRect },
     ];
 
-    it('操作説明は右上のアイテムのアイコンから選ぶ手順にする(#156)', () => {
-      expect(getCatalogue('ja').initialPlacement.instruction).toContain('右上のアイテムアイコン');
-      expect(getCatalogue('ja').initialPlacement.instruction).toContain('×で取消');
-      expect(getMessages().initialPlacement.instruction).toContain('×');
+    it('パネルは2行で、操作説明の行は出さない（説明は右上の ℹ️ のゲームの説明 #165）', () => {
+      expect(INITIAL_PLACEMENT_PANEL_LINES).toBe(2);
+      for (const selection of selections) {
+        expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, selection)).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
+      }
+      expect(Object.keys(getCatalogue(locale).initialPlacement)).not.toContain('instruction');
     });
 
     it('境界値: 初期配置UIの矩形はパネル・エンジニアの選択ボタン・開始ボタン・メッセージの4つで(#162)、上帯の下端（y=60）より下、出現列（x<60）の右', () => {
       expect(INITIAL_PLACEMENT_UI_BOUNDS).toEqual([
-        { x: 72, y: 68, width: 392, height: 60 },
-        { x: 72, y: 134, width: 150, height: 28 },
-        { x: 228, y: 134, width: 128, height: 28 },
-        { x: 72, y: 168, width: 392, height: 20 },
+        { x: 72, y: 68, width: 392, height: 40 },
+        { x: 72, y: 114, width: 150, height: 28 },
+        { x: 228, y: 114, width: 128, height: 28 },
+        { x: 72, y: 148, width: 392, height: 20 },
       ]);
       for (const uiRect of INITIAL_PLACEMENT_UI_BOUNDS) {
         expect(uiRect.y).toBeGreaterThanOrEqual(topBand.height);
@@ -495,7 +512,7 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
     it('境界値: パネル・ボタンの行・メッセージは上から順に重ならず並び、メッセージの下端はメッセージの矩形の下端と一致する', () => {
       expect(panelRect().y + panelRect().height).toBeLessThanOrEqual(startButtonRect.y);
       expect(startButtonRect.y + startButtonRect.height).toBeLessThanOrEqual(messageRect().y);
-      expect(INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT).toBe(188);
+      expect(INITIAL_PLACEMENT_MESSAGE_POSITION.y + INITIAL_PLACEMENT_LINE_HEIGHT).toBe(168);
       expect(estimateTextWidth(getMessages().initialPlacement.startButton, fontPx)).toBeLessThanOrEqual(INITIAL_PLACEMENT_START_BUTTON_SIZE.width);
     });
 
@@ -546,33 +563,5 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
         expect(estimateTextWidth(message, NOTIFICATION_FONT_PX)).toBeLessThanOrEqual(notificationRect.width);
       }
     });
-  });
-});
-
-// 休暇の案内文の日本語の文言と数値の組み立て（英語の文言は engineer.test.ts で確かめる #158）。
-describe('休暇の案内文(#150, #156)', () => {
-  const points = (ratio: number): number => Math.round(ratio * 100);
-
-  it('文言は 3 行で、1回の低下量・累積の上限・下限を config から作る（0.1 / 0.2 / 0.05 → -10pt/回・最大-20pt・下限5%）', () => {
-    const lines = formatVacationHint();
-    expect(lines).toHaveLength(VACATION_HINT_LINES);
-    expect(lines).toEqual([
-      '休暇ボタンで休暇/復帰（給与は継続）',
-      `不正率-${points(VACATION_MALICIOUS_RATE_REDUCTION)}pt/回・最大-${points(VACATION_MALICIOUS_RATE_REDUCTION_MAX)}pt・下限${points(CODE_MALICIOUS_RATE_MIN)}%`,
-      '効果は復帰後も維持。休暇中は生産停止',
-    ]);
-    const joined = lines.join('\n');
-    expect(joined).toContain('-10pt/回');
-    expect(joined).toContain('最大-20pt');
-    expect(joined).toContain('下限5%');
-    expect(joined).toContain('復帰後も維持');
-    expect(joined).toContain('生産停止');
-    expect(joined).toContain('給与は継続');
-  });
-
-  it('境界値: 数値は四捨五入した整数（0.004 → 0、0.005 → 1、0.2 → 20）', () => {
-    expect(formatVacationHint(0.004, 0.004, 0.004)[1]).toBe('不正率-0pt/回・最大-0pt・下限0%');
-    expect(formatVacationHint(0.005, 0.005, 0.005)[1]).toBe('不正率-1pt/回・最大-1pt・下限1%');
-    expect(formatVacationHint(0.2, 0.2, 0.2)[1]).toBe('不正率-20pt/回・最大-20pt・下限20%');
   });
 });

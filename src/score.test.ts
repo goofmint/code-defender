@@ -144,13 +144,13 @@ describe('formatScore', () => {
 
 describe('formatCumulativeSales', () => {
   it.each([
-    [0, '累計売上: 0円'],
-    [1, '累計売上: 1円'],
-    [999, '累計売上: 999円'],
-    [1000, '累計売上: 1,000円'],
-    [999999, '累計売上: 999,999円'],
-    [1000000, '累計売上: 1,000,000円'],
-    [Number.MAX_SAFE_INTEGER, '累計売上: 9,007,199,254,740,991円'],
+    [0, '📈0円'],
+    [1, '📈1円'],
+    [999, '📈999円'],
+    [1000, '📈1,000円'],
+    [999999, '📈999,999円'],
+    [1000000, '📈1,000,000円'],
+    [Number.MAX_SAFE_INTEGER, '📈9,007,199,254,740,991円'],
   ])('formatCumulativeSales(%d) = %s', (score, expected) => {
     expect(formatCumulativeSales(score)).toBe(expected);
   });

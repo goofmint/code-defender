@@ -153,7 +153,7 @@ describe('buildGameOverLines（行の文言）', () => {
       '倒産しました',
       'スコア: 20,000円',
       '経過日数: 12日',
-      'タップ / クリック / Enter でもう一度',
+      'タップ / クリックでもう一度',
     ]);
   });
 });
@@ -201,7 +201,7 @@ describe('buildGameOverLines（英語 #158）', () => {
       'You went bankrupt',
       'Score: ¥20,000',
       'Days elapsed: 12',
-      'Tap / Click / Enter to play again',
+      'Tap / Click to play again',
     ]);
   });
 

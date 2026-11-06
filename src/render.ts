@@ -26,6 +26,8 @@ import {
   ATTACK_EFFECT_COLOR,
   ATTACK_EFFECT_DURATION_MS,
   ATTACK_HIT_FLASH_DURATION_MS,
+  BALANCE_GAUGE,
+  BALANCE_STEP_BUTTON_LABELS,
   CODE_DECOR_ALPHA,
   CODE_DECOR_COLORS,
   DEFEAT_EFFECT_COLOR,
@@ -37,9 +39,13 @@ import {
   FIELD_FLOOR_COLORS,
   FIELD_FLOOR_STYLE,
   GAME_OVER_OVERLAY,
+  HELP_ICON_FONT_SIZE,
+  HELP_ICON_RECT,
+  HELP_OVERLAY,
   HIRE_BUTTON_COLORS,
   HIRE_MESSAGE_DURATION_MS,
   HIRE_MESSAGE_POSITION,
+  HUD_ICONS,
   MENU_FONT_SIZE,
   MENU_ICON_COLORS,
   MENU_ICON_DIM_ALPHA,
@@ -64,13 +70,9 @@ import {
   SPAWN_MARKER_DECOR_STYLE,
   STATUS_PANEL_COLORS,
   STATUS_PANEL_FONT_SIZE,
-  STATUS_PANEL_INDICATOR_GAP,
-  STATUS_PANEL_INDICATOR_RADIUS,
-  STATUS_PANEL_INDICATOR_WIDTH,
   STATUS_PANEL_LINE_SPACING,
-  STATUS_PANEL_PADDING,
+  STATUS_PANEL_PAYMENT_COLOR,
   STATUS_PANEL_RECT,
-  TECH_DEBT_LEVELS,
   TECH_DEBT_OUTAGE_TEXT_COLOR,
   TECH_DEBT_OUTAGE_TEXT_DURATION_MS,
   TECH_DEBT_OUTAGE_TEXT_FONT_SIZE,
@@ -79,8 +81,7 @@ import { formatPenalty } from './penalty';
 import { formatLevelAndDays } from './level';
 import { formatFunds } from './funds';
 import { formatCumulativeSales } from './score';
-import { formatTechDebtLevel } from './techDebt';
-import type { TechDebtLevel } from './techDebt';
+import { formatTechDebtStatus } from './techDebt';
 import { getMessages } from './i18n';
 import { buildGameOverLines } from './gameOver';
 import {
@@ -89,7 +90,6 @@ import {
   formatHireOption,
   formatSelectedEngineerLines,
   formatVacationButton,
-  formatVacationHint,
 } from './engineer';
 import type { Engineer, EngineerRank, EngineerSelectDirection, SalaryDirection } from './engineer';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
@@ -129,13 +129,16 @@ import type { ItemPageDirection } from './itemBar';
 import { placementCellCenter } from './itemPlacement';
 import type { PlacedItem } from './itemPlacement';
 import type { PlacementPreviewView } from './placementPreview';
-import { formatRefactoringAllocation, isSameRefactoringOption } from './refactoringRatioControl';
+import { formatRefactoringAllocation, gaugeSegmentWidths } from './refactoringRatioControl';
+import type { RefactoringRatioDirection } from './refactoringRatioControl';
 import { formatAiAgentOption } from './aiAgent';
 import type { AiAgentType } from './aiAgent';
 import { MENU_KINDS, menuIconRect, menuPanelLayout, popoverLayout, splitRow } from './floatingMenu';
 import type { MenuKind, PanelLayout } from './floatingMenu';
 import type { Rect } from './geometry';
 import { formatMonthEndPayment } from './monthBoundary';
+import { helpLayout } from './help';
+import { STATUS_PANEL_CELLS, statusPanelCellRect } from './statusPanel';
 
 // 後続オブジェクトより常に下に描画する。
 const FIELD_DEPTH = -1;
@@ -1104,10 +1107,25 @@ type PanelButton = {
 };
 type PanelButtonColors = { readonly fill: number; readonly stroke: number; readonly text: string };
 
-// パネルの1行の中身。text は文字の行、buttons は横に並べるボタン（null の枠は文字だけを出す。ページ表示に使う）。
+// パネルの1行の中身。text は文字の行、buttons は横に並べるボタン（null の枠は文字だけを出す。ページ表示に使う）、
+// gauge は開発バランスの2色のゲージ（ratio はリファクタリングの割合 #165）。
 type PanelEntry =
   | { readonly kind: 'text'; readonly lines: readonly string[] }
-  | { readonly kind: 'buttons'; readonly buttons: readonly (PanelButton | { readonly label: string; readonly onPress: null })[] };
+  | { readonly kind: 'buttons'; readonly buttons: readonly (PanelButton | { readonly label: string; readonly onPress: null })[] }
+  | { readonly kind: 'gauge'; readonly ratio: number };
+
+// 開発バランスのゲージ(#165)。行の矩形 row いっぱいに、左から機能開発・リファクタリングの幅（gaugeSegmentWidths）で塗り、外枠を描く。入力は受け付けない。
+const drawBalanceGauge = (scene: Phaser.Scene, row: Rect, ratio: number): Phaser.GameObjects.Graphics => {
+  const { feature, refactoring } = gaugeSegmentWidths(ratio, row.width);
+  const g = scene.add.graphics().setDepth(MENU_PANEL_DEPTH);
+  g.fillStyle(BALANCE_GAUGE.featureColor);
+  g.fillRect(row.x, row.y, feature, row.height);
+  g.fillStyle(BALANCE_GAUGE.refactoringColor);
+  g.fillRect(row.x + feature, row.y, refactoring, row.height);
+  g.lineStyle(BALANCE_GAUGE.strokeWidth, BALANCE_GAUGE.strokeColor);
+  g.strokeRect(row.x, row.y, row.width, row.height);
+  return g;
+};
 
 // パネルのボタン（Rectangle と Text の Container）。当たり判定は drawRemoveButton と同じく、表示範囲と一致させるため矩形を半分ずらす。
 const drawPanelButton = (
@@ -1160,6 +1178,10 @@ export const drawFloatingPanel = (
     const row = layout.rows[index];
     if (entry.kind === 'text') {
       objects.push(scene.add.text(row.x, row.y, [...entry.lines], menuTextStyle()).setDepth(MENU_PANEL_DEPTH));
+      return;
+    }
+    if (entry.kind === 'gauge') {
+      objects.push(drawBalanceGauge(scene, row, entry.ratio));
       return;
     }
     splitRow(row, entry.buttons.length).forEach((cell, cellIndex) => {
@@ -1262,26 +1284,24 @@ export const drawItemMenu = (scene: Phaser.Scene, view: ItemMenuView, callbacks:
     ITEM_BUTTON_COLORS,
   );
 
-// 開発バランスのメニュー(#156)。見出しと、リファクタリングの割合の選択肢（options、上から順）を「機能80:リファ20」の形で縦に並べ、現在値（current）を強調する。
+// 開発バランスのメニュー(#156, #165)。見出し、2色のゲージ（左が機能開発・右がリファクタリング）、割合の文言「機能80:リファ20」、
+// ◀ / ▶ のボタンを縦に並べる。◀ はリファクタリングへ、▶ は機能開発へ1段階寄せる（onStep に向きを渡す。刻みは MainScene の stepRefactoringRatio）。
 export const drawBalanceMenu = (
   scene: Phaser.Scene,
-  view: { readonly options: readonly number[]; readonly current: number },
-  onSelect: (ratio: number) => void,
+  view: { readonly ratio: number },
+  onStep: (direction: RefactoringRatioDirection) => void,
 ): FloatingPanel =>
   drawFloatingPanel(scene, menuPanelLayout('balance'), [
     { kind: 'text', lines: [getMessages().balance.title] },
-    ...view.options.map(
-      (ratio): PanelEntry => ({
-        kind: 'buttons',
-        buttons: [
-          {
-            label: formatRefactoringAllocation(ratio),
-            onPress: () => onSelect(ratio),
-            selected: isSameRefactoringOption(ratio, view.current),
-          },
-        ],
-      }),
-    ),
+    { kind: 'gauge', ratio: view.ratio },
+    { kind: 'text', lines: [formatRefactoringAllocation(view.ratio)] },
+    {
+      kind: 'buttons',
+      buttons: [
+        { label: BALANCE_STEP_BUTTON_LABELS.refactoring, onPress: () => onStep('refactoring'), selected: false },
+        { label: BALANCE_STEP_BUTTON_LABELS.feature, onPress: () => onStep('feature'), selected: false },
+      ],
+    },
   ]);
 
 export type EngineerPopoverCallbacks = {
@@ -1290,7 +1310,8 @@ export type EngineerPopoverCallbacks = {
 };
 
 // エンジニアのポップオーバー(#156)。出現地点（anchor はその中心）の右に、見出し「#id ランク AI: 種類」・休暇の状態・休暇／復帰ボタン・
-// AIエージェントのボタン（価格付き。付けている種類を強調）・休暇の案内文(#150)を縦に並べる。位置は popoverLayout（フィールドの内側に収める）。
+// AIエージェントのボタン（価格付き。付けている種類を強調）を縦に並べる。位置は popoverLayout（フィールドの内側に収める）。
+// 休暇の案内文(#150)は #165 でゲームの説明（help.ts）に移した。
 export const drawEngineerPopover = (
   scene: Phaser.Scene,
   anchor: Point,
@@ -1315,23 +1336,23 @@ export const drawEngineerPopover = (
         ],
       }),
     ),
-    { kind: 'text', lines: formatVacationHint() },
   ]);
 
-// 右下の小さな指標(#156)。資金・累計売上・月末に支払うお金の3行と、技術的負債の段階（色付きの丸と「負債 正常」）。
+// 右下の小さな指標(#156, #165)。絵文字＋数字の4つを2列 × 2行に並べる（上の行は 💰 資金と 💸 月末に支払うお金、下の行は 📈 累計売上と 🔵🟡🔴 技術的負債）。
+// 💸 は赤文字（STATUS_PANEL_PAYMENT_COLOR）。負債は段階の絵文字と数字（formatTechDebtStatus）。
 // 入力は受け付けない（setInteractive しない）ので、currentlyOver に入らず主人公の移動・攻撃を妨げない。値が変わったら MainScene が各 set で更新する。
 export type StatusPanel = {
   readonly setFunds: (funds: number) => void;
   readonly setScore: (score: number) => void;
   readonly setMonthEndPayment: (amount: number) => void;
-  readonly setTechDebtLevel: (level: TechDebtLevel) => void;
+  readonly setTechDebt: (techDebt: number) => void;
 };
 
 export type StatusPanelValues = {
   readonly funds: number;
   readonly score: number;
   readonly monthEndPayment: number;
-  readonly techDebtLevel: TechDebtLevel;
+  readonly techDebt: number;
 };
 
 export const drawStatusPanel = (scene: Phaser.Scene, initial: StatusPanelValues): StatusPanel => {
@@ -1346,45 +1367,106 @@ export const drawStatusPanel = (scene: Phaser.Scene, initial: StatusPanelValues)
     color: ELAPSED_DAYS_STYLE.color,
     lineSpacing: STATUS_PANEL_LINE_SPACING,
   };
-  // 負債の丸と文言は左の欄（STATUS_PANEL_INDICATOR_WIDTH）の縦中央。
-  const centerY = rect.y + rect.height / 2;
-  const circleX = rect.x + STATUS_PANEL_PADDING + STATUS_PANEL_INDICATOR_RADIUS;
-  const circle = scene.add
-    .circle(circleX, centerY, STATUS_PANEL_INDICATOR_RADIUS, TECH_DEBT_LEVELS[initial.techDebtLevel].color)
-    .setDepth(ELAPSED_DAYS_DEPTH);
-  const levelText = scene.add
-    .text(circleX + STATUS_PANEL_INDICATOR_RADIUS + STATUS_PANEL_INDICATOR_GAP, centerY, '', textStyle)
-    .setOrigin(0, 0.5)
-    .setDepth(ELAPSED_DAYS_DEPTH);
-  const lines = scene.add
-    .text(rect.x + STATUS_PANEL_INDICATOR_WIDTH, rect.y + STATUS_PANEL_PADDING, '', textStyle)
-    .setDepth(ELAPSED_DAYS_DEPTH);
-  let values = initial;
-  const showLines = (): void => {
-    lines.setText([formatFunds(values.funds), formatCumulativeSales(values.score), formatMonthEndPayment(values.monthEndPayment)]);
+  const cell = (
+    position: { readonly column: number; readonly row: number },
+    text: string,
+    color: string = ELAPSED_DAYS_STYLE.color,
+  ): Phaser.GameObjects.Text => {
+    const { x, y } = statusPanelCellRect(position.column, position.row);
+    return scene.add.text(x, y, text, { ...textStyle, color }).setDepth(ELAPSED_DAYS_DEPTH);
   };
-  const showLevel = (): void => {
-    circle.setFillStyle(TECH_DEBT_LEVELS[values.techDebtLevel].color);
-    levelText.setText(formatTechDebtLevel(values.techDebtLevel));
-  };
-  showLines();
-  showLevel();
+  const funds = cell(STATUS_PANEL_CELLS.funds, formatFunds(initial.funds));
+  const payment = cell(STATUS_PANEL_CELLS.monthEndPayment, formatMonthEndPayment(initial.monthEndPayment), STATUS_PANEL_PAYMENT_COLOR);
+  const sales = cell(STATUS_PANEL_CELLS.sales, formatCumulativeSales(initial.score));
+  const techDebt = cell(STATUS_PANEL_CELLS.techDebt, formatTechDebtStatus(initial.techDebt));
   return {
-    setFunds: (funds) => {
-      values = { ...values, funds };
-      showLines();
+    setFunds: (value) => {
+      funds.setText(formatFunds(value));
     },
-    setScore: (score) => {
-      values = { ...values, score };
-      showLines();
+    setScore: (value) => {
+      sales.setText(formatCumulativeSales(value));
     },
-    setMonthEndPayment: (monthEndPayment) => {
-      values = { ...values, monthEndPayment };
-      showLines();
+    setMonthEndPayment: (value) => {
+      payment.setText(formatMonthEndPayment(value));
     },
-    setTechDebtLevel: (techDebtLevel) => {
-      values = { ...values, techDebtLevel };
-      showLevel();
+    setTechDebt: (value) => {
+      techDebt.setText(formatTechDebtStatus(value));
     },
   };
+};
+
+// ゲームの説明のアイコン(#165)。右上の一番右（HELP_ICON_RECT）に、メニューのアイコンと同じ見た目の正方形と ℹ️ の文字を描く。
+// クリックで onPress() を呼ぶ。当たり判定は見た目の正方形と同じ。stopPropagation はしない（main.ts が currentlyOver で移動・攻撃・配置を止める）。
+export const drawHelpIcon = (scene: Phaser.Scene, onPress: () => void): Phaser.GameObjects.Container => {
+  const rect = HELP_ICON_RECT;
+  const background = scene.add
+    .rectangle(0, 0, rect.width, rect.height, MENU_ICON_COLORS.fill)
+    .setOrigin(0)
+    .setStrokeStyle(MENU_ICON_STROKE_WIDTH, MENU_ICON_COLORS.stroke);
+  const glyph = scene.add
+    .text(rect.width / 2, rect.height / 2, HUD_ICONS.help, { fontSize: HELP_ICON_FONT_SIZE, fontFamily: ELAPSED_DAYS_STYLE.fontFamily })
+    .setOrigin(0.5);
+  const container = scene.add
+    .container(rect.x, rect.y, [background, glyph])
+    .setSize(rect.width, rect.height)
+    .setDepth(ELAPSED_DAYS_DEPTH);
+  container.setInteractive(
+    new Phaser.Geom.Rectangle(rect.width / 2, rect.height / 2, rect.width, rect.height),
+    Phaser.Geom.Rectangle.Contains,
+  );
+  container.on('pointerdown', () => onPress());
+  return container;
+};
+
+// ゲームの説明(#165)。全面の半透明の背景（押すと onClose）、中央のパネル（見出しと説明の行。押しても閉じない）、右上の ✕（押すと onClose）。
+// 背景とパネルは interactive にして、下にあるボタン・アイコン・フィールドへの押下をすべて受け止める（Phaser の topOnly で一番上だけが受け取る）。
+// 深さはゲームオーバー表示（GAME_OVER_DEPTH）より上（HELP_OVERLAY.depth）。開くときに作り、閉じるときに destroy() する。
+export const drawHelpOverlay = (
+  scene: Phaser.Scene,
+  title: string,
+  lines: readonly string[],
+  onClose: () => void,
+): FloatingPanel => {
+  const layout = helpLayout(lines.length);
+  const { panel, close } = layout;
+  const depth = HELP_OVERLAY.depth;
+  const backdrop = scene.add
+    .rectangle(0, 0, FIELD_WIDTH, FIELD_HEIGHT, HELP_OVERLAY.backdropColor, HELP_OVERLAY.backdropAlpha)
+    .setOrigin(0)
+    .setDepth(depth);
+  backdrop.setInteractive(new Phaser.Geom.Rectangle(0, 0, FIELD_WIDTH, FIELD_HEIGHT), Phaser.Geom.Rectangle.Contains);
+  backdrop.on('pointerdown', () => onClose());
+  const background = scene.add
+    .rectangle(panel.x, panel.y, panel.width, panel.height, MENU_PANEL_COLORS.fill, MENU_PANEL_COLORS.fillAlpha)
+    .setOrigin(0)
+    .setStrokeStyle(MENU_PANEL_COLORS.strokeWidth, MENU_PANEL_COLORS.stroke)
+    .setDepth(depth);
+  background.setInteractive(new Phaser.Geom.Rectangle(0, 0, panel.width, panel.height), Phaser.Geom.Rectangle.Contains);
+  const textStyle = (fontSize: string): Phaser.Types.GameObjects.Text.TextStyle => ({
+    fontSize,
+    fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+    color: HIRE_BUTTON_COLORS.text,
+  });
+  const titleText = scene.add.text(layout.title.x, layout.title.y, title, textStyle(HELP_OVERLAY.titleFontSize)).setDepth(depth);
+  const lineTexts = lines.map((line, index) =>
+    scene.add.text(layout.lines[index].x, layout.lines[index].y, line, textStyle(HELP_OVERLAY.lineFontSize)).setDepth(depth),
+  );
+  const closeBackground = scene.add
+    .rectangle(0, 0, close.width, close.height, HIRE_BUTTON_COLORS.fill)
+    .setOrigin(0)
+    .setStrokeStyle(MENU_ICON_STROKE_WIDTH, HIRE_BUTTON_COLORS.stroke);
+  const closeLabel = scene.add
+    .text(close.width / 2, close.height / 2, HELP_OVERLAY.closeButtonLabel, textStyle(HELP_OVERLAY.closeButtonFontSize))
+    .setOrigin(0.5);
+  const closeButton = scene.add
+    .container(close.x, close.y, [closeBackground, closeLabel])
+    .setSize(close.width, close.height)
+    .setDepth(depth);
+  closeButton.setInteractive(
+    new Phaser.Geom.Rectangle(close.width / 2, close.height / 2, close.width, close.height),
+    Phaser.Geom.Rectangle.Contains,
+  );
+  closeButton.on('pointerdown', () => onClose());
+  const objects: Phaser.GameObjects.GameObject[] = [backdrop, background, titleText, ...lineTexts, closeButton];
+  return { destroy: () => objects.forEach((object) => object.destroy()) };
 };

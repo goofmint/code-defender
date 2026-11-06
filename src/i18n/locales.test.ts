@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { INITIAL_PLACEMENT_PANEL_LINES, STAGE_POINTS_INITIAL, VACATION_HINT_LINES } from '../config';
-import { formatVacationHint } from '../engineer';
+import { INITIAL_PLACEMENT_PANEL_LINES, STAGE_POINTS_INITIAL } from '../config';
 import { buildGameOverLines } from '../gameOver';
 import { formatInitialPlacementPanel } from '../initialPlacement';
 import { getCatalogue, getPlaceholderNames, setLocale } from './index';
@@ -84,10 +83,9 @@ describe.each(SUPPORTED_LOCALES)('%s の複数行の文言は行数が決まっ�
     setLocale('ja');
   });
 
-  it('ゲームオーバー画面は4行・休暇の案内文は VACATION_HINT_LINES 行・初期配置パネルは INITIAL_PLACEMENT_PANEL_LINES 行', () => {
+  it('ゲームオーバー画面は4行・初期配置パネルは INITIAL_PLACEMENT_PANEL_LINES 行', () => {
     setLocale(locale);
     expect(buildGameOverLines(0, 0)).toHaveLength(4);
-    expect(formatVacationHint()).toHaveLength(VACATION_HINT_LINES);
     expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'none' })).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
   });
 });

@@ -166,21 +166,25 @@ export const createTechDebtChangedEvent = (
 // 四捨五入した整数で表示する。「技術的負債: 40」（英語は「Tech debt: 40」#158）の形。
 export const formatTechDebt = (debt: number): string => interpolate(getMessages().hud.techDebt, { debt: Math.round(debt) });
 
-// 右下の指標(#156)に出す技術的負債の段階。normal（0〜30）・caution（31〜60）・critical（61〜100）。
+// 右下の指標(#156)に出す技術的負債の段階。normal（0〜30 🔵）・caution（31〜60 🟡）・critical（61〜100 🔴 #165）。
 export type TechDebtLevel = keyof typeof TECH_DEBT_LEVELS;
+
+// 表示に使う負債の整数（四捨五入して 0〜max に収める。NaN は 0）。段階の判定と右下の数字(#165)で同じ値を使う。
+const displayedTechDebt = (value: number, max: number): number =>
+  Number.isNaN(value) ? 0 : Math.min(max, Math.max(0, Math.round(value)));
 
 // 技術的負債の段階(#156)。formatTechDebt と同じく四捨五入した整数で判定し（30.4 は normal、30.5 は caution）、0〜max の外は端に寄せる。
 // NaN は負債なしとみなして normal にする（clampTechDebt と同じ扱い）。
 export const getTechDebtLevel = (value: number, max: number = TECH_DEBT_MAX): TechDebtLevel => {
-  if (Number.isNaN(value)) return 'normal';
-  const rounded = Math.min(max, Math.max(0, Math.round(value)));
+  const rounded = displayedTechDebt(value, max);
   if (rounded <= TECH_DEBT_LEVELS.normal.max) return 'normal';
   if (rounded <= TECH_DEBT_LEVELS.caution.max) return 'caution';
   return 'critical';
 };
 
-// 右下の指標(#156)の段階の語。「負債 正常」（英語は「Debt OK」#158）。
-export const formatTechDebtLevel = (level: TechDebtLevel): string => {
-  const { techDebtLevel, techDebtLevels } = getMessages().hud;
-  return interpolate(techDebtLevel, { level: techDebtLevels[level] });
+// 右下の指標の技術的負債(#156, #165)。「🔵12」のように段階の絵文字（TECH_DEBT_LEVELS の icon）と数字を出す（「技術的負債は🔴🔵🟡と数字で良い」）。
+// 数字は段階の判定（getTechDebtLevel）と同じく四捨五入して 0〜max に収めた整数（30.4 は 🔵30、30.5 は 🟡31）。NaN は 0 として 🔵0。
+export const formatTechDebtStatus = (value: number, max: number = TECH_DEBT_MAX): string => {
+  const icon = TECH_DEBT_LEVELS[getTechDebtLevel(value, max)].icon;
+  return interpolate(getMessages().hud.techDebtStatus, { icon, debt: displayedTechDebt(value, max) });
 };

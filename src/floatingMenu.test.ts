@@ -16,8 +16,9 @@ import {
   MENU_PANEL_GAP_Y,
   MENU_PANEL_PADDING,
   MENU_PANEL_WIDTH,
+  BALANCE_GAUGE,
+  HELP_ICON_RECT,
   MENU_ROW_GAP,
-  VACATION_HINT_LINES,
 } from './config';
 import { CELL_SIZE, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import {
@@ -54,23 +55,26 @@ describe('toggleMenu(#156)', () => {
 });
 
 describe('menuIconRect(#156)', () => {
-  it('左からエンジニア・アイテム・開発バランスの順に間隔をあけて並び、右端は MENU_ICON_RIGHT', () => {
+  it('左からエンジニア・アイテム・開発バランスの順に間隔をあけて並び、右端は MENU_ICON_RIGHT（その右に間隔をあけてゲームの説明のアイコン #165）', () => {
     const [engineer, item, balance] = MENU_KINDS.map((kind) => menuIconRect(kind));
     expect(MENU_KINDS).toEqual(['engineer', 'item', 'balance']);
     expect(balance.x + balance.width).toBe(MENU_ICON_RIGHT);
     expect(item.x + item.width + MENU_ICON_GAP).toBe(balance.x);
     expect(engineer.x + engineer.width + MENU_ICON_GAP).toBe(item.x);
+    expect(balance.x + balance.width + MENU_ICON_GAP).toBe(HELP_ICON_RECT.x);
     MENU_KINDS.forEach((kind) => {
       expect(menuIconRect(kind)).toMatchObject({ y: MENU_ICON_TOP, width: MENU_ICON_SIZE, height: MENU_ICON_SIZE });
     });
   });
 
-  it('境界値: 既定の配置は x=828〜864・872〜908・916〜952、y=4〜40', () => {
+  it('境界値: 既定の配置は x=784〜820・828〜864・872〜908、ゲームの説明は 916〜952（右端から 8px）、y=4〜40(#165)', () => {
     expect(MENU_KINDS.map((kind) => menuIconRect(kind))).toEqual([
+      { x: 784, y: 4, width: 36, height: 36 },
       { x: 828, y: 4, width: 36, height: 36 },
       { x: 872, y: 4, width: 36, height: 36 },
-      { x: 916, y: 4, width: 36, height: 36 },
     ]);
+    expect(HELP_ICON_RECT).toEqual({ x: 916, y: 4, width: 36, height: 36 });
+    expect(HELP_ICON_RECT.x + HELP_ICON_RECT.width).toBe(FIELD_WIDTH - 8);
   });
 });
 
@@ -117,15 +121,24 @@ describe('パネルの行の並び(#156)', () => {
     expect(ENGINEER_MENU_ROWS).toHaveLength(1 + ENGINEER_RANKS.length + 3);
     expect(ITEM_MENU_ROWS).toHaveLength(ITEM_PAGE_SIZE + 1);
     expect(ITEM_MENU_ROWS.at(-1)).toEqual({ kind: 'buttons', count: 3 });
-    // 開発バランスは見出しと 11 段階（0〜1）。
-    expect(BALANCE_MENU_ROWS).toHaveLength(1 + 11);
-    // ポップオーバーは見出しと状態・休暇ボタン・AIエージェント（種類の数）・休暇の案内文。
+    // 開発バランスは見出し・ゲージ・割合の文言・◀ / ▶ のボタン(#165。11 段階の選択肢はやめた)。
+    expect(BALANCE_MENU_ROWS).toEqual([
+      { kind: 'text', lines: 1 },
+      { kind: 'gauge' },
+      { kind: 'text', lines: 1 },
+      { kind: 'buttons', count: 2 },
+    ]);
+    // ポップオーバーは見出しと状態・休暇ボタン・AIエージェント（種類の数）。休暇の案内文はゲームの説明に移した(#165)。
     expect(ENGINEER_POPOVER_ROWS).toEqual([
       { kind: 'text', lines: 2 },
       { kind: 'buttons', count: 1 },
       ...AI_AGENT_BUTTON_ORDER.map(() => ({ kind: 'buttons', count: 1 })),
-      { kind: 'text', lines: VACATION_HINT_LINES },
     ]);
+  });
+
+  it('ゲージの行の高さは BALANCE_GAUGE.height(#165)', () => {
+    expect(panelHeight([{ kind: 'gauge' }])).toBe(MENU_PANEL_PADDING * 2 + BALANCE_GAUGE.height);
+    expect(menuPanelLayout('balance').rows[1].height).toBe(BALANCE_GAUGE.height);
   });
 });
 

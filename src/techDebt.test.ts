@@ -20,7 +20,7 @@ import {
   clampTechDebt,
   createTechDebtChangedEvent,
   formatTechDebt,
-  formatTechDebtLevel,
+  formatTechDebtStatus,
   getTechDebtLevel,
   refactoringMaliciousRateModifier,
   repayTechDebt,
@@ -669,16 +669,52 @@ describe('getTechDebtLevel: 右下の指標の段階(#156)', () => {
     expect(getTechDebtLevel(value)).toBe(expected);
   });
 
-  it('段階ごとに色と語がある（緑・オレンジ・赤／正常・注意・要解消）', () => {
-    expect(formatTechDebtLevel('normal')).toBe('負債 正常');
-    expect(formatTechDebtLevel('caution')).toBe('負債 注意');
-    expect(formatTechDebtLevel('critical')).toBe('負債 要解消');
-    const colors = [TECH_DEBT_LEVELS.normal.color, TECH_DEBT_LEVELS.caution.color, TECH_DEBT_LEVELS.critical.color];
-    expect(new Set(colors).size).toBe(3);
+  it('段階ごとに絵文字がある（正常 🔵・注意 🟡・要解消 🔴 #165）', () => {
+    expect(TECH_DEBT_LEVELS.normal.icon).toBe('🔵');
+    expect(TECH_DEBT_LEVELS.caution.icon).toBe('🟡');
+    expect(TECH_DEBT_LEVELS.critical.icon).toBe('🔴');
   });
 });
 
-describe('formatTechDebt / formatTechDebtLevel（英語 #158）', () => {
+describe('formatTechDebtStatus: 右下の指標の負債(#165)', () => {
+  it.each([
+    [0, '🔵0'],
+    [30, '🔵30'],
+    [30.4, '🔵30'], // 四捨五入で 30
+    [30.5, '🟡31'], // 四捨五入で 31
+    [31, '🟡31'],
+    [60, '🟡60'],
+    [60.4, '🟡60'],
+    [60.5, '🔴61'],
+    [61, '🔴61'],
+    [100, '🔴100'],
+  ])('境界値: %d → %s（段階の絵文字は getTechDebtLevel と同じ）', (value, expected) => {
+    expect(formatTechDebtStatus(value)).toBe(expected);
+    expect(formatTechDebtStatus(value).startsWith(TECH_DEBT_LEVELS[getTechDebtLevel(value)].icon)).toBe(true);
+  });
+
+  it.each([
+    [-1, '🔵0'],
+    [101, '🔴100'],
+    [Number.POSITIVE_INFINITY, '🔴100'],
+    [Number.NEGATIVE_INFINITY, '🔵0'],
+    [Number.NaN, '🔵0'],
+  ])('範囲外・NaN: %d → %s（数字も 0〜上限に収める）', (value, expected) => {
+    expect(formatTechDebtStatus(value)).toBe(expected);
+  });
+
+  it('語（負債・正常など）を出さず、英語でも同じ文字列', () => {
+    expect(formatTechDebtStatus(45)).toBe('🟡45');
+    setLocale('en');
+    try {
+      expect(formatTechDebtStatus(45)).toBe('🟡45');
+    } finally {
+      setLocale('ja');
+    }
+  });
+});
+
+describe('formatTechDebt（英語 #158）', () => {
   beforeEach(() => {
     setLocale('en');
   });
@@ -693,13 +729,5 @@ describe('formatTechDebt / formatTechDebtLevel（英語 #158）', () => {
     [100, 'Tech debt: 100'],
   ])('formatTechDebt(%d) = %s', (debt, expected) => {
     expect(formatTechDebt(debt)).toBe(expected);
-  });
-
-  it.each([
-    ['normal', 'Debt OK'],
-    ['caution', 'Debt Warn'],
-    ['critical', 'Debt High'],
-  ] as const)('formatTechDebtLevel(%s) = %s', (level, expected) => {
-    expect(formatTechDebtLevel(level)).toBe(expected);
   });
 });

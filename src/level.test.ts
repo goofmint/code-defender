@@ -44,10 +44,10 @@ describe('levelAt: 経過時間のレベル(#164)', () => {
 });
 
 describe('formatLevelAndDays: 左上の表示(#164)', () => {
-  it('日本語は「Lv.N / M日」', () => {
-    expect(formatLevelAndDays(1, 0)).toBe('Lv.1 / 0日');
-    expect(formatLevelAndDays(2, 30)).toBe('Lv.2 / 30日');
-    expect(formatLevelAndDays(33334, 999999)).toBe('Lv.33334 / 999999日');
+  it('日本語も英語も「Lv.N 📅M」(#165)', () => {
+    expect(formatLevelAndDays(1, 0)).toBe('Lv.1 📅0');
+    expect(formatLevelAndDays(2, 30)).toBe('Lv.2 📅30');
+    expect(formatLevelAndDays(33334, 999999)).toBe('Lv.33334 📅999999');
   });
 
   describe('英語', () => {
@@ -59,9 +59,9 @@ describe('formatLevelAndDays: 左上の表示(#164)', () => {
     });
 
     it.each([
-      [1, 0, 'Lv.1 / Day 0'],
-      [2, 30, 'Lv.2 / Day 30'],
-      [34, 1000, 'Lv.34 / Day 1000'],
+      [1, 0, 'Lv.1 📅0'],
+      [2, 30, 'Lv.2 📅30'],
+      [34, 1000, 'Lv.34 📅1000'],
     ])('Lv.%i・%i日 → %s', (level, elapsedDays, expected) => {
       expect(formatLevelAndDays(level, elapsedDays)).toBe(expected);
     });

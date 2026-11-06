@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HALF_WIDTH_CHAR_RATIO } from './config';
+import { HALF_WIDTH_CHAR_RATIO, HUD_ICONS, TECH_DEBT_LEVELS } from './config';
 import { getCatalogue } from './i18n';
 import { getReleasePointLabel, RELEASE_POINT_STYLE } from './releasePoint';
 import { estimateTextWidth, isHalfWidthChar } from './textMetrics';
@@ -61,6 +61,24 @@ describe('estimateTextWidth', () => {
 
   it('サロゲートペアは 1 文字（全角）として数える', () => {
     expect(estimateTextWidth('𠮷', 14)).toBe(14);
+  });
+
+  it('HUD の絵文字(#165)は全角として数える（📅💰💸📈🔵🟡🔴 は 1 文字 = フォント px）', () => {
+    const icons = [
+      ...Object.values(HUD_ICONS).filter((value) => value !== HUD_ICONS.help),
+      ...Object.values(TECH_DEBT_LEVELS).map((level) => level.icon),
+    ];
+    expect(icons).toHaveLength(7);
+    for (const icon of icons) {
+      expect(Array.from(icon), icon).toHaveLength(1);
+      expect(isHalfWidthChar(icon), icon).toBe(false);
+      expect(estimateTextWidth(icon, 12), icon).toBe(12);
+    }
+  });
+
+  it('ℹ️（U+2139 と異体字セレクタ U+FE0F）は2文字の全角として広めに見積もる(#165)', () => {
+    expect(Array.from(HUD_ICONS.help)).toEqual(['\u2139', '\ufe0f']);
+    expect(estimateTextWidth(HUD_ICONS.help, 12)).toBe(24);
   });
 
   it('日本語の「リリース」はリリースラベルの文字サイズ（14px）で 56px（従来の見積もりと同じ）', () => {

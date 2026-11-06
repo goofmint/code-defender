@@ -48,7 +48,6 @@ import {
   formatHireOption,
   formatSelectedEngineerLines,
   formatVacationButton,
-  formatVacationHint,
   formatSalaryMessage,
   getInitialSalary,
   hireEngineer,
@@ -2205,15 +2204,5 @@ describe('エンジニアの文言（英語 #158）', () => {
     expect(formatEngineerPopoverLines(resting)).toEqual(['#5 Mid AI: Budget', 'Status: On vacation']);
     expect(formatVacationButton(makeEngineer(0, 'junior', 0))).toBe('Send on vacation');
     expect(formatVacationButton(resting)).toBe('Back to work');
-  });
-
-  it('休暇の案内文は3行で、数値は四捨五入した整数（0.004 → 0、0.005 → 1）', () => {
-    expect(formatVacationHint()).toEqual([
-      'Vacation button: leave/return (paid)',
-      'Bad code -10pts each, max -20, min 5%',
-      'Effect stays; no code while on leave',
-    ]);
-    expect(formatVacationHint(0.004, 0.004, 0.004)[1]).toBe('Bad code -0pts each, max -0, min 0%');
-    expect(formatVacationHint(0.005, 0.005, 0.005)[1]).toBe('Bad code -1pts each, max -1, min 1%');
   });
 });

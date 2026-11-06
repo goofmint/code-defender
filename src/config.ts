@@ -70,13 +70,7 @@ export const PLAYER_SCREEN_GLOW_ALPHA = 0.3;
 
 // 仮: 主人公の移動速度（ピクセル/秒）。240 = 4セル/秒。後続のアイテム効果（速度倍率）の基準値。企画書には数値の記載なし。
 export const PLAYER_SPEED = 240;
-// 仮: 移動に使うキー。Phaser の KeyCodes のキー名（矢印キー + WASD）。企画書にはキー割り当ての記載なし。
-export const PLAYER_MOVE_KEYS = {
-  left: ['LEFT', 'A'],
-  right: ['RIGHT', 'D'],
-  up: ['UP', 'W'],
-  down: ['DOWN', 'S'],
-} as const;
+// 仮・要確認(#165): 操作はマウス（タッチ）だけにする（「キーボードショートカット、うざい。マウスのみでいい」）。移動は押し続けた位置へ向かう。
 // 仮: タッチ/マウス操作で、目標との距離がこの値（ピクセル）以内なら止まる（震え防止）。企画書には未記載。
 export const PLAYER_POINTER_DEAD_ZONE = 4;
 
@@ -153,9 +147,7 @@ export const VACATION_MALICIOUS_RATE_REDUCTION = 0.1;
 // 仮・要確認(#39): 休暇による低下量の累積の上限（0〜1 のパーセントポイントの差分）。VACATION_MALICIOUS_RATE_REDUCTION 以上 1 以下にする。
 export const VACATION_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 
-// 仮: 攻撃に使うキー。Phaser の KeyCodes のキー名。企画書には攻撃の操作方法の記載なし。
-// 移動キーではないので、移動のキーボード優先判定には含めない。
-export const ATTACK_KEYS = ['SPACE'] as const;
+// 仮・要確認(#165): 攻撃は主人公のクリック（タップ）だけ。攻撃キーは廃止した。
 // 仮: 攻撃の射程（セルに対する比率）。射程 = CELL_SIZE × 比率（1.0 = 60px）。主人公の中心からコードの中心までの距離で判定する。企画書には未記載。
 export const ATTACK_RANGE_RATIO = 1.0;
 // 仮: 攻撃のクールダウン（ミリ秒）。企画書には未記載。
@@ -182,6 +174,7 @@ export const MALICIOUS_RATE_STEP_DAYS = 10;
 export const MALICIOUS_RATE_STEP_MS = GAME_DAY_MS * MALICIOUS_RATE_STEP_DAYS;
 // 仮: 経過日数の表示書式は言語カタログ（hud.levelAndDays）に置く(#158)。企画書には表示書式の記載なし。
 // 仮・要確認(#164): #164 でレベルを付けて「Lv.2 / 30日」にした（位置・文字スタイルは変えない）。
+// 仮・要確認(#165): 「経過日数ではなく📅」により「Lv.2 📅30」にする。言語によらず同じ形（📅 は HUD_ICONS.days）。
 // 仮・要確認(#164): レベルを1つ上げる間隔（ゲーム内の日数）。「30日ごとにレベルを挙げる」(#164)。レベルは経過日数から求める（level.ts の levelAt）。
 // 0〜29日が Lv.1、30〜59日が Lv.2。上限はない（すべてのアイテムを解放した後もレベルは上がり続ける）。
 export const LEVEL_UP_INTERVAL_DAYS = 30;
@@ -190,7 +183,7 @@ export const LEVEL_UP_INTERVAL_DAYS = 30;
 const HUD_LEFT_X = CELL_SIZE * (ENGINEER_SPAWN_COL + 1) + 12;
 // 仮・要確認(#156): 経過日数の表示位置。常時表示を減らすため(#156)、左の HUD（資金・累計売上・技術的負債）を撤去し、経過日数だけを上帯（行0、y=0〜60）の左端に置く。
 // y=15 は 24px の文字（行の高さ約30px）が上帯の縦中央に来る位置（15〜45）。
-// 重ならない根拠: 出現列 x<60 の右（x=72〜）、雇用などの通知（HIRE_MESSAGE_POSITION、x≧480）の左、右上のアイコン（MENU_ICON_*、x≧828）の左。
+// 重ならない根拠: 出現列 x<60 の右（x=72〜）、雇用などの通知（HIRE_MESSAGE_POSITION、x≧480）の左、右上のアイコン（MENU_ICON_*・HELP_ICON_RECT、#165 で x≧784）の左。
 const ELAPSED_DAYS_TOP_Y = 15;
 export const ELAPSED_DAYS_POSITION = { x: HUD_LEFT_X, y: ELAPSED_DAYS_TOP_Y } as const;
 // 仮: 経過日数の文字スタイル。フォントサイズ・色・縁取りの色と太さ。フィールド上でも読めるよう縁取りを付ける。
@@ -211,8 +204,17 @@ export const INITIAL_FUNDS = 1000000;
 // 仮・要確認(#42): この値は既定の配分（DEFAULT_REFACTORING_RATIO）のときの単価。実際の売上は機能開発の割合 (1 − r) に比例する
 // （getFeatureRevenueMultiplier）。リファクタリング 0%（r=0）で 25000円、100%（r=1）で 0円。
 export const REVENUE_PER_NORMAL_CODE = 20000;
-// 仮・要確認: 企画書に記載なし。資金の表示書式「資金: 1,000,000円」は言語カタログ（hud.funds）に置く(#158)。数値部分は3桁区切り。
-// 仮・要確認(#59): 企画書は「スコアは倒産までの累計売上」とだけで、プレイ中の表示書式は未記載。「累計売上: 20,000円」（hud.cumulativeSales #158）。
+// 仮・要確認: 企画書に記載なし。資金の表示書式は言語カタログ（hud.funds）に置く(#158)。数値部分は3桁区切り。
+// 仮・要確認(#59): 企画書は「スコアは倒産までの累計売上」とだけで、プレイ中の表示書式は未記載（hud.cumulativeSales #158）。
+// 仮・要確認(#165): 「資金は💰、支払う予定の額は💸と赤文字。売り上げは📈」により、右下の指標と左上の表示は語の代わりに絵文字＋数字にする。
+// 絵文字は言語によらない（「他言語処理もいらない」）。days は左上の経過日数、help は右上のゲームの説明のアイコン。
+export const HUD_ICONS = {
+  days: '📅',
+  funds: '💰',
+  monthEndPayment: '💸',
+  sales: '📈',
+  help: 'ℹ️',
+} as const;
 
 // 仮・要確認(#43): 企画書(7)は「機能開発に偏ると技術的負債が溜まる」とだけで、溜まり方・返し方の数値は未定（docs/tasks.md の「技術的負債の具体的な数値」）。以下はすべて仮の値。
 // 負債は 0〜TECH_DEBT_MAX の数値。資金や借入ではない（資金には影響しない）。
@@ -247,21 +249,20 @@ export const REFACTORING_MALICIOUS_RATE_REDUCTION_MAX = 0.2;
 // 負債による不正コード率の増加(#45)と、閾値超えの放置による大障害(#46、main.ts の updateTechDebtNeglect)はそのまま残る。
 export const TECH_DEBT_SPAWN_INTERVAL_MAX_MULTIPLIER = 1;
 // 仮・要確認(#43): 技術的負債の表示書式「技術的負債: 40」は言語カタログ（hud.techDebt）に置く(#158)。数値は四捨五入した整数。
-// 仮・要確認(#156): 右下の指標に出す技術的負債の段階。数値ではなく色付きの丸と短い語で出す（「緑なら正常（0〜30）、オレンジは注意（31〜60）、赤は要解消（61〜100）」）。
+// 仮・要確認(#156): 右下の指標に出す技術的負債の段階（正常 0〜30、注意 31〜60、要解消 61〜100）。
 // 判定は四捨五入した整数を 0〜TECH_DEBT_MAX に収めた値で行う（formatTechDebt の表示と同じ丸め。30.4 は正常、30.5 は注意）。max はその段階に入る上限（その値を含む）。
-// 大障害の閾値（TECH_DEBT_OUTAGE_THRESHOLD、内部値 80 超）とは別で、こちらは表示だけに使う。段階の語は言語カタログ（hud.techDebtLevels）に置く(#158)。
+// 大障害の閾値（TECH_DEBT_OUTAGE_THRESHOLD、内部値 80 超）とは別で、こちらは表示だけに使う。
+// 仮・要確認(#165): 「技術的負債は🔴🔵🟡と数字で良い」により、丸と語の代わりに段階の絵文字（icon）と数字を出す（🔵 正常・🟡 注意・🔴 要解消）。
 export const TECH_DEBT_LEVELS = {
-  normal: { max: 30, color: 0x43a047 },
-  caution: { max: 60, color: 0xfb8c00 },
-  critical: { max: TECH_DEBT_MAX, color: 0xe53935 },
+  normal: { max: 30, icon: '🔵' },
+  caution: { max: 60, icon: '🟡' },
+  critical: { max: TECH_DEBT_MAX, icon: '🔴' },
 } as const;
 
 // 仮・要確認: 企画書に記載なし。「資金がなくなったら」を残高ちょうど 0 も倒産とするか。false なら 0 未満のみ倒産。
 export const BANKRUPT_INCLUDES_ZERO = true;
 // 仮・要確認: 企画書に記載なし。ゲームオーバー画面の文言は言語カタログ（src/i18n/locales/ の gameOver）に置く(#158)。
-// 仮・要確認: 企画書に記載なし。ゲームオーバー中のリスタートキー（Phaser の KeyCodes のキー名）。
-// Space は攻撃キーと同じだが、ゲームオーバー中は攻撃しないのでリスタートに使う。
-export const GAME_OVER_RESTART_KEYS = ['ENTER', 'SPACE'] as const;
+// 仮・要確認(#165): ゲームオーバー中のリスタートはクリック（タップ）だけ。リスタートキーは廃止した。
 // 仮・要確認: 企画書に記載なし。ゲームオーバー直後の誤操作でリスタートしないための待ち時間（ミリ秒）。
 export const GAME_OVER_RESTART_DELAY_MS = 1000;
 // 仮・要確認: 企画書に記載なし。ゲームオーバー表示の全面オーバーレイ（半透明の黒）。
@@ -473,8 +474,6 @@ export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 3000
 export const INITIAL_ENGINEER_RANKS = ['junior', 'junior', 'junior'] as const;
 // 仮・要確認(#23): エンジニアの上限人数。#27 で1人1ルートになるため、ルートの上限と揃える。
 export const MAX_ENGINEERS = MAX_ENGINEER_ROUTES;
-// 仮・要確認(#23): 雇うキー（ENGINEER_RANKS の順に対応）。移動・攻撃・リスタートのキーと重ならない。Phaser の KeyCodes のキー名。
-export const HIRE_KEYS = ['ONE', 'TWO', 'THREE'] as const;
 // 仮・要確認(#23): ボタンの色（塗り・枠線・文字）。#156 で雇うボタンは右上のエンジニアのメニューに移したが、メニュー・ポップオーバーのボタンも同じ色を使う。
 export const HIRE_BUTTON_COLORS = { fill: 0x1e2a4a, stroke: 0x6c8cff, text: '#ffffff' } as const;
 // 仮・要確認(#23): 雇用・昇給減給・AIエージェント・退職などの通知メッセージの位置と表示時間（ミリ秒）。#156 でも位置は変えない。
@@ -483,15 +482,9 @@ export const HIRE_MESSAGE_DURATION_MS = 2000;
 // 仮・要確認(#40): 企画書(7)は「プレイヤーが機能開発とリファクタリングの割合を指定できる」とだけで、操作方法・刻み・表示は未記載。以下はすべて仮の値。
 // 割合UIの1回の操作で変えるリファクタリングの割合（パーセント、整数）。100 を割り切れる値にする（0% と 100% に止まれるように）。
 export const REFACTORING_RATIO_STEP_PERCENT = 10;
-// 仮・要確認(#40): 割合を変えるキー（Phaser の KeyCodes のキー名）。feature は機能開発へ寄せる、refactoring はリファクタリングへ寄せる。
-// 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給（#34 の Q/E/R/F）と重ならない。
-export const REFACTORING_RATIO_KEYS = { feature: 'Z', refactoring: 'X' } as const;
 // 仮・要確認(#40): 割合の表示書式「機能80:リファ20」は言語カタログ（balance.allocation）に置く(#158)。両方の割合（整数パーセント、合計100）を出す。
-// 仮・要確認(#34): 昇給・減給の操作。企画書には操作方法の記載なし。「選択中のエンジニア」の情報行と、前へ・次へ・昇給・減給の4つのボタン・キーで操作する。
-// キーは移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・アイテム購入(4〜9)・リスタート(ENTER/SPACE)と重ならない。Phaser の KeyCodes のキー名。
-export const SALARY_SELECT_KEYS = { previous: 'Q', next: 'E' } as const;
-export const SALARY_ADJUST_KEYS = { raise: 'R', cut: 'F' } as const;
-// 仮・要確認(#34): ボタンのラベルは言語カタログ（engineer.salaryButtons）に置く(#158)。#156 でエンジニアのメニューに移し、キー名は出さない（キー操作は残す）。
+// 仮・要確認(#34): 昇給・減給の操作。企画書には操作方法の記載なし。「選択中のエンジニア」の情報行と、前へ・次へ・昇給・減給の4つのボタンで操作する（キー操作は #165 で廃止）。
+// 仮・要確認(#34): ボタンのラベルは言語カタログ（engineer.salaryButtons）に置く(#158)。#156 でエンジニアのメニューに移した。
 // 仮・要確認(#53): AIコーディングエージェント（強い・普通・安い）。企画書(8)は「エンジニアに付けて出力ペースを上げる」「普通は強いより、安いは最も不正なコードを混ぜやすい」
 // 「価格は高い・普通・安い」「月額」とだけで、具体的な数値・操作は未記載。以下はすべて仮の値。
 // 価格の段階（AI_AGENT_PRICE_TIERS のキー）。強い=高い、普通=普通、安い=安い（企画書 8 の価格列）。月額は ITEM_MONTHLY_FEE_RATIO を掛けた額（aiAgent.ts）。
@@ -511,21 +504,10 @@ export const CODE_SPAWN_INTERVAL_MIN_MS = 500;
 // 文言は言語カタログ（aiAgents.shortNames）に置き、読むたびに現在の言語の値を返す(#158)。
 export const AI_AGENT_SHORT_NAMES = localizedRecord((messages) => messages.aiAgents.shortNames);
 // 仮・要確認(#53): 選択中のエンジニアの情報行で、AIエージェントを付けていないときの表示は言語カタログ（engineer.aiNone）に置く(#158)。
-// 仮・要確認(#53): AIエージェントを選択中のエンジニアに付けるキー（strong / normal / cheap）。Phaser の KeyCodes のキー名。
-// 移動(矢印/WASD)・攻撃(SPACE)・リスタート(ENTER/SPACE)・雇う(1〜3)・アイテム購入(4〜9)・昇給減給(Q/E/R/F)・割合UI(Z/X)と重ならない。
-export const AI_AGENT_BUY_KEYS = { strong: 'V', normal: 'B', cheap: 'N' } as const;
 // 仮・要確認(#53): AIエージェントのボタンの並び順（#156 からはエンジニアのポップオーバーの上から）。
 export const AI_AGENT_BUTTON_ORDER = ['strong', 'normal', 'cheap'] as const;
-// 仮・要確認(#150): 休暇の操作方法と効果の案内文。#156 で常時表示をやめ、エンジニアのポップオーバー（出現地点のクリックで開く）の中に出す。入力は受け付けない。
-// 「休憩する機能が見当たらない」(#150) への対応で、既存の休暇(#35/#39)の操作を案内する。休暇のロジックは変えない。
-// 3 行で、文言は言語カタログ（vacation.hintOperation / hintRate / hintPersistence #158）、数値は config から作る（engineer.ts の formatVacationHint）: 1回あたりの低下量 VACATION_MALICIOUS_RATE_REDUCTION、
-// 累積の上限 VACATION_MALICIOUS_RATE_REDUCTION_MAX、補正後の下限 CODE_MALICIOUS_RATE_MIN（いずれもパーセントポイント・四捨五入した整数）。
-//   休暇ボタンで休暇/復帰（給与は継続）
-//   不正率-10pt/回・最大-20pt・下限5%
-//   効果は復帰後も維持。休暇中は生産停止
-// ポップオーバーは setup 中は開かない（openEngineerPopover）ので「プレイ開始後」は添えない。低下量は復帰後も維持し(#39)、休暇中は新規生成だけが止まり(#36, #163。生成済みのコードは流れ続ける)、給料は引かれる(#37)。
-// 各行はポップオーバーの幅（ENGINEER_POPOVER_WIDTH）に収める（hudLayout.test.ts で検証）。
-export const VACATION_HINT_LINES = 3;
+// 仮・要確認(#150, #165): 休暇の効果の説明（1回あたりの低下量 VACATION_MALICIOUS_RATE_REDUCTION・累積の上限 VACATION_MALICIOUS_RATE_REDUCTION_MAX・
+// 補正後の下限 CODE_MALICIOUS_RATE_MIN、給与は継続・休暇中は生産停止）は、#165 でポップオーバーの常時の案内文をやめ、右上の ℹ️ のゲームの説明（help.ts）に移した。
 // 仮・要確認(#18): 企画書は「不正なコードがリリースされると障害になり、損害として資金が減る」とだけで、損害額は未記載。
 // 損害1ポイントあたりの金額（円）。損害額 = 損害ポイント × この値。種別ごとの損害ポイントは MALICIOUS_CODE_PARAMS の damage。
 export const INCIDENT_DAMAGE_UNIT_YEN = 10000;
@@ -602,14 +584,10 @@ export const ITEM_BLOCKED_RECTS = [
   { x: 0, y: 0, width: CELL_SIZE * FIELD_COLS, height: CELL_SIZE },
   { x: 0, y: CELL_SIZE * (FIELD_ROWS - 1), width: CELL_SIZE * FIELD_COLS, height: CELL_SIZE },
 ] as const;
-// 仮・要確認(#48): アイテム購入キー（アイテムのメニュー #156 の現在ページの枠の順に対応）。移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・昇給・減給(Q/E/R/F)・リスタートと重ならない。Phaser の KeyCodes のキー名。
-// 仮・要確認(#58): アイテムが 18 個になったため、購入バーをページ切替式にした。キー 4〜9 は現在ページの 1〜6 枠目を買う（#57 の猫のキー 0 は廃止）。
-export const ITEM_BUY_KEYS = ['FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT', 'NINE'] as const;
-// 仮・要確認(#58): アイテムのメニュー1ページの枠数。購入キーの数と同じ。
-export const ITEM_PAGE_SIZE = ITEM_BUY_KEYS.length;
-// 仮・要確認(#58): アイテムのメニューのページ切替キー（前のページ・次のページ）。他の操作キーと重ならない。端では反対側の端へ回り込む。
-export const ITEM_PAGE_KEYS = { previous: 'G', next: 'H' } as const;
-// 仮・要確認(#156): アイテムのメニューのページ切替ボタンの文字。キー名は出さない（キー操作 G/H は残す）。
+// 仮・要確認(#58): アイテムが 18 個になったため、購入バーをページ切替式にした。
+// 仮・要確認(#58, #165): アイテムのメニュー1ページの枠数。#165 で購入キー（4〜9）を廃止したので、枠数を直接持つ（値は購入キーの数だった 6 のまま）。
+export const ITEM_PAGE_SIZE = 6;
+// 仮・要確認(#156): アイテムのメニューのページ切替ボタンの文字（端では反対側の端へ回り込む）。ページ切替キー（G/H）は #165 で廃止した。
 export const ITEM_PAGE_BUTTON_LABELS = { previous: '◀', next: '▶' } as const;
 // 仮・要確認(#164): アイテムを置ける・使えるようになるレベル（「レベルが上がる毎に、置けるアイテムを追加」「最初から置けるアイテムが多すぎる」）。
 // Lv.1 は CodeRabbit・Linter・テストツールの3種類、Lv.2 で CI、以降は ITEM_TYPES の定義順に1レベル1種類ずつ増え、Lv.16 で18種類すべてになる。
@@ -790,11 +768,8 @@ export const RELEASE_BURST = {
 export const STAGE_POINTS_INITIAL = 6;
 // 仮・要確認(#47): 価格の段階（ITEM_PRICE_TIER_BY_TYPE）ごとの配置コスト（ステージポイント）。安い < 普通 < 高い の順を保つ。
 export const STAGE_POINT_COST_BY_TIER = { cheap: 1, normal: 2, expensive: 3 } as const;
-// 仮・要確認(#47): 初期配置を終えてプレイを始めるキー。Phaser の KeyCodes のキー名。
-// 移動(矢印/WASD)・攻撃(SPACE)・雇う(1〜3)・アイテム(4〜9・ページ G/H)・AIエージェント(V/B/N)・昇給減給(Q/E/R/F)・割合(Z/X)と重ならない。
-// リスタート(ENTER/SPACE)と同じ ENTER だが、リスタートはゲームオーバー中だけ、開始は初期配置フェーズ中だけ動くため衝突しない。
-export const INITIAL_PLACEMENT_START_KEYS = ['ENTER'] as const;
-// 仮・要確認(#47): 初期配置UI（残ポイント・選択中のアイテム・操作説明のパネル、開始ボタン、メッセージ）の配置。
+// 仮・要確認(#165): 初期配置を終えてプレイを始めるのは開始ボタンだけ（開始キー ENTER は廃止した）。
+// 仮・要確認(#47): 初期配置UI（残ポイント・選択中のアイテムのパネル、開始ボタン、メッセージ）の配置。
 // 仮・要確認(#156): 右上はアイコンとアイテムのメニューを開く場所になったため、左の HUD を撤去して空いた左上に移す。
 // 左端は経過日数と同じ x=72（出現列 x<60 の右）、上端は上帯（行0、y<60）の下に余白 8px をあけた y=68。
 // これらの矩形（INITIAL_PLACEMENT_UI_BOUNDS #162）に重なる位置は初期配置フェーズの間だけ置けない（#151 で矩形のまま判定する）。
@@ -804,23 +779,20 @@ export const INITIAL_PLACEMENT_PANEL_POSITION = {
   y: CELL_SIZE + INITIAL_PLACEMENT_UI_MARGIN,
 } as const;
 // 仮・要確認(#47): パネル・開始ボタン・メッセージの文字サイズと行の間隔（ピクセル）。
-// 仮・要確認(#157): パネルは3行（残ポイント・選択中・マウス操作の説明1行）。キーボード操作の説明は出さない（情報量を減らす）。
+// 仮・要確認(#157, #165): パネルは2行（残ポイント・選択中）。#165 でマウス操作の説明の行をやめ、説明は右上の ℹ️ のゲームの説明に移した。
 // 1行の高さは 文字サイズ × 1.25（縁取りを含めた余裕）を切り上げ + 行の間隔 = 20px として範囲を見積もる。
 export const INITIAL_PLACEMENT_FONT_SIZE = '14px';
 // 行の間隔は 2px。
 export const INITIAL_PLACEMENT_LINE_SPACING = 2;
-export const INITIAL_PLACEMENT_PANEL_LINES = 3;
+export const INITIAL_PLACEMENT_PANEL_LINES = 2;
 const INITIAL_PLACEMENT_LINE_HEIGHT_RATIO = 1.25;
 export const INITIAL_PLACEMENT_LINE_HEIGHT =
   Math.ceil(parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10) * INITIAL_PLACEMENT_LINE_HEIGHT_RATIO) + INITIAL_PLACEMENT_LINE_SPACING;
 // 仮・要確認(#47): パネル・開始ボタン・メッセージの間の縦の余白（ピクセル）。
 const INITIAL_PLACEMENT_UI_GAP = 6;
 // 仮・要確認(#47): パネルの文言・結果メッセージは言語カタログ（initialPlacement #158）に置く。
-// 仮・要確認(#157): マウス操作（先に置くものを選び、次に置く場所をクリック。配置済みは右上の×で取り消す）に合わせた文言にする。
-// 開始キー（ENTER）は残すが、画面には出さない。
-// 仮・要確認(#156): 置くアイテムは右上のアイテムのアイコンを押して開くメニューから選ぶため、操作説明をその手順にする。
-// 仮・要確認(#157): エンジニアの選択ボタンと開始ボタンは、パネルの下の1行に左から並べる（y=134〜162）。
-// 幅の合計（エンジニア 150 + 間 6 + 開始 128 = 284）は初期配置UIの範囲の幅（操作説明の行の幅）より狭い。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
+// 仮・要確認(#157): エンジニアの選択ボタンと開始ボタンは、パネルの下の1行に左から並べる（#165 でパネルが2行になり y=114〜142）。
+// 幅の合計（エンジニア 150 + 間 6 + 開始 128 = 284）は初期配置UIの範囲の幅より狭い。色は雇うボタン(HIRE_BUTTON_COLORS)と同じ。
 export const INITIAL_PLACEMENT_ENGINEER_BUTTON_SIZE = { width: 150, height: 28 } as const;
 export const INITIAL_PLACEMENT_ENGINEER_BUTTON_POSITION = {
   x: INITIAL_PLACEMENT_PANEL_POSITION.x,
@@ -837,7 +809,7 @@ export const INITIAL_PLACEMENT_START_BUTTON_POSITION = {
 export const INITIAL_PLACEMENT_SELECTED_COLORS = { fill: 0x5d4a12, stroke: 0xffd54f } as const;
 // 仮・要確認(#157): 開始できない（未配置のエンジニアがいる）ときの開始ボタンの不透明度。開始できるときは 1。
 export const INITIAL_PLACEMENT_START_BUTTON_ALPHA = { enabled: 1, disabled: 0.4 } as const;
-// 仮・要確認(#47): 初期配置の結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。ボタンの行の下（#157 で y=168〜188）。
+// 仮・要確認(#47): 初期配置の結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。ボタンの行の下（#165 で y=148〜168）。
 export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
   x: INITIAL_PLACEMENT_PANEL_POSITION.x,
   y: INITIAL_PLACEMENT_START_BUTTON_POSITION.y + INITIAL_PLACEMENT_START_BUTTON_SIZE.height + INITIAL_PLACEMENT_UI_GAP,
@@ -846,11 +818,11 @@ export const INITIAL_PLACEMENT_MESSAGE_COLOR = ITEM_MESSAGE_COLOR;
 export const INITIAL_PLACEMENT_MESSAGE_DURATION_MS = ITEM_MESSAGE_DURATION_MS;
 // 仮・要確認(#47, #156, #162): 初期配置UIが占める範囲（ピクセル）。パネル・エンジニアの選択ボタン・開始ボタン・メッセージの矩形の配列。
 // #156 までは全体を1つの外接矩形（x=72〜464、y=68〜188）にしていたため、開始ボタンの右など何も描いていない所にも置けなかった(#162)。
-// 各矩形は次のとおり（左上に置く #156）。矩形どうしの間（縦横 6px の隙間と、開始ボタンの右）は置ける。
-// - パネル: x=72〜464、y=68〜128。幅は日本語の最も長い操作説明の行（全角 1 文字 = 文字サイズで見積もる。14px × 28 文字 = 392px）、高さは 3 行ぶん。
-// - エンジニアの選択ボタン: x=72〜222、y=134〜162。開始ボタン: x=228〜356、y=134〜162（ボタンの大きさそのまま。枠線 2px の外側半分の 1px は、
+// 各矩形は次のとおり（左上に置く #156。#165 でパネルを2行にしたので、ボタンの行とメッセージは 20px 上がった）。矩形どうしの間（縦横 6px の隙間と、開始ボタンの右）は置ける。
+// - パネル: x=72〜464、y=68〜108。幅は全角 28 文字ぶん（14px × 28 文字 = 392px。#165 で消した操作説明の行の幅のまま。どの言語のパネルとメッセージの行も収まる）、高さは 2 行ぶん。
+// - エンジニアの選択ボタン: x=72〜222、y=114〜142。開始ボタン: x=228〜356、y=114〜142（ボタンの大きさそのまま。枠線 2px の外側半分の 1px は、
 //   ボタンの間・行の間の隙間（6px）と配置グリッド（16px）の位置の関係で、どのセルの可否も変えないため含めない）。
-// - メッセージ: x=72〜464、y=168〜188。幅はパネルと同じ見積もり、高さは 1 行ぶん。
+// - メッセージ: x=72〜464、y=148〜168。幅はパネルと同じ見積もり、高さは 1 行ぶん。
 // 文言は言語ごとに変わるが、配置判定の範囲は言語で変えない（#158。どの言語の文言もパネル・メッセージの幅に収めることを hudLayout.test.ts で言語ごとに確かめる）。
 // hudLayout.test.ts でパネル・ボタン・メッセージがそれぞれ対応する矩形に収まることを確かめる。これらの矩形に重なる位置は初期配置の間だけ置けない
 // （プレイ開始で UI を消すので、プレイ中の購入では置ける #151）。
@@ -911,16 +883,26 @@ export const INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS = 20;
 
 // 仮・要確認(#156): 「画面の情報が多すぎる」への対応。常時表示を経過日数（左上）・右上の3つのアイコン・右下の小さな指標だけにし、
 // 雇用・昇給減給・アイテム購入・開発バランスはアイコンを押すと縦に開くメニュー、休暇・AIエージェントは出現地点を押すと開くポップオーバーに移す。
-// キー操作（1〜3・Q/E/R/F・4〜9・G/H・Z/X・V/B/N）は残すが、画面にはキー名を出さない。以下はすべて仮の値（目視で調整する）。
+// キー操作は #165 で廃止した（マウスだけで操作する）。以下はすべて仮の値（目視で調整する）。
 const FIELD_PIXEL_WIDTH = CELL_SIZE * FIELD_COLS;
 const FIELD_PIXEL_HEIGHT = CELL_SIZE * FIELD_ROWS;
 // 仮・要確認(#156): 右上のアイコン（左からエンジニア・アイテム・開発バランス）。一辺 size の正方形を gap あけて並べ、右端をフィールド右端から rightMargin だけ内側にする。
 // 上端 top=4・下端 40 は上帯（y<60）の中で、通知（HIRE_MESSAGE_POSITION、y≧42）より上（hudLayout.test.ts で交差しないことを確かめる）。
+// 仮・要確認(#165): 「右上にℹ️アイコンを置いて、それをクリックしたらゲーム説明を出せば良い」により、一番右にゲームの説明のアイコン（HELP_ICON_RECT）を足す。
+// 3つのアイコンは、その左に gap あけて並べる（MENU_ICON_RIGHT は開発バランスのアイコンの右端）。
 export const MENU_ICON_SIZE = 36;
 export const MENU_ICON_GAP = 8;
 export const MENU_ICON_TOP = 4;
 export const MENU_ICON_RIGHT_MARGIN = 8;
-export const MENU_ICON_RIGHT = FIELD_PIXEL_WIDTH - MENU_ICON_RIGHT_MARGIN;
+export const HELP_ICON_RECT = {
+  x: FIELD_PIXEL_WIDTH - MENU_ICON_RIGHT_MARGIN - MENU_ICON_SIZE,
+  y: MENU_ICON_TOP,
+  width: MENU_ICON_SIZE,
+  height: MENU_ICON_SIZE,
+} as const;
+export const MENU_ICON_RIGHT = HELP_ICON_RECT.x - MENU_ICON_GAP;
+// 仮・要確認(#165): ゲームの説明のアイコンの文字（HUD_ICONS.help）の大きさ。アイコンの一辺より小さくする。
+export const HELP_ICON_FONT_SIZE = '22px';
 // 仮・要確認(#156): アイコンの色。開いているアイコンは INITIAL_PLACEMENT_SELECTED_COLORS で強調し、初期配置の間に開けないアイコンは dimAlpha まで薄くする。
 // 絵（Graphics）は glyph の色。開発バランスの絵は機能開発（feature）とリファクタリング（refactoring）の2色の横棒。
 export const MENU_ICON_COLORS = {
@@ -970,41 +952,77 @@ export const MENU_PANEL_GAP_Y = 4;
 // 仮・要確認(#156): メニューの幅（ピクセル）。各行の最長の文言（全角 1 文字 = 12px で見積もる）が内側（幅 − 余白 × 2）に収まる幅にする（hudLayout.test.ts で検証）。
 // エンジニア: 「月給 1,000,000円 AI: なし」（20 文字）。アイテム: 「FriDeploy 1.25万円」（16 文字。#164 の半額後）。開発バランス: 「機能100:リファ0」（10 文字）。
 export const MENU_PANEL_WIDTH = { engineer: 260, item: 216, balance: 160 } as const;
+// 仮・要確認(#165): 「機能とリファクタリングの割合はゲージチャートで」により、開発バランスのメニューは11段階の選択肢の代わりに、
+// 2色の横棒のゲージ（左が機能開発 feature、右がリファクタリング refactoring）と、その下の割合の文言（balance.allocation）、◀ / ▶ のボタンにする。
+// ◀ はゲージの境目を左へ動かす（リファクタリングへ1段階寄せる）、▶ は右へ動かす（機能開発へ1段階寄せる）。1段階は REFACTORING_RATIO_STEP_PERCENT。
+// ゲージの幅はメニューの内側の幅（MENU_PANEL_WIDTH.balance − 余白 × 2）、高さは height。色はアイコンの絵（MENU_ICON_COLORS）と同じ2色。
+export const BALANCE_GAUGE = {
+  height: 16,
+  featureColor: MENU_ICON_COLORS.feature,
+  refactoringColor: MENU_ICON_COLORS.refactoring,
+  strokeColor: 0x6c8cff,
+  strokeWidth: 1,
+} as const;
+export const BALANCE_STEP_BUTTON_LABELS = { refactoring: '◀', feature: '▶' } as const;
 // 仮・要確認(#156): メニューとポップオーバーの背景。半透明の濃紺に枠線。背景全体が押下を受け止める（下のフィールドで移動・攻撃・配置が起きない）。
 export const MENU_PANEL_COLORS = { fill: 0x0b1020, fillAlpha: 0.92, stroke: 0x6c8cff, strokeWidth: 2 } as const;
 // 仮・要確認(#156): メニュー・ポップオーバーの深さ。HUD(2)より上、大障害の通知(2.5)・ゲームオーバー表示(3)より下。
 export const MENU_PANEL_DEPTH = 2.2;
 // 仮・要確認(#156): メニューの見出しと文言は言語カタログ（balance・engineer.hireOption・aiAgents.option・items.option #158）に置く。
-// 仮・要確認(#156): エンジニアのポップオーバー（出現地点を押すと開く。休暇とAIエージェントの操作）。幅は休暇の案内文の最長の行
-// （「不正率-10pt/回・最大-20pt・下限5%」23 文字 × 12px = 276px）が内側（幅 − 余白 × 2）に収まる幅。左端は出現地点の中心から offsetX だけ右（出現列 x<60 の右）。
+// 仮・要確認(#156): エンジニアのポップオーバー（出現地点を押すと開く。休暇とAIエージェントの操作）。幅は #156 で休暇の案内文の最長の行
+// （23 文字 × 12px = 276px）が内側（幅 − 余白 × 2）に収まる幅にした。#165 で案内文はゲームの説明に移したが、幅は変えない。左端は出現地点の中心から offsetX だけ右（出現列 x<60 の右）。
 // 上下は出現地点の中心に合わせ、フィールドの端から margin の内側に収める（行0・行8でもはみ出さない）。
 export const ENGINEER_POPOVER_WIDTH = 292;
 export const ENGINEER_POPOVER_OFFSET_X = CELL_SIZE / 2 + 4;
 export const ENGINEER_POPOVER_MARGIN = 8;
 // ポップオーバーの文言は言語カタログ（engineer.popoverHeading など #158）に置く。
-// 仮・要確認(#156): 右下の小さな指標（資金・累計売上・月末に支払うお金の3行と、技術的負債の色付きの丸）。下帯（最終行 y=480〜540）の右端に置く。
-// 文字は 12px・行の高さ 16px（12 × 1.25 の切り上げ + 行間 1px）で 3 行 = 48px。左に負債の丸と「負債 正常」（indicatorWidth）、右に3行（残りの幅）。
-// 幅は「累計売上: 9,999,999,999円」（20 文字 × 12px = 240px）が3行の欄に収まる幅。入力は受け付けない（下のフィールドの操作を妨げない）。
+// 仮・要確認(#156, #165): 右下の小さな指標。下帯（最終行 y=480〜540）の右端に置く。入力は受け付けない（下のフィールドの操作を妨げない）。
+// #165 で語の代わりに絵文字＋数字の4つ（💰 資金・💸 月末に支払うお金（赤文字）・📈 累計売上・🔵🟡🔴 技術的負債）にし、2列 × 2行に並べる。
+// 上の行は 💰 と 💸、下の行は 📈 と負債。文字は 12px・行の高さ 16px（12 × 1.25 の切り上げ + 行間 1px）で 2 行 = 32px。
+// 列の幅は「💰-9,999,999,999円」（全角 2 文字 + 半角 14 文字 = 24 + 100.8 = 124.8px）が収まる幅。
 export const STATUS_PANEL_FONT_SIZE = '12px';
 export const STATUS_PANEL_LINE_SPACING = 1;
 export const STATUS_PANEL_LINE_HEIGHT =
   Math.ceil(parseInt(STATUS_PANEL_FONT_SIZE, 10) * MENU_LINE_HEIGHT_RATIO) + STATUS_PANEL_LINE_SPACING;
-export const STATUS_PANEL_LINES = 3;
+export const STATUS_PANEL_ROWS = 2;
+export const STATUS_PANEL_COLUMNS = 2;
+export const STATUS_PANEL_COLUMN_WIDTH = 128;
+export const STATUS_PANEL_COLUMN_GAP = 8;
 export const STATUS_PANEL_PADDING = 2;
-export const STATUS_PANEL_INDICATOR_WIDTH = 92;
-export const STATUS_PANEL_WIDTH = 340;
+export const STATUS_PANEL_WIDTH =
+  STATUS_PANEL_PADDING * 2 + STATUS_PANEL_COLUMN_WIDTH * STATUS_PANEL_COLUMNS + STATUS_PANEL_COLUMN_GAP * (STATUS_PANEL_COLUMNS - 1);
 export const STATUS_PANEL_MARGIN = 8;
+const STATUS_PANEL_HEIGHT = STATUS_PANEL_LINE_HEIGHT * STATUS_PANEL_ROWS + STATUS_PANEL_PADDING * 2;
 export const STATUS_PANEL_RECT = {
   x: FIELD_PIXEL_WIDTH - STATUS_PANEL_MARGIN - STATUS_PANEL_WIDTH,
-  y: FIELD_PIXEL_HEIGHT - STATUS_PANEL_MARGIN - (STATUS_PANEL_LINE_HEIGHT * STATUS_PANEL_LINES + STATUS_PANEL_PADDING * 2),
+  y: FIELD_PIXEL_HEIGHT - STATUS_PANEL_MARGIN - STATUS_PANEL_HEIGHT,
   width: STATUS_PANEL_WIDTH,
-  height: STATUS_PANEL_LINE_HEIGHT * STATUS_PANEL_LINES + STATUS_PANEL_PADDING * 2,
+  height: STATUS_PANEL_HEIGHT,
 } as const;
-// 仮・要確認(#156): 右下の指標の背景（半透明）、負債の丸の半径と、丸と文字の間（ピクセル）。負債の文言は言語カタログ（hud.techDebtLevel #158）。
+// 仮・要確認(#156): 右下の指標の背景（半透明）。
 export const STATUS_PANEL_COLORS = { fill: 0x0b1020, fillAlpha: 0.6 } as const;
-export const STATUS_PANEL_INDICATOR_RADIUS = 6;
-export const STATUS_PANEL_INDICATOR_GAP = 4;
-// 仮・要確認(#156): 月末に支払うお金（給料＋月額アイテム＋付けている AIエージェントの月額の合計）の表示書式「月末支払: 900,000円」は言語カタログ（hud.monthEndPayment #158）。
+// 仮・要確認(#165): 月末に支払うお金（💸）の文字の色（「支払う予定の額は💸と赤文字」）。減点表示（PENALTY_TEXT_COLOR）より明るい赤で、暗い背景でも読める色。
+export const STATUS_PANEL_PAYMENT_COLOR = '#ff6b6b';
+// 仮・要確認(#156): 月末に支払うお金（給料＋月額アイテム＋付けている AIエージェントの月額の合計）の表示書式は言語カタログ（hud.monthEndPayment #158）。
+
+// 仮・要確認(#165): ゲームの説明（右上の ℹ️ で開く）。全面の半透明の背景（押すと閉じる。下の操作はすべて止める）の中央にパネルを出し、
+// 見出しと説明の行（help.ts の buildHelpLines）を上から並べ、右上に ✕ の閉じるボタンを置く。開いている間はゲーム内の時間を止める。
+// 深さはゲームオーバー表示（3）より上（ゲームオーバー中は開かない）。パネルの幅はフィールドの幅から左右の余白を引いた幅で、
+// どの言語の説明の行もパネルの内側（幅 − 余白 × 2）に収まることを help.test.ts で確かめる。
+export const HELP_OVERLAY = {
+  depth: 3.5,
+  backdropColor: 0x000000,
+  backdropAlpha: 0.6,
+  panelMarginX: 40,
+  padding: 16,
+  titleFontSize: '20px',
+  lineFontSize: '13px',
+  lineSpacing: 4,
+  titleGap: 8,
+  closeButtonSize: 28,
+  closeButtonLabel: '✕',
+  closeButtonFontSize: '16px',
+} as const;
 
 // 仮・要確認(#58): 企画書(8)の「その他のアイテム」の効果の数値は未定。以下はすべて仮の値（試作で調整する）。
 // 時限効果の時刻はゲーム内の経過ミリ秒（elapsedMs）で測る。同じ効果を重ねて買っても効果量は足さず、残り時間だけ延ばす（買い直した時点から数え直す）。

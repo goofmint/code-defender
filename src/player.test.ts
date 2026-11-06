@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
-import { PLAYER_POINTER_DEAD_ZONE, PLAYER_SCREEN_GLOW_ALPHA, PLAYER_SHADOW_ALPHA, PLAYER_SPEED } from './config';
+import { PLAYER_POINTER_DEAD_ZONE, PLAYER_SCREEN_GLOW_ALPHA, PLAYER_SHADOW_ALPHA } from './config';
 import {
   clampToField,
   facingFromHorizontal,
-  getMoveDirection,
   getPlayerStartPosition,
   getPointerDirection,
-  movePlayer,
   movePlayerToward,
   PLAYER_COLORS,
   PLAYER_SIZE,
@@ -41,60 +39,6 @@ describe('主人公', () => {
     expect(x + half).toBeLessThanOrEqual(FIELD_WIDTH);
     expect(y - half).toBeGreaterThanOrEqual(0);
     expect(y + half).toBeLessThanOrEqual(FIELD_HEIGHT);
-  });
-});
-
-describe('getMoveDirection', () => {
-  const none = { left: false, right: false, up: false, down: false };
-
-  it('入力がなければ {x:0,y:0} を返す', () => {
-    expect(getMoveDirection(none)).toEqual({ x: 0, y: 0 });
-  });
-
-  it('4方向それぞれの単一入力で長さ 1 の方向を返す', () => {
-    expect(getMoveDirection({ ...none, left: true })).toEqual({ x: -1, y: 0 });
-    expect(getMoveDirection({ ...none, right: true })).toEqual({ x: 1, y: 0 });
-    expect(getMoveDirection({ ...none, up: true })).toEqual({ x: 0, y: -1 });
-    expect(getMoveDirection({ ...none, down: true })).toEqual({ x: 0, y: 1 });
-  });
-
-  it('反対方向の同時入力は軸ごとに打ち消される', () => {
-    expect(getMoveDirection({ ...none, left: true, right: true })).toEqual({ x: 0, y: 0 });
-    expect(getMoveDirection({ ...none, up: true, down: true })).toEqual({ x: 0, y: 0 });
-    expect(getMoveDirection({ left: true, right: true, up: true, down: false })).toEqual({
-      x: 0,
-      y: -1,
-    });
-  });
-
-  it('斜め入力は長さ 1 に正規化される', () => {
-    const d = getMoveDirection({ ...none, right: true, down: true });
-    expect(Math.hypot(d.x, d.y)).toBeCloseTo(1);
-    expect(d.x).toBeCloseTo(Math.SQRT1_2);
-    expect(d.y).toBeCloseTo(Math.SQRT1_2);
-  });
-});
-
-describe('movePlayer', () => {
-  it('移動量は 方向 × 速度 × 経過時間(秒) になる', () => {
-    expect(movePlayer({ x: 100, y: 100 }, { x: 1, y: 0 }, 500, 200)).toEqual({ x: 200, y: 100 });
-    expect(movePlayer({ x: 100, y: 100 }, { x: 0, y: -1 }, 250, 200)).toEqual({ x: 100, y: 50 });
-  });
-
-  it('速度を省略すると PLAYER_SPEED を使う', () => {
-    expect(movePlayer({ x: 0, y: 0 }, { x: 1, y: 0 }, 1000)).toEqual({ x: PLAYER_SPEED, y: 0 });
-  });
-
-  it('方向が {0,0} なら動かない', () => {
-    expect(movePlayer({ x: 10, y: 20 }, { x: 0, y: 0 }, 1000)).toEqual({ x: 10, y: 20 });
-  });
-
-  it('引数のオブジェクトを変更しない', () => {
-    const position = { x: 10, y: 20 };
-    const direction = { x: 1, y: 0 };
-    movePlayer(position, direction, 1000);
-    expect(position).toEqual({ x: 10, y: 20 });
-    expect(direction).toEqual({ x: 1, y: 0 });
   });
 });
 

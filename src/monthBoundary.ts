@@ -1,4 +1,5 @@
 import { getMonthlyAiAgentFees } from './aiAgent';
+import { HUD_ICONS } from './config';
 import type { Engineer } from './engineer';
 import { subtractFunds } from './funds';
 import { isBankrupt } from './gameOver';
@@ -57,6 +58,6 @@ export const getMonthEndPaymentForecast = (
   getMonthlyItemFees(placedItems).amount +
   getMonthlyAiAgentFees(engineers).amount;
 
-// 「月末支払: 900,000円」（英語は「Month-end costs: ¥900,000」#158）。数値部分は3桁区切り（formatFunds と同じ）。
+// 「💸900,000円」（英語は「💸¥900,000」#158, #165）。数値部分は3桁区切り（formatFunds と同じ）。右下の指標では赤文字で出す（render.ts）。
 export const formatMonthEndPayment = (amount: number): string =>
-  interpolate(getMessages().hud.monthEndPayment, { amount: formatYen(amount) });
+  interpolate(getMessages().hud.monthEndPayment, { icon: HUD_ICONS.monthEndPayment, amount: formatYen(amount) });

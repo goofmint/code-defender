@@ -1,4 +1,5 @@
-// 初期配置フェーズ(#47)を、実際の MainScene の create() / update() / pointerdown / 開始キー / tryRestart() で確かめる。
+// 初期配置フェーズ(#47)を、実際の MainScene の create() / update() / pointerdown / 開始ボタン / tryRestart() で確かめる（キー操作は #165 で廃止）。
+// ゲームの説明（右上の ℹ️ #165）の開閉と、開いている間に時間・配置・攻撃が止まることもここで確かめる。
 // main.ts は読み込み時に new Phaser.Game(config) を実行するので、このファイルの中だけで phaser をモックする（engineerResign.test.ts と同じ形）。
 // 描画（render.ts）もモックして、Phaser の GameObject を作らずに create() を通す。
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,14 +8,10 @@ import {
   CELL_SIZE,
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
-  GAME_OVER_RESTART_KEYS,
   INITIAL_FUNDS,
   INITIAL_PLACEMENT_START_BUTTON_ALPHA,
-  INITIAL_PLACEMENT_START_KEYS,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
-  ITEM_BUY_KEYS,
-  ITEM_PAGE_KEYS,
   ITEM_PAGE_SIZE,
   ITEM_SHORT_NAMES,
   LEVEL_UP_INTERVAL_DAYS,
@@ -34,7 +31,8 @@ import {
   listEngineerCandidateCells,
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
-import { setLocale } from './i18n';
+import { buildHelpLines } from './help';
+import { getMessages, setLocale } from './i18n';
 import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlacement';
@@ -109,6 +107,9 @@ vi.mock('./render', () => {
     drawElapsedDays: vi.fn(object),
     drawField: vi.fn(),
     drawGameOver: vi.fn(),
+    // ゲームの説明(#165)。アイコンのコールバックは drawHelpIcon の mock.calls の2番目、閉じるコールバックは drawHelpOverlay の4番目の引数。
+    drawHelpIcon: vi.fn(object),
+    drawHelpOverlay: vi.fn(() => ({ destroy: vi.fn() })),
     drawHireMessage: vi.fn(object),
     // エンジニアを置ける床の色分け(#157)。置く・外すたびに描き直す。
     drawEngineerCandidateOverlay: vi.fn(object),
@@ -134,7 +135,7 @@ vi.mock('./render', () => {
       setFunds: vi.fn(),
       setScore: vi.fn(),
       setMonthEndPayment: vi.fn(),
-      setTechDebtLevel: vi.fn(),
+      setTechDebt: vi.fn(),
     })),
     drawItemMessage: vi.fn(object),
     drawOutageText: vi.fn(),
@@ -160,7 +161,6 @@ vi.mock('./render', () => {
 
 const render = await import('./render');
 
-type FakeKey = { readonly isDown: boolean; readonly on: (event: string, handler: () => void) => FakeKey };
 type FakePointer = { readonly worldX: number; readonly worldY: number; isDown: boolean };
 type PointerDownHandler = (pointer: FakePointer, currentlyOver: readonly object[]) => void;
 // pointerdown と pointermove(#162) は同じ形の引数で呼ばれる。
@@ -184,10 +184,13 @@ type SceneUnderTest = {
   routes: Route[];
   gameOver: GameOverState;
   attackPointerHeld: boolean;
+  helpOpen: boolean;
+  lastAttackTime: number | null;
   player?: { x: number; y: number };
   input: {
     readonly activePointer: FakePointer;
-    readonly keyboard: { readonly addKey: (name: string) => FakeKey };
+    // キー操作は #165 で廃止した。登録されないことを確かめるため、呼び出しを記録するだけにする。
+    readonly keyboard: { readonly addKey: Mock<(name: string) => object> };
     readonly on: (event: string, handler: PointerHandler) => void;
   };
   events: {
@@ -204,7 +207,6 @@ type SceneUnderTest = {
 
 type Harness = {
   readonly scene: SceneUnderTest;
-  readonly pressKey: (name: string) => void;
   readonly pointerDown: (point: { readonly x: number; readonly y: number }, currentlyOver?: readonly object[]) => void;
   // ポインターを動かす（pointermove #162）。
   readonly pointerMove: (point: { readonly x: number; readonly y: number }, currentlyOver?: readonly object[]) => void;
@@ -229,28 +231,16 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-// create() を実行したシーン。キーとポインターのハンドラーは記録して、テストから呼べるようにする。
-// scene.restart() は create() をもう一度実行する（キー・ハンドラーは Phaser の SHUTDOWN で消えるので記録し直す）。
+// create() を実行したシーン。ポインターのハンドラーは記録して、テストから呼べるようにする。
+// scene.restart() は create() をもう一度実行する（ハンドラーは Phaser の SHUTDOWN で消えるので記録し直す）。
 const createHarness = (): Harness => {
-  let keyHandlers = new Map<string, (() => void)[]>();
   // ポインターのハンドラー（イベント名がキー。pointerdown と pointermove #162）。
   let pointerHandlers = new Map<string, PointerHandler[]>();
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
   const activePointer: FakePointer = { worldX: 0, worldY: 0, isDown: false };
   scene.input = {
     activePointer,
-    keyboard: {
-      addKey: (name) => {
-        const key: FakeKey = {
-          isDown: false,
-          on: (_event, handler) => {
-            keyHandlers.set(name, [...(keyHandlers.get(name) ?? []), handler]);
-            return key;
-          },
-        };
-        return key;
-      },
-    },
+    keyboard: { addKey: vi.fn<(name: string) => object>(() => ({})) },
     on: (event, handler) => {
       pointerHandlers.set(event, [...(pointerHandlers.get(event) ?? []), handler]);
     },
@@ -272,21 +262,16 @@ const createHarness = (): Harness => {
   scene.create();
   return {
     scene,
-    pressKey: (name) => {
-      const handlers = keyHandlers.get(name);
-      if (handlers === undefined) throw new Error(`キーが登録されていません: ${name}`);
-      handlers.forEach((handler) => handler());
-      if (restartPending) {
-        restartPending = false;
-        keyHandlers = new Map();
-        pointerHandlers = new Map();
-        scene.create();
-      }
-    },
+    // ゲームオーバー中の押下でリスタートを予約したら、押下の処理が終わってから create() をやり直す（Phaser と同じ）。
     pointerDown: (point, currentlyOver = []) => {
       (pointerHandlers.get('pointerdown') ?? []).forEach((handler) =>
         handler({ worldX: point.x, worldY: point.y, isDown: true }, currentlyOver),
       );
+      if (restartPending) {
+        restartPending = false;
+        pointerHandlers = new Map();
+        scene.create();
+      }
     },
     pointerMove: (point, currentlyOver = []) => {
       (pointerHandlers.get('pointermove') ?? []).forEach((handler) =>
@@ -321,7 +306,26 @@ const placeableCells = (routes: readonly Route[], count: number): GridCell[] => 
 // 押す位置は配置グリッドのセルの中心。
 const centerOf = (cell: GridCell): { readonly x: number; readonly y: number } => placementCellCenter(cell);
 
-const startKey = INITIAL_PLACEMENT_START_KEYS[0];
+// 最後に描いた開始ボタンのコールバック（開始キーは #165 で廃止）。
+const lastStartButton = (): (() => void) => {
+  const call = vi.mocked(render.drawInitialPlacementStartButton).mock.calls.at(-1);
+  if (call === undefined) throw new Error('開始ボタンが描かれていません');
+  return call[1];
+};
+const pressStart = (): void => lastStartButton()();
+
+// 出現 (30, 210) → (330, 210) → 折れ点 (330, 330) → 終点 (570, 330) の固定のルート。create() のランダムなルートを置き換え、
+// 置けるセルが実行ごとに変わらないようにする（#162 の検査と #165 の開始・ゲームの説明の検査で使う）。
+const fixedRoute: Route = {
+  id: 100,
+  spawn: { col: 0, row: 3 },
+  waypoints: [
+    { col: 0, row: 3 },
+    { col: 5, row: 3 },
+    { col: 5, row: 5 },
+    { col: 9, row: 5 },
+  ],
+};
 
 // 右上のアイコン(#156)を押す（最後に描いたアイコンのコールバックを呼ぶ）。
 const pressIcon = (kind: 'engineer' | 'item' | 'balance'): void => {
@@ -533,23 +537,25 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(scene.initialPlacement.itemState.placedItems.map((item) => item.cell)).toEqual([cell, neighbour]);
   });
 
-  it('購入キーは setup の間は解放済み（Lv.1 #164）の一覧の枠の種類を選ぶだけで、買わない。ページ切り替え(#58)は setup の間も動く', () => {
-    const { scene, pressKey } = createHarness();
+  it('アイテムのメニューの枠は setup の間は解放済み（Lv.1 #164）の一覧の枠の種類を選ぶだけで、買わない。ページ切り替え(#58)は setup の間も動く', () => {
+    const { scene } = createHarness();
+    pressIcon('item');
     // Lv.1 は CodeRabbit・Linter・テストツールの1ページだけなので、次のページへ送っても1ページ目に戻る。
-    pressKey(ITEM_PAGE_KEYS.next);
+    lastItemMenu().onPage('next');
     expect(scene.itemPage).toBe(0);
-    pressKey(ITEM_BUY_KEYS[2]);
+    lastItemMenu().onBuySlot(2);
     expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'testTool' });
     expect(scene.placedItems).toEqual([]);
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(render.drawItemMessage).not.toHaveBeenCalled();
   });
 
-  it('境界値: Lv.1 では4枠目（キー 7）より先は空の枠なので、キーを押しても選択は変わらない(#164)', () => {
-    const { scene, pressKey } = createHarness();
-    pressKey(ITEM_BUY_KEYS[0]);
+  it('境界値: Lv.1 では4枠目より先は空の枠なので、その枠を押しても選択は変わらない(#164)', () => {
+    const { scene } = createHarness();
+    pressIcon('item');
+    lastItemMenu().onBuySlot(0);
     expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'codeRabbit' });
-    for (const key of ITEM_BUY_KEYS.slice(3)) pressKey(key);
+    for (let slot = 3; slot < ITEM_PAGE_SIZE; slot += 1) lastItemMenu().onBuySlot(slot);
     expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'codeRabbit' });
   });
 
@@ -584,7 +590,7 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
   });
 
   it('初期配置で置いた主人公についてまわるアイテム（ペアプロ相棒 #58）は、開始時に followItemViews へ登録する', () => {
-    const { scene, pressKey, pointerDown } = createHarness();
+    const { scene, pointerDown } = createHarness();
     // ペアプロ相棒は Lv.4 で解放する(#164)。初期配置の間は Lv.1 なので、ここでは経過時間を Lv.4 にして開始時の引き継ぎの経路だけを確かめる。
     scene.elapsedMs = (ITEM_REQUIRED_LEVELS.pairProgrammer - 1) * LEVEL_UP_INTERVAL_DAYS * MS_PER_GAME_DAY;
     scene.initialPlacementSelection = { kind: 'item', itemType: 'pairProgrammer' };
@@ -593,7 +599,7 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     const drawing = vi.mocked(render.drawPlacedItem).mock.results[0];
     if (drawing === undefined || drawing.type !== 'return') throw new Error('描画の結果がありません');
     expect(scene.followItemViews.size).toBe(0);
-    pressKey(startKey);
+    pressStart();
     expect(scene.followItemViews.get(0)).toBe(drawing.value);
   });
 
@@ -608,8 +614,10 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'ステージポイントが足りません');
   });
 
-  it('開始キーで playing に移り、置いたアイテムと id を引き継ぐ。以降は時間が進み、押下で置かない', () => {
-    const { scene, pointerDown, pressKey } = createHarness();
+  it('開始ボタンで playing に移り、置いたアイテムと id を引き継ぐ。以降は時間が進み、押下で置かない', () => {
+    const { scene, pointerDown } = createHarness();
+    // 置けるセルが実行ごとに変わらないよう、ルートを固定のものにする。
+    scene.routes = [fixedRoute];
     const [first, second, third] = placeableCells(scene.routes, 3);
     selectItem(scene, 'linter');
     pointerDown(centerOf(first));
@@ -618,7 +626,7 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     const placed = scene.initialPlacement.itemState.placedItems;
     scene.input.activePointer.isDown = true;
 
-    pressKey(startKey);
+    pressStart();
 
     expect(scene.phase).toBe('playing');
     expect(scene.placedItems).toEqual(placed);
@@ -631,27 +639,28 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(scene.elapsedMs).toBe(1000);
   });
 
-  it('配置ゼロでも開始できる。開始後に開始キーを押しても何も変わらない', () => {
-    const { scene, pressKey } = createHarness();
-    pressKey(startKey);
+  it('配置ゼロでも開始できる。開始後に開始ボタンのコールバックをもう一度呼んでも何も変わらない', () => {
+    const { scene } = createHarness();
+    const onStart = lastStartButton();
+    onStart();
     expect(scene.phase).toBe('playing');
     expect(scene.placedItems).toEqual([]);
     expect(scene.nextItemId).toBe(0);
     scene.placedItems = [{ id: 0, itemType: 'linter', cell: { col: 1, row: 6 }, lastAttackTime: null }];
-    pressKey(startKey);
+    onStart();
     expect(scene.placedItems).toHaveLength(1);
   });
 
-  it('倒産後のリスタートで setup・STAGE_POINTS_INITIAL・配置なしに戻る', () => {
-    const { scene, pointerDown, pressKey } = createHarness();
+  it('倒産後のリスタート（ゲームオーバー中の押下）で setup・STAGE_POINTS_INITIAL・配置なしに戻る', () => {
+    const { scene, pointerDown } = createHarness();
     const [cell] = placeableCells(scene.routes, 1);
     selectItem(scene, 'linter');
     pointerDown(centerOf(cell));
-    pressKey(startKey);
+    pressStart();
     scene.gameOver = { over: true, at: 0 };
     scene.time.now = Number.MAX_SAFE_INTEGER;
 
-    pressKey(GAME_OVER_RESTART_KEYS[0]);
+    pointerDown(centerOf(cell));
 
     expect(scene.scene.restart).toHaveBeenCalledOnce();
     expect(scene.phase).toBe('setup');
@@ -702,23 +711,18 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
   });
 
   it('境界値: 未配置が1人でもいると開始できず「エンジニアを全員配置してください」を出す。全員置くと開始できる', () => {
-    const { scene, pressKey, pointerDown } = createHarness();
+    const { scene, pointerDown } = createHarness();
     const engineer = scene.engineers[1];
     removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press();
 
-    pressKey(startKey);
+    pressStart();
     expect(scene.phase).toBe('setup');
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを全員配置してください');
-    // 開始ボタン（マウス）でも同じ。
-    const onStart = vi.mocked(render.drawInitialPlacementStartButton).mock.calls[0]?.[1];
-    if (onStart === undefined) throw new Error('開始ボタンのコールバックがありません');
-    onStart();
-    expect(scene.phase).toBe('setup');
 
     lastEngineerButton().onSelect();
     pointerDown(spawnPoint(0));
     expect(scene.engineers.every((candidate) => candidate.routeId !== null)).toBe(true);
-    pressKey(startKey);
+    pressStart();
     expect(scene.phase).toBe('playing');
   });
 
@@ -786,7 +790,7 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
   });
 
   it('開始時に置ける床・すべての×ボタン・エンジニアの選択ボタンを消し、開いているアイテムのメニューを通常の表示（金額・強調なし）に戻す', () => {
-    const { scene, pointerDown, pressKey } = createHarness();
+    const { scene, pointerDown } = createHarness();
     const [cell] = placeableCells(scene.routes, 1);
     selectItem(scene, 'linter');
     pointerDown(centerOf(cell));
@@ -799,7 +803,7 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     expect(removeButtons).toHaveLength(scene.engineers.length + 1);
     const engineerButtonDestroy = vi.spyOn(lastEngineerButton().container, 'destroy');
 
-    pressKey(startKey);
+    pressStart();
 
     expect(scene.phase).toBe('playing');
     expect(overlayDestroy).toHaveBeenCalledOnce();
@@ -824,11 +828,8 @@ describe('MainScene: 英語の初期配置パネル(#158)', () => {
     setLocale('ja');
   });
 
-  const expectedPanel = [
-    `Setup - Points left: ${STAGE_POINTS_INITIAL}pt`,
-    'Selected: None',
-    'Pick from the item icon, click floor; × undo',
-  ];
+  // 操作説明の行は #165 でやめた（説明は右上の ℹ️ のゲームの説明）。
+  const expectedPanel = [`Setup - Points left: ${STAGE_POINTS_INITIAL}pt`, 'Selected: None'];
 
   it('create() で英語のパネル・エンジニアの選択ボタンを描き、未選択で床を押すと英語のメッセージを出す', () => {
     const { scene, pointerDown } = createHarness();
@@ -840,13 +841,13 @@ describe('MainScene: 英語の初期配置パネル(#158)', () => {
   });
 
   it('倒産後のリスタート（create() のやり直し）でも英語のパネルを描く', () => {
-    const { scene, pressKey } = createHarness();
-    pressKey(startKey);
+    const { scene, pointerDown } = createHarness();
+    pressStart();
     scene.gameOver = { over: true, at: 0 };
     scene.time.now = Number.MAX_SAFE_INTEGER;
     vi.mocked(render.drawInitialPlacementPanel).mockClear();
 
-    pressKey(GAME_OVER_RESTART_KEYS[0]);
+    pointerDown({ x: 480, y: 270 });
 
     expect(scene.scene.restart).toHaveBeenCalledOnce();
     expect(render.drawInitialPlacementPanel).toHaveBeenCalledOnce();
@@ -857,24 +858,14 @@ describe('MainScene: 英語の初期配置パネル(#158)', () => {
 // #162: 見た目では空いているのに置けなかった位置。ルートは座標を直接書いた固定のもの（create() のランダムなルートを置き換える）で、
 // 押す点と期待値も共有定数から求めずに書く。ポイントは 6pt、置くのは Linter（1pt）。
 describe('MainScene: 描画どおりの配置判定と置けるかどうかの枠(#162)', () => {
-  // 出現 (30, 210) → (330, 210) → 折れ点 (330, 330) → 終点 (570, 330)。描いている外形は中心線から 6px。
-  const fixedRoute: Route = {
-    id: 100,
-    spawn: { col: 0, row: 3 },
-    waypoints: [
-      { col: 0, row: 3 },
-      { col: 5, row: 3 },
-      { col: 5, row: 5 },
-      { col: 9, row: 5 },
-    ],
-  };
+  // 固定のルート fixedRoute（上で定義）。描いている外形は中心線から 6px。
   // ルート（y=330）の下のセル (28, 21)。フットプリント x=448〜464、y=336〜352 は線の外形の下端 y=336 に接するだけ（#151 の 8px では置けなかった）。
   const besideRoute = { x: 456, y: 344 };
   // ルートの線の上のセル (28, 20)。フットプリント y=320〜336。
   const onRouteLine = { x: 456, y: 328 };
-  // 開始ボタン（x=228〜356、y=134〜162）の右のセル (23, 9)。フットプリント x=368〜384、y=144〜160（#156 の外接矩形では置けなかった）。
-  const rightOfStartButton = { x: 376, y: 152 };
-  // パネル（x=72〜464、y=68〜128）の上のセル (10, 5)。
+  // 開始ボタン（x=228〜356、y=114〜142 #165）の右のセル (23, 7)。フットプリント x=368〜384、y=112〜128（#156 の外接矩形では置けなかった）。
+  const rightOfStartButton = { x: 376, y: 120 };
+  // パネル（x=72〜464、y=68〜108 #165）の上のセル (10, 5)。
   const onPanel = { x: 168, y: 88 };
 
   const createFixture = (): Harness => {
@@ -917,7 +908,7 @@ describe('MainScene: 描画どおりの配置判定と置けるかどうかの�
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'Linterを置きました');
   });
 
-  it('開始ボタンの右の (376, 152) を押すと置き、パネルの上の (168, 88) とルートの線の上の (456, 328) は置かない', () => {
+  it('開始ボタンの右の (376, 120) を押すと置き、パネルの上の (168, 88) とルートの線の上の (456, 328) は置かない', () => {
     const { scene, pointerDown } = createFixture();
     selectItem(scene, 'linter');
     pointerDown(onPanel);
@@ -926,7 +917,7 @@ describe('MainScene: 描画どおりの配置判定と置けるかどうかの�
     expect(render.drawPlacedItem).not.toHaveBeenCalled();
     pointerDown(rightOfStartButton);
     expect(scene.initialPlacement.itemState.placedItems).toEqual([
-      { id: 0, itemType: 'linter', cell: { col: 23, row: 9 }, lastAttackTime: null },
+      { id: 0, itemType: 'linter', cell: { col: 23, row: 7 }, lastAttackTime: null },
     ]);
     expect(scene.initialPlacement.points).toBe(5);
   });
@@ -935,7 +926,7 @@ describe('MainScene: 描画どおりの配置判定と置けるかどうかの�
   it.each([
     ['ルートの線の外形に接するだけ', besideRoute, { col: 28, row: 21 }, true],
     ['ルートの線の上', onRouteLine, { col: 28, row: 20 }, false],
-    ['開始ボタンの右（初期配置UIの矩形の間）', rightOfStartButton, { col: 23, row: 9 }, true],
+    ['開始ボタンの右（初期配置UIの矩形の間）', rightOfStartButton, { col: 23, row: 7 }, true],
     ['パネルの上', onPanel, { col: 10, row: 5 }, false],
   ])('%s: 枠は %j のセルに出て可否 %s で、押すとそのとおりになる', (_name, point, cell, placeable) => {
     const { scene, pointerDown, pointerMove } = createFixture();
@@ -1016,10 +1007,10 @@ describe('MainScene: 描画どおりの配置判定と置けるかどうかの�
   });
 
   it('プレイ中は主人公の位置を含むセルに枠を出し（既定の置けない範囲）、セルか可否が変わったときだけ描き直す。ゲームオーバーで隠す', () => {
-    const { scene, pressKey, pointerMove } = createFixture();
+    const { scene, pointerMove } = createFixture();
     selectItem(scene, 'linter');
     pointerMove(besideRoute);
-    pressKey(startKey);
+    pressStart();
     // プレイ開始で初期配置の枠を隠す。
     expect(scene.phase).toBe('playing');
     expect(lastPreview()).toEqual({ visible: false });
@@ -1041,5 +1032,146 @@ describe('MainScene: 描画どおりの配置判定と置けるかどうかの�
     scene.gameOver = { over: true, at: 0 };
     scene.update(48, 16);
     expect(lastPreview()).toEqual({ visible: false });
+  });
+});
+
+describe('MainScene: マウスだけの操作(#165)', () => {
+  it('create() はキーを1つも登録しない（移動・攻撃・雇用・選択・給与・AI・アイテム・ページ・割合・開始・リスタート）', () => {
+    const { scene } = createHarness();
+    expect(scene.input.keyboard.addKey).not.toHaveBeenCalled();
+  });
+
+  it('倒産後のリスタート（押下で create() をやり直す）でもキーを登録しない', () => {
+    const { scene, pointerDown } = createHarness();
+    pressStart();
+    scene.gameOver = { over: true, at: 0 };
+    scene.time.now = Number.MAX_SAFE_INTEGER;
+    pointerDown({ x: 480, y: 270 });
+    expect(scene.scene.restart).toHaveBeenCalledOnce();
+    expect(scene.input.keyboard.addKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('MainScene: ゲームの説明（右上の ℹ️）(#165)', () => {
+  // 右上の ℹ️ を押す（最後に描いたアイコンのコールバックを呼ぶ）。
+  const pressHelpIcon = (): void => {
+    const call = vi.mocked(render.drawHelpIcon).mock.calls.at(-1);
+    if (call === undefined) throw new Error('ゲームの説明のアイコンが描かれていません');
+    call[1]();
+  };
+  // 最後に開いた説明の閉じるコールバック（背景と ✕ の押下）と destroy。
+  const lastHelpOverlay = (): { readonly close: () => void; readonly destroy: Mock } => {
+    const call = vi.mocked(render.drawHelpOverlay).mock.calls.at(-1);
+    const result = vi.mocked(render.drawHelpOverlay).mock.results.at(-1);
+    if (call === undefined || result === undefined || result.type !== 'return') throw new Error('ゲームの説明が開いていません');
+    return { close: call[3], destroy: vi.mocked(result.value.destroy) };
+  };
+
+  const createFixture = (): Harness => {
+    const harness = createHarness();
+    harness.scene.routes = [fixedRoute];
+    return harness;
+  };
+
+  it('create() は ℹ️ のアイコンを1つ描き、説明は閉じた状態で始まる', () => {
+    const { scene } = createFixture();
+    expect(render.drawHelpIcon).toHaveBeenCalledOnce();
+    expect(render.drawHelpOverlay).not.toHaveBeenCalled();
+    expect(scene.helpOpen).toBe(false);
+  });
+
+  it('ℹ️ を押すと、見出しと buildHelpLines の行で説明を開く。開いている間にもう一度押しても重ねて開かない', () => {
+    const { scene } = createFixture();
+    pressHelpIcon();
+    expect(scene.helpOpen).toBe(true);
+    expect(render.drawHelpOverlay).toHaveBeenCalledOnce();
+    expect(vi.mocked(render.drawHelpOverlay).mock.calls[0]?.[1]).toBe(getMessages().help.title);
+    expect(vi.mocked(render.drawHelpOverlay).mock.calls[0]?.[2]).toEqual(buildHelpLines());
+    pressHelpIcon();
+    expect(render.drawHelpOverlay).toHaveBeenCalledOnce();
+  });
+
+  it('初期配置の間に開いている間は、床を押してもアイテムを置かず、メッセージも出さない', () => {
+    const { scene, pointerDown } = createFixture();
+    selectItem(scene, 'linter');
+    vi.mocked(render.drawInitialPlacementMessage).mockClear();
+    pressHelpIcon();
+    pointerDown({ x: 456, y: 344 });
+    expect(scene.initialPlacement.itemState.placedItems).toEqual([]);
+    expect(render.drawInitialPlacementMessage).not.toHaveBeenCalled();
+  });
+
+  it('プレイ中に開いている間は時計が止まり（update で経過時間が進まない）、主人公を押しても攻撃しない', () => {
+    const { scene, pointerDown } = createFixture();
+    pressStart();
+    scene.update(0, 1000);
+    expect(scene.elapsedMs).toBe(1000);
+    pressHelpIcon();
+    scene.update(1000, 5000);
+    expect(scene.elapsedMs).toBe(1000);
+    const player = scene.player;
+    if (player === undefined) throw new Error('主人公がいません');
+    scene.time.now = 10_000;
+    pointerDown({ x: player.x, y: player.y });
+    expect(render.drawAttackEffect).not.toHaveBeenCalled();
+    expect(scene.lastAttackTime).toBeNull();
+    // 閉じたあとは同じ押下で攻撃する（開いている間だけ止まっていた）。
+    lastHelpOverlay().close();
+    pointerDown({ x: player.x, y: player.y });
+    expect(render.drawAttackEffect).toHaveBeenCalledOnce();
+    expect(scene.lastAttackTime).toBe(10_000);
+  });
+
+  it('背景か ✕ で閉じると destroy() し、押したままのポインターで動かないよう attackPointerHeld を押下の状態にする。閉じたあとは時計と配置が戻る', () => {
+    const { scene, pointerDown } = createFixture();
+    selectItem(scene, 'linter');
+    pressHelpIcon();
+    const { close, destroy } = lastHelpOverlay();
+    scene.attackPointerHeld = false;
+    scene.input.activePointer.isDown = true;
+    close();
+    expect(scene.helpOpen).toBe(false);
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(scene.attackPointerHeld).toBe(true);
+    // 閉じたあとは床の押下で置ける。
+    pointerDown({ x: 456, y: 344 });
+    expect(scene.initialPlacement.itemState.placedItems).toHaveLength(1);
+    // もう一度閉じても何もしない（destroy は1回だけ）。
+    close();
+    expect(destroy).toHaveBeenCalledOnce();
+    pressStart();
+    scene.update(0, 1000);
+    expect(scene.elapsedMs).toBe(1000);
+  });
+
+  it('境界値: ポインターを離した状態で閉じれば attackPointerHeld は false（次の押し続けで動ける）', () => {
+    const { scene } = createFixture();
+    pressStart();
+    pressHelpIcon();
+    scene.attackPointerHeld = true;
+    scene.input.activePointer.isDown = false;
+    lastHelpOverlay().close();
+    expect(scene.attackPointerHeld).toBe(false);
+  });
+
+  it('ゲームオーバー中は ℹ️ を押しても開かない（リスタートの押下はそのまま動く）', () => {
+    const { scene, pointerDown } = createFixture();
+    pressStart();
+    scene.gameOver = { over: true, at: 0 };
+    pressHelpIcon();
+    expect(scene.helpOpen).toBe(false);
+    expect(render.drawHelpOverlay).not.toHaveBeenCalled();
+    scene.time.now = Number.MAX_SAFE_INTEGER;
+    pointerDown({ x: 480, y: 270 });
+    expect(scene.scene.restart).toHaveBeenCalledOnce();
+  });
+
+  it('リスタート（create() のやり直し）で説明は閉じた状態に戻り、アイコンを描き直す', () => {
+    const { scene } = createFixture();
+    pressHelpIcon();
+    expect(scene.helpOpen).toBe(true);
+    scene.create();
+    expect(scene.helpOpen).toBe(false);
+    expect(render.drawHelpIcon).toHaveBeenCalledTimes(2);
   });
 });

@@ -17,7 +17,7 @@ export const en: Messages = {
     title: 'You went bankrupt',
     score: 'Score: {amount}',
     elapsedDays: 'Days elapsed: {days}',
-    restart: 'Tap / Click / Enter to play again',
+    restart: 'Tap / Click to play again',
   },
   penalty: {
     amount: '-{amount}',
@@ -29,19 +29,14 @@ export const en: Messages = {
     unknownItem: 'Unknown item: {item}',
     itemLocked: 'Item not unlocked yet',
   },
+  // 絵文字と数字の並びは日本語と同じ(#165)。
   hud: {
-    levelAndDays: 'Lv.{level} / Day {days}',
-    funds: 'Funds: {amount}',
-    cumulativeSales: 'Total sales: {amount}',
-    monthEndPayment: 'Month-end costs: {amount}',
+    levelAndDays: 'Lv.{level} {calendar}{days}',
+    funds: '{icon}{amount}',
+    cumulativeSales: '{icon}{amount}',
+    monthEndPayment: '{icon}{amount}',
     techDebt: 'Tech debt: {debt}',
-    // 右下の左の欄（STATUS_PANEL_INDICATOR_WIDTH）に収まる短い語にする。
-    techDebtLevel: 'Debt {level}',
-    techDebtLevels: {
-      normal: 'OK',
-      caution: 'Warn',
-      critical: 'High',
-    },
+    techDebtStatus: '{icon}{debt}',
   },
   items: {
     names: {
@@ -109,7 +104,7 @@ export const en: Messages = {
     placed: 'Placed {name}',
     used: 'Used {name}',
     noEligibleIncident: 'No incident to roll back',
-    // 購入結果のメッセージの位置から右下の指標（x=612）の手前に収まる長さにする。
+    // 購入結果のメッセージの位置から右下の指標（#156 の x=612。#165 で x=684）の手前に収まる長さにする。
     seniorNotePrevented: "The senior's note averted an outage (unreadable)",
   },
   balance: {
@@ -127,8 +122,6 @@ export const en: Messages = {
     selectionNone: 'None',
     selectionEngineer: 'Engineer',
     itemCost: '{name} {cost}pt',
-    // 初期配置UIの範囲の幅（INITIAL_PLACEMENT_UI_BOUNDS）に収まる長さにする。
-    instruction: 'Pick from the item icon, click floor; × undo',
     startButton: 'Start',
     engineerButton: 'Engineers left: {count}',
     placed: 'Placed {name}',
@@ -223,13 +216,27 @@ export const en: Messages = {
   vacation: {
     // 「休」の代わり。円に収まる2文字の「眠り」の記号にする。単独の英字は操作キー（Z/X など）と紛らわしいので使わない。
     marker: 'Zz',
-    // ポップオーバーの幅（ENGINEER_POPOVER_WIDTH）に収まる長さにする。pts はパーセントポイント。
-    hintOperation: 'Vacation button: leave/return (paid)',
-    hintRate: 'Bad code -{reduction}pts each, max -{max}, min {min}%',
-    hintPersistence: 'Effect stays; no code while on leave',
   },
   releasePoint: {
     // 推定幅（textMetrics.ts）が 60px 以下になる長さ（リリース地点の中心 x=930 から画面右端 960 まで 30px）。
     label: 'Release',
+  },
+  // ゲームの説明(#165)。各行はパネルの内側の幅に収まる長さにする（help.test.ts）。pts はパーセントポイント。
+  help: {
+    title: 'How to play',
+    goal: 'Let good code reach release and defeat bad code. You go bankrupt when funds are {bankrupt} {funds}',
+    bankruptAtOrBelow: 'at or below',
+    bankruptBelow: 'below',
+    controls: 'Hold the mouse button to walk there. Click the hero to attack bad code within {range}px',
+    setup: 'Before start: pick from the item icon and click the floor ({points}pt). × undoes. Place everyone, then "{start}"',
+    popover: 'Click a spawn point: vacation / return and AI agents',
+    vacation: 'Vacation: bad code -{reduction}pts each, max -{max}, min {min}%. Lasts after return. Salary paid; no code on leave',
+    hire: 'Engineer icon: hire (max {max}), raise, cut. Salaries are paid at month end',
+    aiAgent: 'AI agents: faster output; cheaper ones mix in more bad code. Paid monthly',
+    items: 'Item icon: buy with funds; placed at the hero. The level rises every {days} days and unlocks more items',
+    balance: 'Balance icon: gauge left = features (sales), right = refactoring (repays debt). {refactoring} {feature} move {step}%',
+    hudIcons: '{days} days {funds} funds {sales} total sales {payment} next month-end payment',
+    techDebt:
+      'Tech debt: {normal}{normalMin}-{normalMax} {caution}{cautionMin}-{cautionMax} {critical}{criticalMin}-{criticalMax}. Over {outage} for {days} days: major outage',
   },
 };

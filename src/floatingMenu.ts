@@ -3,6 +3,7 @@
 // パネルは「行」を上から縦に並べる。行は文字の行（lines 行ぶんの高さ）か、ボタンの行（count 個のボタンを横に等分して並べる）。
 import {
   AI_AGENT_BUTTON_ORDER,
+  BALANCE_GAUGE,
   ENGINEER_POPOVER_MARGIN,
   ENGINEER_POPOVER_OFFSET_X,
   ENGINEER_POPOVER_WIDTH,
@@ -19,11 +20,9 @@ import {
   MENU_PANEL_PADDING,
   MENU_PANEL_WIDTH,
   MENU_ROW_GAP,
-  VACATION_HINT_LINES,
 } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import type { Rect } from './geometry';
-import { getRefactoringRatioOptions } from './refactoringRatioControl';
 import type { Point } from './route';
 
 // 右上のアイコン（左から順に並べる）。
@@ -35,6 +34,7 @@ export const toggleMenu = (current: MenuKind | null, clicked: MenuKind): MenuKin
   current === clicked ? null : clicked;
 
 // アイコンの矩形。右端のアイコン（開発バランス）の右端が MENU_ICON_RIGHT で、左へ MENU_ICON_GAP ずつあけて並べる。
+// 開発バランスの右にはゲームの説明のアイコン（HELP_ICON_RECT #165）がある。
 export const menuIconRect = (kind: MenuKind): Rect => {
   const fromRight = MENU_KINDS.length - 1 - MENU_KINDS.indexOf(kind);
   return {
@@ -46,14 +46,26 @@ export const menuIconRect = (kind: MenuKind): Rect => {
 };
 
 // パネルの1行の種類。text は lines 行ぶんの文字、buttons は count 個のボタンを横に並べた1行。
+// gauge は開発バランスのゲージ(#165)の1行（高さ BALANCE_GAUGE.height）。
 export type PanelRowSpec =
   | { readonly kind: 'text'; readonly lines: number }
-  | { readonly kind: 'buttons'; readonly count: number };
+  | { readonly kind: 'buttons'; readonly count: number }
+  | { readonly kind: 'gauge' };
 
 const textRow = (lines: number): PanelRowSpec => ({ kind: 'text', lines });
 const buttonRow = (count: number): PanelRowSpec => ({ kind: 'buttons', count });
+const gaugeRow: PanelRowSpec = { kind: 'gauge' };
 
-const rowHeight = (row: PanelRowSpec): number => (row.kind === 'text' ? row.lines * MENU_LINE_HEIGHT : MENU_BUTTON_HEIGHT);
+const rowHeight = (row: PanelRowSpec): number => {
+  switch (row.kind) {
+    case 'text':
+      return row.lines * MENU_LINE_HEIGHT;
+    case 'buttons':
+      return MENU_BUTTON_HEIGHT;
+    case 'gauge':
+      return BALANCE_GAUGE.height;
+  }
+};
 
 // パネルの高さ。内側の余白（上下）＋各行の高さ＋行と行の間。行がなければ余白だけ。
 export const panelHeight = (rows: readonly PanelRowSpec[]): number =>
@@ -103,14 +115,14 @@ export const ENGINEER_MENU_ROWS: readonly PanelRowSpec[] = [
 ];
 // アイテムのメニュー: ページ内の枠（ITEM_PAGE_SIZE 個、1枠1行）と、ページ行（前のページ・ページ表示・次のページ）。
 export const ITEM_MENU_ROWS: readonly PanelRowSpec[] = [...Array.from({ length: ITEM_PAGE_SIZE }, () => buttonRow(1)), buttonRow(3)];
-// 開発バランスのメニュー: 見出し（1行）と、リファクタリングの割合の選択肢（getRefactoringRatioOptions、1つ1行）。
-export const BALANCE_MENU_ROWS: readonly PanelRowSpec[] = [textRow(1), ...getRefactoringRatioOptions().map(() => buttonRow(1))];
-// エンジニアのポップオーバー: 見出しと休暇の状態（2行）、休暇／復帰ボタン、AIエージェントのボタン（種類ごとに1行）、休暇の案内文。
+// 開発バランスのメニュー(#165): 見出し（1行）、2色のゲージ、割合の文言（1行）、◀ / ▶ のボタン（1行に2つ）。
+export const BALANCE_MENU_ROWS: readonly PanelRowSpec[] = [textRow(1), gaugeRow, textRow(1), buttonRow(2)];
+// エンジニアのポップオーバー: 見出しと休暇の状態（2行）、休暇／復帰ボタン、AIエージェントのボタン（種類ごとに1行）。
+// 休暇の案内文は #165 でゲームの説明（help.ts）に移した。
 export const ENGINEER_POPOVER_ROWS: readonly PanelRowSpec[] = [
   textRow(2),
   buttonRow(1),
   ...AI_AGENT_BUTTON_ORDER.map(() => buttonRow(1)),
-  textRow(VACATION_HINT_LINES),
 ];
 
 export const MENU_ROWS: Readonly<Record<MenuKind, readonly PanelRowSpec[]>> = {
