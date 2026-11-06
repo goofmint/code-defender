@@ -808,6 +808,33 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     expect(scene.phase).toBe('playing');
   });
 
+  it('境界値(#178): 3人を強制しない。2人だけ雇って全員置けば開始でき、1人が未配置のままなら「残り1人」で開始できない', () => {
+    const { scene, pointerDown } = createHarness();
+    hireInSetup(scene);
+    hireInSetup(scene);
+    expect(scene.engineers).toHaveLength(2);
+
+    // 1人だけ置いて開始を押すと、未配置が1人残るので始まらない。
+    pointerDown(spawnPoint(1));
+    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア 残り1人');
+    pressStart();
+    expect(scene.phase).toBe('setup');
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを全員配置してください');
+
+    // 2人目を置いて全員そろえれば、3人未満でも開始できる。ルートは乱数なので出現セル・本数・担当だけを見る。
+    pointerDown(spawnPoint(4));
+    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア 残り0人');
+    pressStart();
+    expect(scene.phase).toBe('playing');
+    expect(scene.engineers).toHaveLength(2);
+    expect(scene.routes).toHaveLength(2);
+    const spawns = scene.engineers.map((engineer) => routeOf(scene, engineer).spawn);
+    expect(spawns).toEqual([
+      { col: ENGINEER_SPAWN_COL, row: 1 },
+      { col: ENGINEER_SPAWN_COL, row: 4 },
+    ]);
+  });
+
   it('エンジニアを選んで置ける床を押すと、未配置の人をそこに置いてルートを1本描き、休暇マーカーと×ボタンを付ける。全員置くと未選択に戻る', () => {
     const { scene, pointerDown } = createPlacedHarness();
     const engineer = scene.engineers[0];

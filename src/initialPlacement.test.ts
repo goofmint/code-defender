@@ -804,6 +804,20 @@ describe('removeInitialEngineer / canStartPlay: エンジニアを外す・開�
   });
 });
 
+describe('canStartPlay: 初期人数を強制しない(#178)', () => {
+  it('境界値: 2人雇って2人とも配置済みなら始められる（3人を強制しない）。2人のうち1人が未配置なら始められない', () => {
+    const twoPlaced = fleet().engineers.slice(0, 2);
+    expect(twoPlaced).toHaveLength(2);
+    expect(twoPlaced.every((engineer) => engineer.routeId !== null)).toBe(true);
+    expect(countUnplacedEngineers(twoPlaced)).toBe(0);
+    expect(canStartPlay(twoPlaced)).toBe(true);
+    const oneUnplaced = withoutEngineers([1]).engineers.slice(0, 2);
+    expect(oneUnplaced).toHaveLength(2);
+    expect(countUnplacedEngineers(oneUnplaced)).toBe(1);
+    expect(canStartPlay(oneUnplaced)).toBe(false);
+  });
+});
+
 describe('formatStartPlayBlockedMessage: 始められないときのメッセージ(#172)', () => {
   afterEach(() => {
     setLocale('ja');
