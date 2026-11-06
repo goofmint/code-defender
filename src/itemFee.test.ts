@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_SPAWN_CELLS, INITIAL_ENGINEER_RANKS, MS_PER_GAME_MONTH } from './config';
+import { ENGINEER_MONTHLY_SALARY_BY_RANK, MS_PER_GAME_MONTH } from './config';
 import { isBankrupt } from './gameOver';
 import { createMonthElapsedEvent, getCrossedMonths } from './gameTime';
 import { ITEM_TYPES } from './item';
@@ -22,6 +22,7 @@ import { AI_AGENT_TYPES, equipAiAgent, getAiAgentMonthlyFee, getMonthlyAiAgentFe
 import type { AiAgentType } from './aiAgent';
 import { createRoutes } from './route';
 import { getEngineerSalaries } from './salary';
+import { FIXTURE_ENGINEER_RANKS, FIXTURE_SPAWN_CELLS } from './testFixtures';
 
 const placed = (id: number, itemType: ItemType): PlacedItem => ({
   id,
@@ -314,8 +315,8 @@ describe('AIエージェントの月額（settleMonthBoundary に合算）(#53)'
   // 初期編成（固定の乱数）。
   const fixedRandom = (): number => 0;
   const baseEngineers: readonly Engineer[] = createInitialEngineers(
-    createRoutes(ENGINEER_SPAWN_CELLS, fixedRandom),
-    INITIAL_ENGINEER_RANKS,
+    createRoutes(FIXTURE_SPAWN_CELLS, fixedRandom),
+    FIXTURE_ENGINEER_RANKS,
     fixedRandom,
   );
   const withAgents = (agents: readonly (AiAgentType | null)[]): Engineer[] =>

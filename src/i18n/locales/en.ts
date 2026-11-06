@@ -132,9 +132,10 @@ export const en: Messages = {
     engineerRemoved: 'Removed an engineer',
     engineerNotCandidate: "Engineers can't go here",
     engineerOverlapsItem: "Can't place: overlaps an item",
-    noUnplacedEngineer: 'No engineer left to place',
+    noUnplacedEngineer: 'No engineer to place. Hire one first',
     selectFirst: 'Choose what to place first',
     placeAllEngineers: 'Place all engineers first',
+    hireAndPlaceEngineer: 'Hire and place at least one engineer',
   },
   aiAgents: {
     names: {
@@ -228,7 +229,7 @@ export const en: Messages = {
     bankruptAtOrBelow: 'at or below',
     bankruptBelow: 'below',
     controls: 'Hold the mouse button to walk there. Click the hero to attack bad code within {range}px',
-    setup: 'Before start: pick from the item icon and click the floor ({points}pt). × undoes. Place everyone, then "{start}"',
+    setup: 'Setup: hire via the engineer icon, place on coloured cells. Items: click the floor ({points}pt). × undoes. "{start}"',
     popover: 'Click a spawn point: vacation / return and AI agents',
     vacation: 'Vacation: bad code -{reduction}pts each, max -{max}, min {min}%. Lasts after return. Salary paid; no code on leave',
     hire: 'Engineer icon: hire (max {max}), raise, cut. Salaries are paid at month end',

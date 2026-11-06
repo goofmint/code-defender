@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getMessages, setLocale } from './i18n';
 import {
+  ENGINEER_HIRE_COST,
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
+  INITIAL_PLACEMENT_MIN_ENGINEERS,
   INITIAL_PLACEMENT_PANEL_LINES,
   INITIAL_PLACEMENT_REMOVE_BUTTON,
   INITIAL_PLACEMENT_UI_BOUNDS,
@@ -11,14 +13,15 @@ import {
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_SHORT_NAMES,
   MAX_ENGINEER_ROUTES,
+  MAX_ENGINEERS,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
   STAGE_POINT_COST_BY_TIER,
   RELEASE_POINT_CELL,
   STAGE_POINTS_INITIAL,
 } from './config';
-import { createInitialFleet } from './engineer';
-import type { Engineer } from './engineer';
+import { hireEngineer } from './engineer';
+import type { Engineer, HireResult } from './engineer';
 import { rectIntersectsCircle } from './geometry';
 import { CELL_SIZE, FIELD_COLS } from './field';
 import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
@@ -35,12 +38,14 @@ import {
   formatInitialPlacementItemButton,
   formatInitialPlacementMessage,
   formatInitialPlacementPanel,
+  formatStartPlayBlockedMessage,
   getStagePointCost,
   isEngineerCandidateCell,
   itemRemoveButtonCenter,
   listEngineerCandidateCells,
   placeInitialEngineer,
   placeInitialItem,
+  refuseSetupHireIntoBankruptcy,
   removeInitialEngineer,
   removeInitialItem,
 } from './initialPlacement';
@@ -57,6 +62,7 @@ import type { PlacedItem } from './itemPlacement';
 import { RELEASE_POINT_CENTER } from './releasePoint';
 import { addRouteAt, cellCenter, SPAWN_MARKER_STYLE } from './route';
 import type { GridCell, Route } from './route';
+import { createFixtureFleet } from './testFixtures';
 
 // itemPlacement.test.ts と同じ単純なルート。行3（y=210）を水平に通り、col 5 で行5（y=330）へ曲がってリリース地点へ向かう。
 // セルは配置グリッド（16px #151）の座標。
@@ -561,8 +567,8 @@ const seededRandom = (seed: number): (() => number) => {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 };
-// 初期の3人（出現行 1・4・7、id 0〜2）とそのルート。
-const fleet = () => createInitialFleet(seededRandom(1));
+// 3人（出現行 1・4・7、id 0〜2）とそのルート。#172 で初期編成が0人になったので fixture（createFixtureFleet）から作る。
+const fleet = () => createFixtureFleet(seededRandom(1));
 const spawnRow = (row: number): GridCell => ({ col: ENGINEER_SPAWN_COL, row });
 const itemAt = (id: number, cell: GridCell): PlacedItem => ({ id, itemType: 'linter', cell, lastAttackTime: null });
 // 出現行0のルートは必ず出現セルから右へ水平に出る（最初の曲がり列は ROUTE_TURN_COL_MIN 以上）。その線上（y=30）で、
@@ -773,6 +779,63 @@ describe('removeInitialEngineer / canStartPlay: エンジニアを外す・開�
     expect(canStartPlay(missingOne)).toBe(false);
     expect(canStartPlay(withoutEngineers([0, 1, 2]).engineers)).toBe(false);
   });
+
+  it('境界値(#172): 0人（名簿が空）では始められず、配置済みが INITIAL_PLACEMENT_MIN_ENGINEERS 人ちょうどなら始められる', () => {
+    expect(INITIAL_PLACEMENT_MIN_ENGINEERS).toBe(1);
+    expect(canStartPlay([])).toBe(false);
+    const onlyFirst = fleet().engineers.slice(0, INITIAL_PLACEMENT_MIN_ENGINEERS);
+    expect(onlyFirst).toHaveLength(INITIAL_PLACEMENT_MIN_ENGINEERS);
+    expect(onlyFirst.every((engineer) => engineer.routeId !== null)).toBe(true);
+    expect(canStartPlay(onlyFirst)).toBe(true);
+    // 1人雇って未配置のまま（配置済み0人・未配置1人）は始められない。
+    expect(canStartPlay(withoutEngineers([0]).engineers.slice(0, 1))).toBe(false);
+  });
+});
+
+describe('formatStartPlayBlockedMessage: 始められないときのメッセージ(#172)', () => {
+  afterEach(() => {
+    setLocale('ja');
+  });
+
+  it('0人なら雇って置くよう、未配置の人がいれば全員置くよう案内する', () => {
+    expect(formatStartPlayBlockedMessage([])).toBe('エンジニアを1人以上雇って配置してください');
+    expect(formatStartPlayBlockedMessage(withoutEngineers([2]).engineers)).toBe('エンジニアを全員配置してください');
+    // 全員未配置（配置済み0人）でも、未配置の人がいれば全員置くよう案内する。
+    expect(formatStartPlayBlockedMessage(withoutEngineers([0, 1, 2]).engineers)).toBe('エンジニアを全員配置してください');
+  });
+
+  it('英語でも同じ判定で出し分ける', () => {
+    setLocale('en');
+    expect(formatStartPlayBlockedMessage([])).toBe('Hire and place at least one engineer');
+    expect(formatStartPlayBlockedMessage(withoutEngineers([2]).engineers)).toBe('Place all engineers first');
+  });
+
+  it('始められる状態で呼ぶと投げる', () => {
+    expect(() => formatStartPlayBlockedMessage(fleet().engineers)).toThrow();
+  });
+});
+
+describe('refuseSetupHireIntoBankruptcy: 初期配置の間の雇用で倒産させない(#172)', () => {
+  const cost = ENGINEER_HIRE_COST.junior;
+  const hireWith = (funds: number): HireResult =>
+    hireEngineer({ engineers: [], funds, nextId: 0 }, 'junior', { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST }, () => 0);
+
+  it('境界値: 資金が費用ちょうど（雇うと0円）なら資金不足、費用+1円（雇うと1円）なら雇える', () => {
+    expect(hireWith(cost).ok).toBe(true);
+    expect(refuseSetupHireIntoBankruptcy(hireWith(cost))).toEqual({ ok: false, reason: 'insufficientFunds' });
+    const allowed = hireWith(cost + 1);
+    expect(refuseSetupHireIntoBankruptcy(allowed)).toBe(allowed);
+    if (!allowed.ok) throw new Error('雇えませんでした');
+    expect(allowed.fundsAfter).toBe(1);
+  });
+
+  it('雇えなかった結果はそのまま返す', () => {
+    const refused = hireWith(cost - 1);
+    expect(refused).toEqual({ ok: false, reason: 'insufficientFunds' });
+    expect(refuseSetupHireIntoBankruptcy(refused)).toBe(refused);
+    const limit: HireResult = { ok: false, reason: 'limit' };
+    expect(refuseSetupHireIntoBankruptcy(limit)).toBe(limit);
+  });
 });
 
 describe('初期配置の文言と×ボタンの位置(#157)', () => {
@@ -794,7 +857,7 @@ describe('初期配置の文言と×ボタンの位置(#157)', () => {
       'エンジニアを置きました',
     );
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'notCandidate' })).toBe('エンジニアはここに置けません');
-    expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('置けるエンジニアがいません');
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('置けるエンジニアがいません。先に雇ってください');
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'overlapsItem' })).toBe('アイテムと重なるため置けません');
   });
 
@@ -857,7 +920,7 @@ describe('初期配置の文言（英語 #158）', () => {
     expect(formatInitialPlacementMessage({ ok: false, reason: 'unknownItem' }, 'foo')).toBe('Unknown item: foo');
     expect(formatInitialPlacementMessage({ ok: false, reason: 'locked' }, 'ci')).toBe('Item not unlocked yet');
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'notCandidate' })).toBe("Engineers can't go here");
-    expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('No engineer left to place');
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('No engineer to place. Hire one first');
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'overlapsItem' })).toBe("Can't place: overlaps an item");
     expect(getMessages().initialPlacement.startButton).toBe('Start');
   });

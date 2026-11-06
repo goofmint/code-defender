@@ -5,9 +5,10 @@ import type { Mock } from 'vitest';
 import { createEngineerParameters, ENGINEER_RESIGNED_EVENT } from './engineer';
 import type { Engineer, EngineerRank, EngineerResignedPayload } from './engineer';
 import type { GameOverState } from './gameOver';
-import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_PARAMETER_MIN, ENGINEER_SPAWN_CELLS } from './config';
+import { ENGINEER_MONTHLY_SALARY_BY_RANK, ENGINEER_PARAMETER_MIN } from './config';
 import { createRoutes } from './route';
 import type { Route } from './route';
+import { FIXTURE_SPAWN_CELLS } from './testFixtures';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -118,7 +119,7 @@ beforeAll(async () => {
 
 // 初期3ルート（id 0・1・2）とその担当エンジニア、各ルートに2個ずつ流れているコードを持つシーン。
 const createScene = (engineers: Engineer[], gameOver: GameOverState = NOT_OVER): SceneUnderTest => {
-  const routes = createRoutes(ENGINEER_SPAWN_CELLS, () => 0);
+  const routes = createRoutes(FIXTURE_SPAWN_CELLS, () => 0);
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
   scene.engineers = engineers;
   scene.routes = routes;

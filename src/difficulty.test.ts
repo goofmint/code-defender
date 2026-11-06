@@ -28,7 +28,6 @@ import {
 import {
   assignEngineerRoute,
   createEngineerParameters,
-  createInitialFleet,
   findEngineerByRoute,
   getInitialSalary,
   hireEngineer,
@@ -37,6 +36,7 @@ import {
 import type { Engineer, EngineerRank } from './engineer';
 import { MS_PER_GAME_DAY } from './gameTime';
 import { techDebtMaliciousRateModifier } from './techDebt';
+import { createFixtureFleet } from './testFixtures';
 
 // コード速度の段階間隔。不正コード率の段階間隔は RATE_STEP（ゲーム内10日、#150）で別に刻む。
 const STEP = DIFFICULTY_STEP_MS;
@@ -394,7 +394,7 @@ describe('生成経路の接続（初期配置・追加雇用・割当解除）'
 
   // 新しいルート id は初期ルートと重複させない。エンジニア id とも一致させない。
   const hireAndAssign = () => {
-    const fleet = createInitialFleet(() => 0);
+    const fleet = createFixtureFleet(() => 0);
     const maxRouteId = Math.max(...fleet.routes.map((route) => route.id));
     const middle = hireEngineer(
       { engineers: fleet.engineers, funds: RICH, nextId: fleet.nextEngineerId },
@@ -424,7 +424,7 @@ describe('生成経路の接続（初期配置・追加雇用・割当解除）'
   };
 
   it.each(TIMES)('初期配置（%s）: 全初期ルートが junior の割合で、共通率とは異なる', (_label, ms) => {
-    const fleet = createInitialFleet(() => 0);
+    const fleet = createFixtureFleet(() => 0);
     const junior = maliciousRateForRank('junior', ms);
     for (const route of fleet.routes) {
       const { rate, kinds } = spawnKinds(fleet.engineers, route.id, ms);
@@ -435,7 +435,7 @@ describe('生成経路の接続（初期配置・追加雇用・割当解除）'
   });
 
   it('初期配置の 0ms は junior の開始値（叩き台 0.40、共通率 0.30 とは異なる）', () => {
-    const fleet = createInitialFleet(() => 0);
+    const fleet = createFixtureFleet(() => 0);
     for (const route of fleet.routes) {
       expect(spawnKinds(fleet.engineers, route.id, 0).rate).toBeCloseTo(0.4);
     }

@@ -311,13 +311,31 @@ const firstPlaceableCell = (routes: readonly Route[]): GridCell => {
 
 const payroll = (engineers: readonly Engineer[]): number => getMonthlyPayroll(getEngineerSalaries(engineers));
 
+// 初期は0人(#172)なので、初期配置の間に右上のエンジニアのメニューで3人雇い、出現列の行1・4・7に置いたシーン（以前の初期配置と同じ形）。
+// 雇うたびに次に置くものがエンジニアになるので、続けて出現列のその行を押して置く。最後にメニューを閉じる（開いたまま始めない）。
+const FIXTURE_ROWS: readonly number[] = [1, 4, 7];
+const createPlacedHarness = (): Harness => {
+  const harness = createHarness();
+  pressIcon('engineer');
+  FIXTURE_ROWS.forEach((row) => {
+    lastEngineerMenuCallbacks().onHire('junior');
+    harness.pointerDown(cellCenter({ col: 0, row }));
+  });
+  pressIcon('engineer');
+  const { engineers, routes, openMenu } = harness.scene;
+  if (engineers.length !== FIXTURE_ROWS.length || routes.length !== FIXTURE_ROWS.length || openMenu !== null) {
+    throw new Error('初期配置の間に3人を雇って置けませんでした');
+  }
+  return harness;
+};
+
 describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
-  it('create() はアイコンと右下の指標を描き、メニュー・ポップオーバーは閉じている。初期配置の間はエンジニアと開発バランスを薄くする', () => {
+  it('create() はアイコンと右下の指標を描き、メニュー・ポップオーバーは閉じている。初期配置の間は開発バランスだけを薄くする（エンジニアは雇える #172）', () => {
     const { scene } = createHarness();
     expect(render.drawMenuIcons).toHaveBeenCalledOnce();
     expect(scene.openMenu).toBeNull();
     expect(scene.popoverRouteId).toBeNull();
-    expect(lastMenuIcons().setDimmed).toHaveBeenCalledWith('engineer', true);
+    expect(lastMenuIcons().setDimmed).not.toHaveBeenCalledWith('engineer', true);
     expect(lastMenuIcons().setDimmed).toHaveBeenCalledWith('balance', true);
     expect(render.drawStatusPanel).toHaveBeenCalledWith(scene, {
       funds: INITIAL_FUNDS,
@@ -327,13 +345,16 @@ describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
     });
   });
 
-  it('初期配置の間はエンジニア・開発バランスのアイコンを押しても開かず、アイテムは開く。もう一度押すと閉じて destroy() する', () => {
+  it('初期配置の間は開発バランスのアイコンを押しても開かず、エンジニア(#172)・アイテムは開く。もう一度押すと閉じて destroy() する', () => {
     const { scene } = createHarness();
-    pressIcon('engineer');
     pressIcon('balance');
     expect(scene.openMenu).toBeNull();
-    expect(render.drawEngineerMenu).not.toHaveBeenCalled();
     expect(render.drawBalanceMenu).not.toHaveBeenCalled();
+    pressIcon('engineer');
+    expect(scene.openMenu).toBe('engineer');
+    expect(render.drawEngineerMenu).toHaveBeenCalledOnce();
+    pressIcon('engineer');
+    expect(scene.openMenu).toBeNull();
     pressIcon('item');
     expect(scene.openMenu).toBe('item');
     expect(render.drawItemMenu).toHaveBeenCalledOnce();
@@ -346,10 +367,10 @@ describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
   });
 
   it('プレイ開始で薄い表示を戻し、別のアイコンを押すと前のメニューを destroy() してそちらに切り替える（一度に1つだけ）', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     expect(lastMenuIcons().setDimmed).toHaveBeenLastCalledWith('balance', false);
-    expect(lastMenuIcons().setDimmed).toHaveBeenCalledWith('engineer', false);
+    expect(lastMenuIcons().setDimmed).not.toHaveBeenCalledWith('engineer', true);
     pressIcon('engineer');
     expect(scene.openMenu).toBe('engineer');
     const engineerDestroy = lastPanelDestroy(render.drawEngineerMenu);
@@ -360,7 +381,7 @@ describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
   });
 
   it('開発バランスのメニューはゲージに今の割合を渡し、◀ でリファクタリングへ・▶ で機能開発へ1段階寄せて描き直す(#165)', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     pressIcon('balance');
     const lastBalance = () => {
@@ -380,7 +401,7 @@ describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
   });
 
   it('境界値: 0% で ▶（機能開発へ）・100% で ◀（リファクタリングへ）を押しても値は変わらず、描き直さない', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     pressIcon('balance');
     const onStep = vi.mocked(render.drawBalanceMenu).mock.calls.at(-1)?.[2];
@@ -398,10 +419,12 @@ describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
   });
 
   it('エンジニアのメニューから雇うと人数が増え、メニューを描き直す。月末に支払うお金に月給を足す', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     pressIcon('engineer');
     const before = scene.engineers.length;
+    const fundsBefore = scene.funds;
+    expect(fundsBefore).toBe(INITIAL_FUNDS - ENGINEER_HIRE_COST.junior * FIXTURE_ROWS.length);
     const [, view, callbacks] = vi.mocked(render.drawEngineerMenu).mock.calls.at(-1) ?? [];
     if (view === undefined || callbacks === undefined) throw new Error('エンジニアのメニューが描かれていません');
     expect(view.count).toBe(before);
@@ -409,7 +432,7 @@ describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
     expect(scene.engineers).toHaveLength(before + 1);
     expect(vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1].count).toBe(before + 1);
     expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(payroll(scene.engineers));
-    expect(scene.funds).toBe(INITIAL_FUNDS - ENGINEER_HIRE_COST.junior);
+    expect(scene.funds).toBe(fundsBefore - ENGINEER_HIRE_COST.junior);
   });
 });
 
@@ -417,7 +440,7 @@ describe('MainScene: メニュー・ポップオーバーの外の押下(#156)',
   const emptyPoint = { x: 500, y: 300 };
 
   it('プレイ中にメニューが開いていればフィールドの押下で閉じ、押下を消費する（離すまで移動・攻撃しない）', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     startPlay();
     scene.attackPointerHeld = false;
     pressIcon('item');
@@ -430,7 +453,7 @@ describe('MainScene: メニュー・ポップオーバーの外の押下(#156)',
   });
 
   it('何も開いていなければ同じ押下は消費しない', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     startPlay();
     scene.attackPointerHeld = false;
     pointerDown(emptyPoint);
@@ -438,7 +461,7 @@ describe('MainScene: メニュー・ポップオーバーの外の押下(#156)',
   });
 
   it('メニューの上（背景・ボタンを含む currentlyOver あり）の押下では閉じない', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     startPlay();
     pressIcon('item');
     pointerDown(emptyPoint, [{}]);
@@ -447,7 +470,7 @@ describe('MainScene: メニュー・ポップオーバーの外の押下(#156)',
   });
 
   it('ポップオーバーが開いていればフィールドの押下で閉じて destroy() する', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     startPlay();
     pressMarker(scene, scene.routes[0].id);
     const destroy = lastPanelDestroy(render.drawEngineerPopover);
@@ -460,7 +483,7 @@ describe('MainScene: メニュー・ポップオーバーの外の押下(#156)',
 
 describe('MainScene: エンジニアのポップオーバー(#156)', () => {
   it('初期配置の間は出現地点を押しても開かない（休暇も切り替えない）', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     pressMarker(scene, scene.routes[0].id);
     expect(render.drawEngineerPopover).not.toHaveBeenCalled();
     expect(scene.popoverRouteId).toBeNull();
@@ -468,7 +491,7 @@ describe('MainScene: エンジニアのポップオーバー(#156)', () => {
   });
 
   it('ゲームオーバー中は出現地点を押しても開かない', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     scene.gameOver = { over: true, at: 0 };
     pressMarker(scene, scene.routes[0].id);
@@ -476,7 +499,7 @@ describe('MainScene: エンジニアのポップオーバー(#156)', () => {
   });
 
   it('プレイ中に出現地点を押すと、担当エンジニアのポップオーバーを出現地点の中心に開き、その人を選択中にしてメニューを閉じる。もう一度押すと閉じる', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     pressIcon('engineer');
     const menuDestroy = lastPanelDestroy(render.drawEngineerMenu);
@@ -497,7 +520,7 @@ describe('MainScene: エンジニアのポップオーバー(#156)', () => {
   });
 
   it('アイコンでメニューを開くとポップオーバーを閉じる（一度に1つだけ）', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     pressMarker(scene, scene.routes[0].id);
     const popoverDestroy = lastPanelDestroy(render.drawEngineerPopover);
@@ -508,7 +531,7 @@ describe('MainScene: エンジニアのポップオーバー(#156)', () => {
   });
 
   it('休暇ボタンでそのルートの担当エンジニアの休暇を切り替え、ポップオーバーを描き直す', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     const route = scene.routes[0];
     pressMarker(scene, route.id);
@@ -520,7 +543,7 @@ describe('MainScene: エンジニアのポップオーバー(#156)', () => {
   });
 
   it('AIエージェントのボタンは、開いたあとに選択中のエンジニアが変わっても、ポップオーバーの担当エンジニアに付ける', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     const route = scene.routes[1];
     const target = findEngineerByRoute(scene.engineers, route.id);
@@ -531,17 +554,18 @@ describe('MainScene: エンジニアのポップオーバー(#156)', () => {
     scene.selectedEngineerId = other.id;
     expect(scene.selectedEngineerId).not.toBe(target.id);
     const selected = scene.selectedEngineerId;
+    const fundsBefore = scene.funds;
     lastPopover().callbacks.onBuyAiAgent('cheap');
     expect(scene.engineers.find((engineer) => engineer.id === target.id)?.aiAgent).toBe('cheap');
     expect(scene.engineers.find((engineer) => engineer.id === selected)?.aiAgent).toBeNull();
-    expect(scene.funds).toBe(INITIAL_FUNDS - getAiAgentPrice('cheap'));
+    expect(scene.funds).toBe(fundsBefore - getAiAgentPrice('cheap'));
     // 描き直したポップオーバーは付けた AIエージェントを表示し、月末に支払うお金に月額を足す。
     expect(lastPopover().engineer.aiAgent).toBe('cheap');
     expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(payroll(scene.engineers) + getAiAgentMonthlyFee('cheap'));
   });
 
   it('倒産（ゲームオーバー）で開いているポップオーバーとメニューを閉じる', () => {
-    const { scene } = createHarness();
+    const { scene } = createPlacedHarness();
     startPlay();
     pressMarker(scene, scene.routes[0].id);
     const popoverDestroy = lastPanelDestroy(render.drawEngineerPopover);
@@ -560,7 +584,7 @@ describe('MainScene: エンジニアのポップオーバー(#156)', () => {
 
 describe('MainScene: 月末に支払うお金の更新(#156)', () => {
   it('初期配置で月額アイテムを置く・×で外すと更新し、プレイ開始でもプレイ中の配置で求め直す', () => {
-    const { scene, pointerDown } = createHarness();
+    const { scene, pointerDown } = createPlacedHarness();
     const base = payroll(scene.engineers);
     pressIcon('item');
     const slot = ITEM_TYPES.indexOf('codeRabbit');
@@ -587,8 +611,20 @@ describe('MainScene: 月末に支払うお金の更新(#156)', () => {
     expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(base);
   });
 
-  it('昇給すると月給の増分を足す', () => {
+  it('初期配置の間に雇うと月給を足し、資金は雇う費用だけ減らす(#172)', () => {
     const { scene } = createHarness();
+    expect(payroll(scene.engineers)).toBe(0);
+    pressIcon('engineer');
+    lastEngineerMenuCallbacks().onHire('junior');
+    expect(scene.engineers).toHaveLength(1);
+    expect(payroll(scene.engineers)).toBeGreaterThan(0);
+    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(payroll(scene.engineers));
+    expect(lastStatusPanel().setFunds).toHaveBeenLastCalledWith(INITIAL_FUNDS - ENGINEER_HIRE_COST.junior);
+    expect(vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1].count).toBe(1);
+  });
+
+  it('昇給すると月給の増分を足す', () => {
+    const { scene } = createPlacedHarness();
     startPlay();
     pressIcon('engineer');
     lastEngineerMenuCallbacks().onAdjust('raise');

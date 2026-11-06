@@ -10,7 +10,6 @@ import {
   ATTACK_DAMAGE,
   DEFAULT_MALICIOUS_CODE_HP,
   DEFAULT_REFACTORING_RATIO,
-  ENGINEER_SPAWN_CELLS,
   INCIDENT_DAMAGE_UNIT_YEN,
   INCIDENT_DEFAULT_DAMAGE_POINTS,
   MALICIOUS_CODE_PARAMS,
@@ -31,6 +30,7 @@ import { sellReleasedCode } from './sales';
 import { INITIAL_SCORE } from './score';
 import { resolveWorkTechDebt } from './techDebt';
 import type { ActiveEffect, IncidentRecord } from './itemEffect';
+import { FIXTURE_SPAWN_CELLS } from './testFixtures';
 
 type SceneConstructor = { readonly prototype: object };
 type RecordedGameConfig = { readonly scene: SceneConstructor | readonly SceneConstructor[] };
@@ -114,7 +114,7 @@ type SceneUnderTest = {
 
 // リリース地点まで1回で届く十分に大きい経過ミリ秒。
 const RELEASE_DELTA_MS = 1e9;
-const route = createRoutes(ENGINEER_SPAWN_CELLS, () => 0)[0];
+const route = createRoutes(FIXTURE_SPAWN_CELLS, () => 0)[0];
 
 let mainScenePrototype: object;
 

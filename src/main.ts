@@ -237,10 +237,12 @@ import {
   formatInitialPlacementItemButton,
   formatInitialPlacementMessage,
   formatInitialPlacementPanel,
+  formatStartPlayBlockedMessage,
   itemRemoveButtonCenter,
   listEngineerCandidateCells,
   placeInitialEngineer,
   placeInitialItem,
+  refuseSetupHireIntoBankruptcy,
   removeInitialEngineer,
   removeInitialItem,
 } from './initialPlacement';
@@ -465,7 +467,8 @@ class MainScene extends Phaser.Scene {
       () => this.selectInitialPlacementEngineer(),
     );
     this.initialPlacementStartButton = drawInitialPlacementStartButton(this, () => this.startPlay());
-    // 初期エンジニアは既定の出現場所に置いた状態で始める（何もしなくても開始できる）。位置を変えるときは×で外して置き直す(#157)。
+    // 初期エンジニアは0人で始める(#172)。setup 中にエンジニアのメニューで雇い、候補セルに置く。位置を変えるときは×で外して置き直す(#157)。
+    // 初期編成（createInitialFleet）に人がいれば、既定の出現場所に置いた状態にして×ボタンを付ける。
     this.itemRemoveButtons = new Map();
     this.engineerRemoveButtons = new Map();
     this.engineers.forEach((engineer) => this.addEngineerRemoveButton(engineer));
@@ -759,7 +762,7 @@ class MainScene extends Phaser.Scene {
       return;
     }
     if (!canStartPlay(this.engineers)) {
-      this.showInitialPlacementMessage(getMessages().initialPlacement.placeAllEngineers);
+      this.showInitialPlacementMessage(formatStartPlayBlockedMessage(this.engineers));
       return;
     }
     const itemState = finishInitialPlacement(this.initialPlacement);
@@ -982,16 +985,18 @@ class MainScene extends Phaser.Scene {
   }
 
   // ランクを指定して雇う。ゲームオーバー中は何もしない。費用は changeFunds を通して引く（倒産判定もここで動く）。
-  // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う。
+  // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う（初期配置の間は追加せず、未配置のまま置かせる #172）。
+  // 初期配置の間も雇える(#172)。ただし雇うと倒産する額になるときは資金不足として断る（refuseSetupHireIntoBankruptcy）。
   private hire(rank: string): void {
-    if (this.gameOver.over || this.phase === 'setup') {
+    if (this.gameOver.over) {
       return;
     }
-    const result = hireEngineer(
+    const hired = hireEngineer(
       { engineers: this.engineers, funds: this.funds, nextId: this.nextEngineerId },
       rank,
       { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST },
     );
+    const result = this.phase === 'setup' ? refuseSetupHireIntoBankruptcy(hired) : hired;
     this.hireMessageText?.destroy();
     this.hireMessageText = drawHireMessage(this, formatHireMessage(result, rank));
     if (!result.ok) {
@@ -1099,10 +1104,11 @@ class MainScene extends Phaser.Scene {
     };
   }
 
-  // 右上のアイコンを押したとき(#156)。ゲームオーバー中は何もしない。初期配置の間はアイテムだけ開ける（置くアイテムを選ぶため。他は薄く表示）。
+  // 右上のアイコンを押したとき(#156)。ゲームオーバー中は何もしない。初期配置の間はアイテム（置くアイテムを選ぶ）と
+  // エンジニア（雇う #172）だけ開ける。開発バランスは薄く表示して開けない。
   // 開いているのと同じアイコンなら閉じ、別のアイコンなら切り替える（toggleMenu）。メニューを開くときはエンジニアのポップオーバーを閉じる（一度に1つだけ）。
   private onMenuIconPressed(kind: MenuKind): void {
-    if (this.gameOver.over || (this.phase === 'setup' && kind !== 'item')) {
+    if (this.gameOver.over || (this.phase === 'setup' && kind === 'balance')) {
       return;
     }
     this.closeEngineerPopover();
@@ -1110,10 +1116,9 @@ class MainScene extends Phaser.Scene {
     this.redrawMenu();
   }
 
-  // 初期配置の間は開けないアイコン（エンジニア・開発バランス）を薄くする。プレイ開始で戻す(#156)。
+  // 初期配置の間は開けないアイコン（開発バランス）を薄くする。プレイ開始で戻す(#156)。エンジニアは初期配置の間も雇えるので薄くしない(#172)。
   private refreshMenuIcons(): void {
     const setup = this.phase === 'setup';
-    this.menuIcons?.setDimmed('engineer', setup);
     this.menuIcons?.setDimmed('balance', setup);
   }
 
@@ -1548,7 +1553,13 @@ class MainScene extends Phaser.Scene {
   }
 
   // 雇ったらルートと出現場所を追加し、雇ったエンジニアに割り当てる。ゲームオーバー中・追加できないときは routeId を null のままにする。
+  // 初期配置の間(#172)はルートを足さず未配置のままにし、次に置くものをエンジニアにする（候補セル・残り人数・開始ボタンを描き直す）。
   private onEngineerHired(payload: EngineerHiredPayload): void {
+    if (this.phase === 'setup') {
+      this.initialPlacementSelection = { kind: 'engineer' };
+      this.refreshInitialPlacementControls();
+      return;
+    }
     if (!shouldAddRouteOnHire(this.gameOver.over)) {
       return;
     }
