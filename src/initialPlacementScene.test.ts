@@ -7,6 +7,8 @@ import type { Mock } from 'vitest';
 import {
   CELL_SIZE,
   ENGINEER_HIRE_COST,
+  ENGINEER_MONTHLY_SALARY_BY_RANK,
+  ENGINEER_RANKS,
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_FUNDS,
@@ -22,7 +24,7 @@ import {
   STAGE_POINTS_INITIAL,
 } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
-import { ENGINEER_HIRED_EVENT, getRankLabel, hireEngineer } from './engineer';
+import { ENGINEER_HIRED_EVENT, formatSelectedEngineerLines, getRankLabel, hireEngineer } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
 import type { GameOverState } from './gameOver';
 import { MS_PER_GAME_DAY } from './gameTime';
@@ -35,7 +37,7 @@ import {
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
 import { buildHelpLines } from './help';
-import { getMessages, interpolate, setLocale } from './i18n';
+import { formatYen, getMessages, interpolate, setLocale } from './i18n';
 import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlacement';
@@ -997,6 +999,36 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     lastEngineerMenu().onAdjust('raise');
     expect(scene.selectedEngineerId).toBe(selected);
     expect(scene.engineers.map((engineer) => engineer.salary)).toEqual(salaries);
+  });
+
+  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を雇って置くと、ランク別の月給（初期額）のまま表示される(#176)', (rank) => {
+    const harness = createHarness();
+    const { scene, pointerDown } = harness;
+    hireInSetup(scene, rank);
+    const hired = scene.engineers[0];
+    if (hired === undefined) throw new Error('エンジニアがいません');
+    expect(hired.rank).toBe(rank);
+    expect(hired.salary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+    expect(hired.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+    pointerDown(spawnPoint(3));
+    const placed = scene.engineers[0];
+    expect(placed?.rank).toBe(rank);
+    expect(placed?.salary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+    expect(placed?.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+  });
+
+  it('ジュニアの後にシニアを雇うと、シニアが選択され、そのランクと月給が表示される(#176)', () => {
+    const { scene } = createHarness();
+    hireInSetup(scene, 'junior');
+    hireInSetup(scene, 'senior');
+    const [junior, senior] = scene.engineers;
+    if (junior === undefined || senior === undefined) throw new Error('2人雇えていません');
+    expect(scene.selectedEngineerId).toBe(senior.id);
+    const view = vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1];
+    expect(view?.selected?.id).toBe(senior.id);
+    const lines = formatSelectedEngineerLines(view?.selected ?? null);
+    expect(lines[0]).toContain(getRankLabel('senior'));
+    expect(lines[1]).toContain(formatYen(ENGINEER_MONTHLY_SALARY_BY_RANK.senior));
   });
 
   it('×で外しても名簿に残り（返金しない）、置き直せる', () => {

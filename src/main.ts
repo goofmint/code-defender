@@ -230,6 +230,7 @@ import {
   canStartPlay,
   countUnplacedEngineers,
   createInitialPlacementState,
+  filterPlacedEngineers,
   engineerRemoveButtonCenter,
   finishInitialPlacement,
   formatEngineerPlacementMessage,
@@ -717,6 +718,8 @@ class MainScene extends Phaser.Scene {
       this.initialPlacementSelection = { kind: 'none' };
     }
     this.refreshInitialPlacementControls();
+    // 置いた人の月給（とAIエージェントの月額）が月末に支払うお金に加わる(#176)。配置に失敗したときは上で戻っているので更新しない。
+    this.refreshMonthEndPayment();
   }
 
   // 配置済みのエンジニアの出現場所の右上に取消（×）ボタンを付ける(#157)。未配置（routeId が null）なら付けない。
@@ -751,6 +754,8 @@ class MainScene extends Phaser.Scene {
     this.engineerRemoveButtons.delete(engineerId);
     this.showInitialPlacementMessage(getMessages().initialPlacement.engineerRemoved);
     this.refreshInitialPlacementControls();
+    // 外した人は未配置に戻るので、その月給が月末に支払うお金から減る(#176)。
+    this.refreshMonthEndPayment();
   }
 
   // 初期配置(#47)を終えてプレイを始める。配置ゼロ・残ポイントありでも始められる（残ポイントは破棄）。
@@ -1004,8 +1009,9 @@ class MainScene extends Phaser.Scene {
     }
     this.engineers = [...result.engineers];
     this.nextEngineerId = result.engineer.id + 1;
-    // 選択中のエンジニアがいなければ（0人から雇ったときなど）、雇ったエンジニアを選ぶ。
-    if (this.findSelectedEngineer() === null) {
+    // 初期配置の間は雇うたびに新しく雇った人を選び、メニューにそのランクと月給を出す(#176)。
+    // プレイ中は、選択中のエンジニアがいなければ（0人から雇ったときなど）、雇ったエンジニアを選ぶ。
+    if (this.phase === 'setup' || this.findSelectedEngineer() === null) {
       this.selectedEngineerId = result.engineer.id;
     }
     // エンジニアのメニューの人数・選択中の表示と、月末に支払うお金（雇った人の月給）を更新する(#156)。
@@ -1250,10 +1256,12 @@ class MainScene extends Phaser.Scene {
   // 月末に支払うお金の予告（給料＋月額アイテム＋AIエージェントの月額）(#156)。初期配置の間は置いたアイテム（initialPlacement）、プレイ中は placedItems で求める。
   private getMonthEndPaymentForecast(): number {
     const placedItems = this.phase === 'setup' ? this.initialPlacement.itemState.placedItems : this.placedItems;
-    return getMonthEndPaymentForecast(this.engineers, placedItems);
+    // 初期配置の間は配置済みのエンジニアだけ（外せば減る #176）。プレイ中は未配属・休暇中を含む名簿全員。
+    const payees = this.phase === 'setup' ? filterPlacedEngineers(this.engineers) : this.engineers;
+    return getMonthEndPaymentForecast(payees, placedItems);
   }
 
-  // 右下の指標の月末支払を更新する(#156)。雇用・退職・昇給減給・AIエージェントの装着・アイテムの配置（初期配置の配置・撤去を含む）・プレイ開始で呼ぶ。
+  // 右下の指標の月末支払を更新する(#156)。雇用・退職・昇給減給・AIエージェントの装着・アイテムの配置（初期配置の配置・撤去、エンジニアの配置・取消を含む）・プレイ開始で呼ぶ。
   private refreshMonthEndPayment(): void {
     this.statusPanel?.setMonthEndPayment(this.getMonthEndPaymentForecast());
   }
