@@ -13,6 +13,7 @@ import {
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_FUNDS,
+  INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK,
   INITIAL_PLACEMENT_START_BUTTON_ALPHA,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
@@ -43,7 +44,7 @@ import {
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
 import { buildHelpLines } from './help';
-import { formatYen, getMessages, interpolate, setLocale } from './i18n';
+import { formatYen, getMessages, setLocale } from './i18n';
 import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import { isPlaceableCell, itemFootprint, placementCellCenter } from './itemPlacement';
@@ -465,24 +466,36 @@ const relayEmitted = (scene: SceneUnderTest, event: string, fromIndex: number): 
   });
 };
 
-// 初期配置の間に、右上のエンジニアのメニューから rank を1人雇う(#172)。雇用のイベント（ENGINEER_HIRED_EVENT）も購読者に渡す。
-const hireInSetup = (scene: SceneUnderTest, rank: EngineerRank = 'junior'): void => {
+// 初期配置の間に、右上のエンジニアのメニューのランクのボタンで次に置くランクを選ぶ(#184)。雇うのは床を押したとき。
+// 雇用のイベント（ENGINEER_HIRED_EVENT）が出ても購読者に渡す（初期配置の間は出ないことを各テストで確かめる）。
+const selectRankInSetup = (scene: SceneUnderTest, rank: EngineerRank = 'junior'): void => {
   if (scene.openMenu !== 'engineer') pressIcon('engineer');
   const emitted = scene.events.emit.mock.calls.length;
   lastEngineerMenu().onHire(rank);
   relayEmitted(scene, ENGINEER_HIRED_EVENT, emitted);
 };
 
-// 初期配置の間に、行ごとに1人ずつ雇って出現列のその行に置く(#172)。初期は0人なので、以前の初期配置（行1・4・7の3人）はこれで作る。
+// 雇用のイベント（ENGINEER_HIRED_EVENT）を出した回数。初期配置の間は出さない（雇うのと置くのを同時に行う #184）。
+const hiredEmits = (scene: SceneUnderTest): number =>
+  scene.events.emit.mock.calls.filter(([event]) => event === ENGINEER_HIRED_EVENT).length;
+
+// 初期配置の間に、行ごとに rank を選んで出現列のその行を押し、雇って置く(#172, #184)。初期は0人なので、以前の初期配置（行1・4・7の3人）はこれで作る。
 const FIXTURE_ROWS: readonly number[] = [1, 4, 7];
-const hireAndPlace = (harness: Harness, rows: readonly number[] = FIXTURE_ROWS): void => {
+const hireAndPlace = (harness: Harness, rows: readonly number[] = FIXTURE_ROWS, rank: EngineerRank = 'junior'): void => {
+  const before = harness.scene.engineers.length;
   rows.forEach((row) => {
-    hireInSetup(harness.scene);
+    selectRankInSetup(harness.scene, rank);
     harness.pointerDown(spawnPoint(row));
   });
-  if (harness.scene.engineers.length !== rows.length || harness.scene.engineers.some((engineer) => engineer.routeId === null)) {
-    throw new Error('雇ったエンジニアを全員置けませんでした');
+  if (harness.scene.engineers.length !== before + rows.length || harness.scene.engineers.some((engineer) => engineer.routeId === null)) {
+    throw new Error('エンジニアを置けませんでした');
   }
+};
+
+// 出現列の行 row のルートの担当者のランク(#184)。担当者がいなければ undefined。
+const rankOnRow = (scene: SceneUnderTest, row: number): EngineerRank | undefined => {
+  const route = scene.routes.find((candidate) => candidate.spawn.col === ENGINEER_SPAWN_COL && candidate.spawn.row === row);
+  return scene.engineers.find((engineer) => route !== undefined && engineer.routeId === route.id)?.rank;
 };
 
 // route を担当するジュニア1人(#172)。ルートを固定のもの（fixedRoute）に置き換えるテストで、開始の条件（1人以上を配置）を満たすために使う。
@@ -507,7 +520,7 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(render.drawInitialPlacementStartButton).toHaveBeenCalledOnce();
   });
 
-  it('create() は未選択・エンジニア0人・ルート0本で始まり、エンジニアの選択ボタン（残り0人）と出現列の全行の置ける床を描き、×ボタンは描かない(#157, #172)', () => {
+  it('create() は未選択・エンジニア0人・ルート0本で始まり、エンジニアの選択ボタン（既定のジュニア #184）と出現列の全行の置ける床を描き、×ボタンは描かない(#157, #172)', () => {
     const { scene } = createHarness();
     expect(scene.initialPlacementSelection).toEqual({ kind: 'none' });
     expect(scene.engineers).toEqual([]);
@@ -515,7 +528,8 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
     expect(scene.nextEngineerId).toBe(0);
     expect(scene.selectedEngineerId).toBeNull();
     expect(render.drawInitialPlacementEngineerButton).toHaveBeenCalledOnce();
-    expect(vi.mocked(render.drawInitialPlacementEngineerButton).mock.calls[0]?.[1]).toBe('エンジニア 残り0人');
+    expect(INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK).toBe('junior');
+    expect(vi.mocked(render.drawInitialPlacementEngineerButton).mock.calls[0]?.[1]).toBe('エンジニア: ジュニア');
     const candidates = vi.mocked(render.drawEngineerCandidateOverlay).mock.calls.at(-1)?.[1];
     expect(candidates).toEqual(listEngineerCandidateCells([], []));
     expect(candidates).toHaveLength(FIELD_ROWS);
@@ -795,7 +809,7 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     return harness;
   };
 
-  it('×でエンジニアを外すと、ルートの線・出現場所・装飾・休暇マーカー・×ボタンを消し、未配置に戻す。開始ボタンは薄くなる', () => {
+  it('×でエンジニアを外すと、ルートの線・出現場所・装飾・休暇マーカー・×ボタンを消し、名簿からも外す(#184)。2人残れば開始ボタンは濃いまま', () => {
     const { scene } = createPlacedHarness();
     const engineer = scene.engineers[0];
     const route = routeOf(scene, engineer);
@@ -818,64 +832,70 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
 
     button.press();
 
-    expect(scene.engineers.find((candidate) => candidate.id === engineer.id)?.routeId).toBeNull();
-    expect(scene.engineers).toHaveLength(3);
+    expect(scene.engineers.find((candidate) => candidate.id === engineer.id)).toBeUndefined();
+    expect(scene.engineers).toHaveLength(FIXTURE_ROWS.length - 1);
+    // 次の id は戻さない（外した人の id を再利用しない）。
+    expect(scene.nextEngineerId).toBe(FIXTURE_ROWS.length);
     expect(scene.routes.map((candidate) => candidate.id)).not.toContain(route.id);
     destroyed.forEach((spy) => expect(spy).toHaveBeenCalledOnce());
     expect(markerDestroy).toHaveBeenCalledOnce();
     expect(buttonDestroy).toHaveBeenCalledOnce();
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを外しました');
-    expect(setAlpha).toHaveBeenLastCalledWith(INITIAL_PLACEMENT_START_BUTTON_ALPHA.disabled);
-    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア 残り1人');
+    expect(setAlpha).toHaveBeenLastCalledWith(INITIAL_PLACEMENT_START_BUTTON_ALPHA.enabled);
+    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア: ジュニア');
+    // 選んでいた人（最後に置いた人）は残っているので選択は変わらない。
+    expect(scene.selectedEngineerId).toBe(scene.engineers.at(-1)?.id);
     // 外した出現セルは置ける床に戻る。
     expect(vi.mocked(render.drawEngineerCandidateOverlay).mock.calls.at(-1)?.[1]).toContainEqual(route.spawn);
   });
 
-  it('境界値: 未配置が1人でもいると開始できず「エンジニアを全員配置してください」を出す。全員置くと開始できる', () => {
+  it('境界値(#184): 全員を×で外すと（0人）開始できず、1人置き直すと開始できる', () => {
     const { scene, pointerDown } = createPlacedHarness();
-    const engineer = scene.engineers[1];
-    removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press();
+    [...scene.engineers].forEach((engineer) => removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press());
+    expect(scene.engineers).toEqual([]);
+    expect(scene.routes).toEqual([]);
+    expect(scene.selectedEngineerId).toBeNull();
 
     pressStart();
     expect(scene.phase).toBe('setup');
-    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを全員配置してください');
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを1人以上雇って配置してください');
 
     lastEngineerButton().onSelect();
     pointerDown(spawnPoint(0));
-    expect(scene.engineers).toHaveLength(FIXTURE_ROWS.length);
-    expect(scene.engineers.every((candidate) => candidate.routeId !== null)).toBe(true);
+    expect(scene.engineers).toHaveLength(1);
     pressStart();
     expect(scene.phase).toBe('playing');
   });
 
-  it('境界値(#178): 3人を強制しない。2人だけ雇って全員置けば開始でき、1人が未配置のままなら「残り1人」で開始できない', () => {
-    const { scene, pointerDown } = createHarness();
-    hireInSetup(scene);
-    hireInSetup(scene);
-    expect(scene.engineers).toHaveLength(2);
-
-    // 1人だけ置いて開始を押すと、未配置が1人残るので始まらない。
-    pointerDown(spawnPoint(1));
-    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア 残り1人');
-    pressStart();
-    expect(scene.phase).toBe('setup');
-    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを全員配置してください');
-
-    // 2人目を置いて全員そろえれば、3人未満でも開始できる。ルートは乱数なので出現セル・本数・担当だけを見る。
-    pointerDown(spawnPoint(4));
-    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア 残り0人');
+  it('境界値(#178, #184): 3人を強制しない。シニア → ジュニアの順に2人置けば開始でき、各ルートの担当者は選んだランク', () => {
+    const harness = createHarness();
+    const { scene } = harness;
+    hireAndPlace(harness, [1], 'senior');
+    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア: シニア');
+    hireAndPlace(harness, [4], 'junior');
+    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア: ジュニア');
+    expect(hiredEmits(scene)).toBe(0);
     pressStart();
     expect(scene.phase).toBe('playing');
     expect(scene.engineers).toHaveLength(2);
     expect(scene.routes).toHaveLength(2);
-    const spawns = scene.engineers.map((engineer) => routeOf(scene, engineer).spawn);
-    expect(spawns).toEqual([
-      { col: ENGINEER_SPAWN_COL, row: 1 },
-      { col: ENGINEER_SPAWN_COL, row: 4 },
-    ]);
+    expect(rankOnRow(scene, 1)).toBe('senior');
+    expect(rankOnRow(scene, 4)).toBe('junior');
+    expect(scene.engineers.map((engineer) => engineer.id)).toEqual([0, 1]);
+    expect(scene.nextEngineerId).toBe(2);
   });
 
-  it('エンジニアを選んで置ける床を押すと、未配置の人をそこに置いてルートを1本描き、休暇マーカーと×ボタンを付ける。全員置くと未選択に戻る', () => {
+  it.each([4, MAX_ENGINEERS])('境界値(#184): %i 人置いても開始できる（人数の上限は雇用の上限だけ）', (count) => {
+    const harness = createHarness();
+    const { scene } = harness;
+    hireAndPlace(harness, Array.from({ length: count }, (_, row) => row));
+    expect(scene.engineers).toHaveLength(count);
+    pressStart();
+    expect(scene.phase).toBe('playing');
+    expect(scene.routes).toHaveLength(count);
+  });
+
+  it('エンジニアを選んで置ける床を押すと、そのランクの人を雇ってそこに置き、ルートを1本描き、休暇マーカーと×ボタンを付ける。選択はエンジニアのまま', () => {
     const { scene, pointerDown } = createPlacedHarness();
     const engineer = scene.engineers[0];
     removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press();
@@ -883,13 +903,17 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     vi.mocked(render.drawVacationMarker).mockClear();
 
     lastEngineerButton().onSelect();
-    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer' });
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer', rank: 'junior' });
     expect(lastEngineerButton().setSelected).toHaveBeenLastCalledWith(true);
     // 行内のどこを押しても同じセル（右下の 0.01px 内側）。
     pointerDown({ x: CELL_SIZE - 0.01, y: CELL_SIZE * (FIELD_ROWS - 1) + CELL_SIZE - 0.01 });
 
-    const placed = scene.engineers.find((candidate) => candidate.id === engineer.id);
+    // 外した人（id 0）ではなく、次の id（3）で雇って置く。
+    const placed = scene.engineers.find((candidate) => candidate.id === FIXTURE_ROWS.length);
     if (placed === undefined || placed.routeId === null) throw new Error('エンジニアが置かれていません');
+    expect(placed.rank).toBe('junior');
+    expect(scene.engineers).toHaveLength(FIXTURE_ROWS.length);
+    expect(scene.nextEngineerId).toBe(FIXTURE_ROWS.length + 1);
     const route = routeOf(scene, placed);
     expect(route.spawn).toEqual({ col: ENGINEER_SPAWN_COL, row: FIELD_ROWS - 1 });
     expect(render.drawRoutes).toHaveBeenCalledOnce();
@@ -897,41 +921,48 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
     expect(render.drawVacationMarker).toHaveBeenCalledOnce();
     expect(() => removeButtonAt(engineerRemoveButtonCenter(route.spawn))).not.toThrow();
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを置きました');
-    expect(scene.initialPlacementSelection).toEqual({ kind: 'none' });
-    expect(lastEngineerButton().setSelected).toHaveBeenLastCalledWith(false);
-    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア 残り0人');
+    // アイテムと同じく、置いたあとも選んだままで続けて置ける。置いた人をメニューに出す。
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer', rank: 'junior' });
+    expect(lastEngineerButton().setSelected).toHaveBeenLastCalledWith(true);
+    expect(scene.selectedEngineerId).toBe(placed.id);
     expect(vi.mocked(render.drawEngineerCandidateOverlay).mock.calls.at(-1)?.[1]).not.toContainEqual(route.spawn);
   });
 
-  it('境界値: エンジニアは出現列の右隣（x=60）や使用中の出現セルには置けず、0.01px 左（x=59.99）の空いた行なら置ける', () => {
+  it('境界値: エンジニアは出現列の右隣（x=60）や使用中の出現セルには置けず（名簿・次の id は変えない）、0.01px 左（x=59.99）の空いた行なら置ける', () => {
     const { scene, pointerDown } = createPlacedHarness();
     removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, scene.engineers[0]).spawn)).press();
     lastEngineerButton().onSelect();
+    const before = scene.engineers;
     pointerDown({ x: CELL_SIZE, y: spawnPoint(0).y });
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアはここに置けません');
-    pointerDown(cellCenter(routeOf(scene, scene.engineers[1]).spawn));
+    pointerDown(cellCenter(routeOf(scene, scene.engineers[0]).spawn));
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアはここに置けません');
-    expect(scene.engineers[0]?.routeId).toBeNull();
+    expect(scene.engineers).toBe(before);
+    expect(scene.nextEngineerId).toBe(FIXTURE_ROWS.length);
     pointerDown({ x: CELL_SIZE - 0.01, y: spawnPoint(0).y });
-    expect(scene.engineers[0]?.routeId).not.toBeNull();
+    expect(scene.engineers).toHaveLength(FIXTURE_ROWS.length);
+    expect(rankOnRow(scene, 0)).toBe('junior');
   });
 
-  it('全員配置済みでエンジニアを選んで押すと「置けるエンジニアがいません。先に雇ってください」', () => {
-    const { scene, pointerDown } = createPlacedHarness();
-    lastEngineerButton().onSelect();
+  it(`境界値(#184): ${MAX_ENGINEERS}人置いたあとに押すと「これ以上雇えません」で、名簿・ルート・次の id は変えない`, () => {
+    const harness = createHarness();
+    const { scene, pointerDown } = harness;
+    hireAndPlace(harness, Array.from({ length: MAX_ENGINEERS }, (_, row) => row));
     pointerDown(spawnPoint(0));
-    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, '置けるエンジニアがいません。先に雇ってください');
-    expect(scene.routes).toHaveLength(FIXTURE_ROWS.length);
-    expect(scene.routes).toHaveLength(scene.engineers.length);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, getMessages().engineer.hireLimit);
+    expect(scene.engineers).toHaveLength(MAX_ENGINEERS);
+    expect(scene.routes).toHaveLength(MAX_ENGINEERS);
+    expect(scene.nextEngineerId).toBe(MAX_ENGINEERS);
   });
 
-  it('境界値(#172): 0人のままエンジニアを選んで押しても置かず、「置けるエンジニアがいません。先に雇ってください」', () => {
+  it('境界値(#172, #184): 0人からエンジニアの選択ボタンで押すと、既定のランク（ジュニア）を雇って置く', () => {
     const { scene, pointerDown } = createHarness();
     lastEngineerButton().onSelect();
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer', rank: INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK });
     pointerDown(spawnPoint(0));
-    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, '置けるエンジニアがいません。先に雇ってください');
-    expect(scene.routes).toEqual([]);
-    expect(scene.engineers).toEqual([]);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを置きました');
+    expect(scene.engineers.map((engineer) => engineer.rank)).toEqual([INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK]);
+    expect(scene.routes).toHaveLength(1);
   });
 
   it('アイテムを置く・外すたびに置ける床を描き直す（前の床は消す）', () => {
@@ -1006,68 +1037,90 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     expect(render.drawEngineerMenu).toHaveBeenCalledOnce();
   });
 
-  it('雇うと未配置が1人増え、資金は変わらず（雇うときの費用はない #179）、ルートは足さず、次に置くものがエンジニアになる', () => {
+  it('ランクのボタンを押しても雇わず（名簿・ルート・次の id・資金は変わらない #184）、次に置くものがそのランクのエンジニアになる', () => {
     const { scene } = createHarness();
-    hireInSetup(scene);
-    expect(scene.engineers).toHaveLength(1);
-    expect(scene.engineers[0]?.routeId).toBeNull();
-    expect(scene.engineers[0]?.rank).toBe('junior');
-    expect(scene.nextEngineerId).toBe(1);
+    const panel = vi.mocked(render.drawInitialPlacementPanel).mock.results.at(-1);
+    if (panel === undefined || panel.type !== 'return') throw new Error('パネルが描かれていません');
+    const setText = vi.spyOn(panel.value, 'setText');
+    selectRankInSetup(scene, 'senior');
+    expect(scene.engineers).toEqual([]);
+    expect(scene.nextEngineerId).toBe(0);
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(fundsChangedEmits(scene)).toBe(0);
+    expect(hiredEmits(scene)).toBe(0);
     expect(scene.routes).toEqual([]);
     expect(render.drawRoutes).toHaveBeenCalledOnce();
-    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer' });
-    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア 残り1人');
+    expect(render.drawHireMessage).not.toHaveBeenCalled();
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer', rank: 'senior' });
+    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア: シニア');
     expect(lastEngineerButton().setSelected).toHaveBeenLastCalledWith(true);
-    expect(render.drawHireMessage).toHaveBeenLastCalledWith(scene, interpolate(getMessages().engineer.hired, { rank: getRankLabel('junior') }));
-    // 置く前は開始できない（未配置の人がいる）。
+    expect(setText).toHaveBeenLastCalledWith([
+      `初期配置 残りポイント: ${STAGE_POINTS_INITIAL}pt`,
+      '選択: エンジニア（シニア）',
+    ]);
+    // 置く前は開始できない（0人）。
     pressStart();
     expect(scene.phase).toBe('setup');
-    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを全員配置してください');
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを1人以上雇って配置してください');
   });
 
-  it('雇った人を置ける床に置くと開始できる', () => {
+  it('アイテムを選んだあとでもエンジニアの選択ボタンを押すと、最後に選んだランクに戻る(#184)', () => {
+    const { scene } = createHarness();
+    selectRankInSetup(scene, 'middle');
+    selectItem(scene, 'linter');
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'item', itemType: 'linter' });
+    expect(lastEngineerButton().setLabel).toHaveBeenLastCalledWith('エンジニア: ミドル');
+    lastEngineerButton().onSelect();
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer', rank: 'middle' });
+  });
+
+  it('ランクを選んで置ける床を押すと雇って置き、そのまま開始できる', () => {
     const { scene, pointerDown } = createHarness();
-    hireInSetup(scene);
+    selectRankInSetup(scene);
     pointerDown(spawnPoint(2));
     const [engineer] = scene.engineers;
     if (engineer === undefined) throw new Error('エンジニアがいません');
     expect(routeOf(scene, engineer).spawn).toEqual({ col: ENGINEER_SPAWN_COL, row: 2 });
     expect(scene.routes).toHaveLength(1);
-    expect(scene.initialPlacementSelection).toEqual({ kind: 'none' });
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer', rank: 'junior' });
+    expect(hiredEmits(scene)).toBe(0);
     pressStart();
     expect(scene.phase).toBe('playing');
   });
 
-  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を雇っても資金は変わらず、資金のイベントも出ない(#179)', (rank) => {
-    const { scene } = createHarness();
-    hireInSetup(scene, rank);
+  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を置いても資金は変わらず、資金のイベントも出ない(#179)', (rank) => {
+    const harness = createHarness();
+    const { scene } = harness;
+    hireAndPlace(harness, [0], rank);
     expect(scene.engineers.map((engineer) => engineer.rank)).toEqual([rank]);
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(fundsChangedEmits(scene)).toBe(0);
-    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer' });
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer', rank });
   });
 
-  it.each([0, 1, -1])('境界値: 資金が %i 円でも雇えて、資金は変わらず倒産もしない（雇うときの費用はない #179）', (funds) => {
-    const { scene } = createHarness();
+  it.each([0, 1, -1])('境界値: 資金が %i 円でも置けて、資金は変わらず倒産もしない（雇うときの費用はない #179）', (funds) => {
+    const harness = createHarness();
+    const { scene } = harness;
     scene.funds = funds;
-    hireInSetup(scene);
+    hireAndPlace(harness, [0]);
     expect(scene.engineers).toHaveLength(1);
     expect(scene.funds).toBe(funds);
     expect(fundsChangedEmits(scene)).toBe(0);
     expect(scene.gameOver.over).toBe(false);
-    expect(render.drawHireMessage).toHaveBeenLastCalledWith(scene, interpolate(getMessages().engineer.hired, { rank: getRankLabel('junior') }));
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'エンジニアを置きました');
   });
 
-  it(`境界値: ${MAX_ENGINEERS - 1}人なら${MAX_ENGINEERS}人目を雇え、${MAX_ENGINEERS}人なら上限で断る（資金は変わらない）`, () => {
-    const { scene } = createHarness();
-    for (let i = 0; i < MAX_ENGINEERS; i += 1) hireInSetup(scene);
+  it(`境界値: ${MAX_ENGINEERS - 1}人なら${MAX_ENGINEERS}人目を置け、${MAX_ENGINEERS}人なら上限で断る（資金は変わらない）`, () => {
+    const harness = createHarness();
+    const { scene, pointerDown } = harness;
+    hireAndPlace(harness, Array.from({ length: MAX_ENGINEERS - 1 }, (_, row) => row));
+    expect(scene.engineers).toHaveLength(MAX_ENGINEERS - 1);
+    hireAndPlace(harness, [MAX_ENGINEERS - 1]);
     expect(scene.engineers).toHaveLength(MAX_ENGINEERS);
-    hireInSetup(scene);
+    pointerDown(spawnPoint(0));
     expect(scene.engineers).toHaveLength(MAX_ENGINEERS);
     expect(scene.nextEngineerId).toBe(MAX_ENGINEERS);
-    expect(render.drawHireMessage).toHaveBeenLastCalledWith(scene, getMessages().engineer.hireLimit);
+    expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, getMessages().engineer.hireLimit);
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(fundsChangedEmits(scene)).toBe(0);
   });
@@ -1079,10 +1132,10 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     expect(view?.hireOptions).toEqual(ENGINEER_RANKS.map((rank) => ({ rank: rank.id })));
   });
 
-  it('初期配置の間はメニューの選択・昇給減給をしない（雇うだけ）', () => {
-    const { scene } = createHarness();
-    hireInSetup(scene);
-    hireInSetup(scene);
+  it('初期配置の間はメニューの選択・昇給減給をしない（ランクを選ぶだけ）', () => {
+    const harness = createHarness();
+    const { scene } = harness;
+    hireAndPlace(harness, [0, 1]);
     expect(scene.engineers).toHaveLength(2);
     const selected = scene.selectedEngineerId;
     const salaries = scene.engineers.map((engineer) => engineer.salary);
@@ -1092,37 +1145,35 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     expect(scene.engineers.map((engineer) => engineer.salary)).toEqual(salaries);
   });
 
-  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を雇って置くと、ランク別の月給（初期額）のまま表示される(#176)', (rank) => {
+  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を選んで置くと、ランク別の月給（初期額）のまま表示される(#176)', (rank) => {
     const harness = createHarness();
-    const { scene, pointerDown } = harness;
-    hireInSetup(scene, rank);
-    const hired = scene.engineers[0];
-    if (hired === undefined) throw new Error('エンジニアがいません');
-    expect(hired.rank).toBe(rank);
-    expect(hired.salary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
-    expect(hired.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
-    pointerDown(spawnPoint(3));
+    const { scene } = harness;
+    hireAndPlace(harness, [3], rank);
     const placed = scene.engineers[0];
     expect(placed?.rank).toBe(rank);
     expect(placed?.salary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
     expect(placed?.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+    expect(rankOnRow(scene, 3)).toBe(rank);
   });
 
-  it('ジュニアの後にシニアを雇うと、シニアが選択され、そのランクと月給が表示される(#176)', () => {
-    const { scene } = createHarness();
-    hireInSetup(scene, 'junior');
-    hireInSetup(scene, 'senior');
+  it('ジュニアの後にシニアを置くと、シニアが選択され、そのランクと月給が表示される(#176)', () => {
+    const harness = createHarness();
+    const { scene } = harness;
+    hireAndPlace(harness, [0], 'junior');
+    hireAndPlace(harness, [1], 'senior');
     const [junior, senior] = scene.engineers;
-    if (junior === undefined || senior === undefined) throw new Error('2人雇えていません');
+    if (junior === undefined || senior === undefined) throw new Error('2人置けていません');
+    expect(senior.rank).toBe('senior');
     expect(scene.selectedEngineerId).toBe(senior.id);
     const view = vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1];
     expect(view?.selected?.id).toBe(senior.id);
+    expect(view?.count).toBe(2);
     const lines = formatSelectedEngineerLines(view?.selected ?? null);
     expect(lines[0]).toContain(getRankLabel('senior'));
     expect(lines[1]).toContain(formatYen(ENGINEER_MONTHLY_SALARY_BY_RANK.senior));
   });
 
-  it('×で外しても名簿に残り、置き直せる。雇うときの費用はない(#179)ので、雇っても外しても資金は変わらない', () => {
+  it('×で外すと名簿からも外れ、置き直すと次の id で雇う。雇うときの費用はない(#179)ので、置いても外しても資金は変わらない', () => {
     const harness = createHarness();
     const { scene, pointerDown } = harness;
     hireAndPlace(harness, [3]);
@@ -1130,15 +1181,16 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     if (engineer === undefined) throw new Error('エンジニアがいません');
     expect(scene.funds).toBe(INITIAL_FUNDS);
     removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press();
-    expect(scene.engineers).toHaveLength(1);
-    expect(scene.engineers[0]?.routeId).toBeNull();
+    expect(scene.engineers).toEqual([]);
     expect(scene.routes).toEqual([]);
+    expect(scene.selectedEngineerId).toBeNull();
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(fundsChangedEmits(scene)).toBe(0);
     lastEngineerButton().onSelect();
     pointerDown(spawnPoint(5));
     const placed = scene.engineers[0];
     if (placed === undefined) throw new Error('エンジニアがいません');
+    expect(placed.id).toBe(engineer.id + 1);
     expect(routeOf(scene, placed).spawn).toEqual({ col: ENGINEER_SPAWN_COL, row: 5 });
     pressStart();
     expect(scene.phase).toBe('playing');
@@ -1178,7 +1230,7 @@ describe('MainScene: 英語の初期配置パネル(#158)', () => {
   it('create() で英語のパネル・エンジニアの選択ボタンを描き、未選択で床を押すと英語のメッセージを出す', () => {
     const { scene, pointerDown } = createHarness();
     expect(vi.mocked(render.drawInitialPlacementPanel).mock.calls.at(-1)?.[1]).toEqual(expectedPanel);
-    expect(vi.mocked(render.drawInitialPlacementEngineerButton).mock.calls.at(-1)?.[1]).toBe('Engineers left: 0');
+    expect(vi.mocked(render.drawInitialPlacementEngineerButton).mock.calls.at(-1)?.[1]).toBe('Engineer: Junior');
     const [cell] = placeableCells(scene.routes, 1);
     pointerDown(centerOf(cell));
     expect(render.drawInitialPlacementMessage).toHaveBeenLastCalledWith(scene, 'Choose what to place first');

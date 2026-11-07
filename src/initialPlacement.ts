@@ -8,12 +8,13 @@ import {
   INITIAL_PLACEMENT_REMOVE_BUTTON,
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_SHORT_NAMES,
+  MAX_ENGINEERS,
   RELEASE_POINT_CELL,
   STAGE_POINT_COST_BY_TIER,
   STAGE_POINTS_INITIAL,
 } from './config';
-import { assignEngineerRoute } from './engineer';
-import type { Engineer } from './engineer';
+import { assignEngineerRoute, getRankLabel, hireEngineer } from './engineer';
+import type { Engineer, EngineerRank, HireState } from './engineer';
 import { pointInRect, rectIntersectsCircle, rectsOverlap } from './geometry';
 import { getMessages, interpolate } from './i18n';
 import { getItemPlacement, isItemUnlocked, ITEM_TYPES } from './item';
@@ -156,13 +157,14 @@ export const formatInitialPlacementMessage = (
 };
 
 // 初期配置で次に置くもの(#157)。最初は未選択。アイテムのメニュー(#156)でアイテムの種類を、エンジニアの選択ボタンでエンジニアを選ぶ。
+// エンジニアはアイテムと同じく種類（ランク）を選んで置く(#184)。エンジニアのメニューのランクのボタンでランクを選ぶ。
 export type InitialPlacementSelection =
   | { readonly kind: 'none' }
   | { readonly kind: 'item'; readonly itemType: ItemType }
-  | { readonly kind: 'engineer' };
+  | { readonly kind: 'engineer'; readonly rank: EngineerRank };
 
 // 初期配置パネルの2行（残ポイント・選択中のもの）(#157)。行数は config の INITIAL_PLACEMENT_PANEL_LINES と同じ。
-// 例: 「初期配置 残りポイント: 6pt」「選択: Linter 1pt」「選択: エンジニア」「選択: なし」。操作の説明は右上の ℹ️ のゲームの説明に移した(#165)。
+// 例: 「初期配置 残りポイント: 6pt」「選択: Linter 1pt」「選択: エンジニア（シニア）」「選択: なし」。操作の説明は右上の ℹ️ のゲームの説明に移した(#165)。
 export const formatInitialPlacementPanel = (points: number, selection: InitialPlacementSelection): readonly string[] => {
   const text = getMessages().initialPlacement;
   const selected = ((): string => {
@@ -170,7 +172,7 @@ export const formatInitialPlacementPanel = (points: number, selection: InitialPl
       case 'item':
         return formatInitialPlacementItemButton(selection.itemType);
       case 'engineer':
-        return text.selectionEngineer;
+        return interpolate(text.selectionEngineer, { rank: getRankLabel(selection.rank) });
       case 'none':
         return text.selectionNone;
     }
@@ -182,34 +184,27 @@ export const formatInitialPlacementPanel = (points: number, selection: InitialPl
 export const formatInitialPlacementItemButton = (itemType: ItemType): string =>
   interpolate(getMessages().initialPlacement.itemCost, { name: ITEM_SHORT_NAMES[itemType], cost: getStagePointCost(itemType) });
 
-// エンジニアの選択ボタンの文言(#157)。「エンジニア 残り3人」（残りは未配置の初期エンジニアの人数）。
-export const formatInitialPlacementEngineerButton = (unplaced: number): string =>
-  interpolate(getMessages().initialPlacement.engineerButton, { count: unplaced });
+// エンジニアの選択ボタンの文言(#157)。「エンジニア: ジュニア」（次に置くランク #184）。
+export const formatInitialPlacementEngineerButton = (rank: EngineerRank): string =>
+  interpolate(getMessages().initialPlacement.engineerRankButton, { rank: getRankLabel(rank) });
 
-// 未配置（routeId が null）のエンジニアの人数(#157)。初期配置の間に雇った人(#172)は、置くまで未配置。
-export const countUnplacedEngineers = (engineers: readonly Engineer[]): number =>
-  engineers.filter((engineer) => engineer.routeId === null).length;
-
-// 配置済み（routeId がある）のエンジニアだけを返す(#176)。countUnplacedEngineers と同じ routeId の基準。
+// 配置済み（routeId がある）のエンジニアだけを返す(#176)。
 export const filterPlacedEngineers = (engineers: readonly Engineer[]): readonly Engineer[] =>
   engineers.filter((engineer) => engineer.routeId !== null);
 
-// 配置済み（routeId がある）のエンジニアの人数(#172)。
-const countPlacedEngineers = (engineers: readonly Engineer[]): number => engineers.length - countUnplacedEngineers(engineers);
-
-// プレイを始められるか(#157)。エンジニア全員にルート（出現場所）があり、INITIAL_PLACEMENT_MIN_ENGINEERS 人以上を置いたときだけ始められる(#172)。
+// プレイを始められるか(#157)。INITIAL_PLACEMENT_MIN_ENGINEERS 人以上を置いたときだけ始められる(#172)。
+// 初期配置の間は雇うのと置くのを同時に行うので、未配置の人はいない(#184)。人数の上限は雇用の上限（MAX_ENGINEERS）だけ。
 // アイテムは置かなくてもよい。
 export const canStartPlay = (engineers: readonly Engineer[]): boolean =>
-  countUnplacedEngineers(engineers) === 0 && countPlacedEngineers(engineers) >= INITIAL_PLACEMENT_MIN_ENGINEERS;
+  filterPlacedEngineers(engineers).length >= INITIAL_PLACEMENT_MIN_ENGINEERS;
 
-// 始められないときのメッセージ(#172)。未配置の人がいれば全員置くよう、いなければ（置いた人が足りなければ）雇って置くよう案内する。
+// 始められないときのメッセージ(#172)。置いた人が足りないので、雇って置くよう案内する。
 // 始められる状態（canStartPlay が true）で呼ぶのは呼び出し側の誤りなので投げる。
 export const formatStartPlayBlockedMessage = (engineers: readonly Engineer[]): string => {
   if (canStartPlay(engineers)) {
     throw new Error('プレイを始められる状態で、始められない理由を求めました');
   }
-  const text = getMessages().initialPlacement;
-  return countUnplacedEngineers(engineers) > 0 ? text.placeAllEngineers : text.hireAndPlaceEngineer;
+  return getMessages().initialPlacement.hireAndPlaceEngineer;
 };
 
 const isSameCell = (a: GridCell, b: GridCell): boolean => a.col === b.col && a.row === b.row;
@@ -239,7 +234,8 @@ export const listEngineerCandidateCells = (
     isEngineerCandidateCell(cell, routes, placedItems),
   );
 
-export type EngineerPlacementFailReason = 'notCandidate' | 'noUnplacedEngineer' | 'overlapsItem';
+// limit は雇用の上限（MAX_ENGINEERS）に達している(#184)。
+export type EngineerPlacementFailReason = 'limit' | 'notCandidate' | 'overlapsItem';
 
 export type EngineerPlacementResult =
   | {
@@ -255,20 +251,27 @@ export type EngineerPlacementResult =
 const routeAvoidsItems = (route: Route, placedItems: readonly PlacedItem[]): boolean =>
   placedItems.every((item) => isPlaceableCell(item.cell, { routes: [route], placedItems: [], blockedRects: [] }));
 
-// 未配置の初期エンジニアのうち名簿で最初の1人を cell に置き、ルートを自動で作る(#157)。判定順: 置けないセル → 未配置のエンジニアがいない →
-// アイテムと重なる。ルートが配置済みアイテムに重なるときは random で作り直し、INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS 回（最初の1回を含む）
-// すべて重なったら overlapsItem にする（アイテムは撤去しない）。失敗時は理由だけを返し、入力は変更しない。
+// 指定したランク（rank）のエンジニアを雇い（hireEngineer。雇うときの費用はない #179）、cell に置いてルートを自動で作る(#157, #184)。
+// 雇うのと置くのは同時に行い、初期配置の間に未配置の人を作らない。判定順: 雇用の上限 → 置けないセル → アイテムと重なる。
+// ルートが配置済みアイテムに重なるときは random で作り直し、INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS 回（最初の1回を含む）
+// すべて重なったら overlapsItem にする（アイテムは撤去しない）。失敗時は理由だけを返し、入力は変更しない（名簿・ルート・次の id はそのまま）。
+// 成功時の engineerId は hireState.nextId（呼び出し側が次の id を engineerId + 1 にする）。
 export const placeInitialEngineer = (
-  engineers: readonly Engineer[],
+  hireState: HireState,
+  rank: EngineerRank,
   routes: readonly Route[],
   placedItems: readonly PlacedItem[],
   cell: GridCell,
   random: () => number,
   attempts: number = INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
 ): EngineerPlacementResult => {
+  const hired = hireEngineer(hireState, rank, { max: MAX_ENGINEERS }, random);
+  if (!hired.ok) {
+    if (hired.reason === 'limit') return { ok: false, reason: 'limit' };
+    // rank は EngineerRank なので unknownRank にはならない。
+    throw new Error(`不明なランクのエンジニアは置けません: ${rank}`);
+  }
   if (!isEngineerCandidateCell(cell, routes, placedItems)) return { ok: false, reason: 'notCandidate' };
-  const engineer = engineers.find((candidate) => candidate.routeId === null);
-  if (engineer === undefined) return { ok: false, reason: 'noUnplacedEngineer' };
   for (let attempt = 0; attempt < attempts; attempt++) {
     const route = addRouteAt(routes, cell, random);
     // 候補のセルは使用中の出現セルを除いた ENGINEER_SPAWN_COL の行なので、ルートは上限（MAX_ENGINEER_ROUTES = 行数）に達しない。
@@ -276,10 +279,10 @@ export const placeInitialEngineer = (
     if (routeAvoidsItems(route, placedItems)) {
       return {
         ok: true,
-        engineerId: engineer.id,
+        engineerId: hired.engineer.id,
         route,
         routes: [...routes, route],
-        engineers: assignEngineerRoute(engineers, engineer.id, route.id),
+        engineers: assignEngineerRoute(hired.engineers, hired.engineer.id, route.id),
       };
     }
   }
@@ -290,7 +293,8 @@ export type EngineerRemovalResult =
   | { readonly ok: true; readonly routeId: number; readonly routes: Route[]; readonly engineers: Engineer[] }
   | { readonly ok: false; readonly reason: 'notFound' | 'notPlaced' };
 
-// 置いたエンジニアを外す(#157)。そのエンジニアのルートを除き、routeId を null に戻す（名簿からは外さない）。入力は変更しない。
+// 置いたエンジニアを外す(#157)。そのエンジニアのルートを除き、名簿からも外す(#184。アイテムの撤去と同じく置く前に戻す)。入力は変更しない。
+// 次の id は戻さない（退職 #32 と同じく、外した人の id を再利用しない）。
 export const removeInitialEngineer = (
   engineers: readonly Engineer[],
   routes: readonly Route[],
@@ -303,7 +307,7 @@ export const removeInitialEngineer = (
     ok: true,
     routeId: engineer.routeId,
     routes: removeRoute(routes, engineer.routeId),
-    engineers: assignEngineerRoute(engineers, engineerId, null),
+    engineers: engineers.filter((candidate) => candidate.id !== engineerId),
   };
 };
 
@@ -312,10 +316,11 @@ export const formatEngineerPlacementMessage = (result: EngineerPlacementResult):
   const text = getMessages().initialPlacement;
   if (result.ok) return text.engineerPlaced;
   switch (result.reason) {
+    case 'limit':
+      // 雇用の上限は、エンジニアのメニューで雇うときと同じメッセージ(#184)。
+      return getMessages().engineer.hireLimit;
     case 'notCandidate':
       return text.engineerNotCandidate;
-    case 'noUnplacedEngineer':
-      return text.noUnplacedEngineer;
     case 'overlapsItem':
       return text.engineerOverlapsItem;
   }

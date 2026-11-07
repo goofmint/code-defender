@@ -313,8 +313,8 @@ const firstPlaceableCell = (routes: readonly Route[]): GridCell => {
 
 const payroll = (engineers: readonly Engineer[]): number => getMonthlyPayroll(getEngineerSalaries(engineers));
 
-// 初期は0人(#172)なので、初期配置の間に右上のエンジニアのメニューで3人雇い、出現列の行1・4・7に置いたシーン（以前の初期配置と同じ形）。
-// 雇うたびに次に置くものがエンジニアになるので、続けて出現列のその行を押して置く。最後にメニューを閉じる（開いたまま始めない）。
+// 初期は0人(#172)なので、初期配置の間に右上のエンジニアのメニューでジュニアを選び、出現列の行1・4・7を押して3人雇って置いたシーン
+// （以前の初期配置と同じ形）。ランクを選ぶと次に置くものがそのランクのエンジニアになる(#184)。最後にメニューを閉じる（開いたまま始めない）。
 const FIXTURE_ROWS: readonly number[] = [1, 4, 7];
 const createPlacedHarness = (): Harness => {
   const harness = createHarness();
@@ -616,16 +616,20 @@ describe('MainScene: 月末に支払うお金の更新(#156)', () => {
     expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(base);
   });
 
-  it('初期配置の間に雇うと月給を足し、資金は変えない(#172, #179)', () => {
-    const { scene } = createHarness();
+  it('初期配置の間にランクを選んで置くと月給を足し、資金は変えない(#172, #179, #184)', () => {
+    const { scene, pointerDown } = createHarness();
     expect(payroll(scene.engineers)).toBe(0);
     pressIcon('engineer');
     const setFundsCalls = lastStatusPanel().setFunds.mock.calls.length;
     lastEngineerMenuCallbacks().onHire('junior');
+    // ランクを選んだだけでは雇わないので、名簿は空で月末に支払う予告は描いたときの0円のまま（更新しない #184）。
+    expect(scene.engineers).toEqual([]);
+    expect(vi.mocked(render.drawStatusPanel).mock.calls.at(-1)?.[1].monthEndPayment).toBe(0);
+    expect(lastStatusPanel().setMonthEndPayment).not.toHaveBeenCalled();
+    pointerDown(cellCenter({ col: 0, row: 1 }));
     expect(scene.engineers).toHaveLength(1);
-    expect(payroll(scene.engineers)).toBeGreaterThan(0);
-    // 雇っただけで未配置なので、月末に支払う予告は0円のまま(#176)。
-    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(0);
+    expect(payroll(scene.engineers)).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK.junior);
+    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(ENGINEER_MONTHLY_SALARY_BY_RANK.junior);
     expect(scene.funds).toBe(INITIAL_FUNDS);
     expect(lastStatusPanel().setFunds.mock.calls.length).toBe(setFundsCalls);
     expect(vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1].count).toBe(1);
@@ -642,22 +646,28 @@ describe('MainScene: 月末に支払うお金の更新(#156)', () => {
       if (call === undefined) throw new Error('月末支払が更新されていません');
       return call[0] as number;
     };
+    // ランクを選んだだけ（まだ雇っていない #184）なので、月末に支払う予告は描いたときの0円のまま更新しない。
+    const expectInitialZero = (): void => {
+      expect(vi.mocked(render.drawStatusPanel).mock.calls.at(-1)?.[1].monthEndPayment).toBe(0);
+      expect(lastStatusPanel().setMonthEndPayment).not.toHaveBeenCalled();
+    };
     const pressRemove = (): void => {
       const removeCall = vi.mocked(render.drawRemoveButton).mock.calls.at(-1);
       if (removeCall === undefined) throw new Error('×ボタンが描かれていません');
       removeCall[2]();
     };
 
-    it('シニアの採用→配置→×→再配置→開始で 0 → 月給 → 0 → 月給 → 月給', () => {
+    it('シニアの選択→配置→×→再配置→開始で 0 → 月給 → 0 → 月給 → 月給', () => {
       const { scene, pointerDown } = createHarness();
       const senior = salaryOf('senior');
       hire('senior');
-      expect(forecast()).toBe(0);
+      expectInitialZero();
       pointerDown(cellCenter({ col: 0, row: 1 }));
       expect(forecast()).toBe(senior);
       pressRemove();
       expect(forecast()).toBe(0);
-      // 左上の「エンジニアを置く」ボタンで未配置のエンジニアを選び直して置く。
+      // 左上のエンジニアの選択ボタンで、最後に選んだランク（シニア #184）を選び直して置く。×で外した人は名簿にいない。
+      expect(scene.engineers).toEqual([]);
       const selectButton = vi.mocked(render.drawInitialPlacementEngineerButton).mock.calls.at(-1);
       if (selectButton === undefined) throw new Error('エンジニアの選択ボタンが描かれていません');
       selectButton[2]();
@@ -668,16 +678,15 @@ describe('MainScene: 月末に支払うお金の更新(#156)', () => {
       expect(forecast()).toBe(senior);
     });
 
-    it('ジュニアとシニアを雇い、片方だけ置くとその人の月給だけになる', () => {
+    it('ジュニア → シニアの順にランクを選んで1人だけ置くと、最後に選んだシニアの月給だけになる(#184)', () => {
       const { scene, pointerDown } = createHarness();
       hire('junior');
       hire('senior');
-      expect(forecast()).toBe(0);
+      expectInitialZero();
       pointerDown(cellCenter({ col: 0, row: 1 }));
-      const placed = scene.engineers.filter((engineer) => engineer.routeId !== null);
-      expect(placed).toHaveLength(1);
-      expect(forecast()).toBe(placed[0]?.salary);
-      expect(forecast()).not.toBe(payroll(scene.engineers));
+      expect(scene.engineers.map((engineer) => engineer.rank)).toEqual(['senior']);
+      expect(forecast()).toBe(salaryOf('senior'));
+      expect(forecast()).toBe(payroll(scene.engineers));
     });
 
     it('月額アイテムを置いたままエンジニアを外すと、配置済みの月給＋アイテムの月額になる', () => {

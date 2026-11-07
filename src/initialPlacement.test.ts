@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getMessages, setLocale } from './i18n';
 import {
+  ENGINEER_MONTHLY_SALARY_BY_RANK,
+  ENGINEER_RANKS,
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
@@ -12,20 +14,21 @@ import {
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_SHORT_NAMES,
   MAX_ENGINEER_ROUTES,
+  MAX_ENGINEERS,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
   STAGE_POINT_COST_BY_TIER,
   RELEASE_POINT_CELL,
   STAGE_POINTS_INITIAL,
 } from './config';
-import type { Engineer } from './engineer';
+import { hireEngineer } from './engineer';
+import type { Engineer, EngineerRank } from './engineer';
 import { rectIntersectsCircle } from './geometry';
 import { CELL_SIZE, FIELD_COLS } from './field';
 import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
 import {
   canStartPlay,
-  countUnplacedEngineers,
   filterPlacedEngineers,
   createInitialPlacementState,
   ENGINEER_REMOVE_BUTTON_OFFSET,
@@ -533,14 +536,17 @@ describe('formatInitialPlacementMessage / formatInitialPlacementPanel', () => {
     expect(lines[1]).toBe(`選択: ${ITEM_SHORT_NAMES.linter} ${linterCost}pt`);
     expect(lines[0]).toBe(`初期配置 残りポイント: ${STAGE_POINTS_INITIAL}pt`);
     expect(formatInitialPlacementPanel(0, { kind: 'item', itemType: 'cat' })[0]).toContain('0pt');
-    expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'engineer' })[1]).toBe('選択: エンジニア');
+    // エンジニアは次に置くランクを出す(#184)。
+    expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'engineer', rank: 'junior' })[1]).toBe('選択: エンジニア（ジュニア）');
+    expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'engineer', rank: 'middle' })[1]).toBe('選択: エンジニア（ミドル）');
+    expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'engineer', rank: 'senior' })[1]).toBe('選択: エンジニア（シニア）');
     expect(formatInitialPlacementPanel(STAGE_POINTS_INITIAL, { kind: 'none' })[1]).toBe('選択: なし');
   });
 
   it('パネルにキーボード操作の説明（キー名・ENTER）を出さない(#157)', () => {
     const selections: readonly InitialPlacementSelection[] = [
       { kind: 'none' },
-      { kind: 'engineer' },
+      ...ENGINEER_RANKS.map((entry): InitialPlacementSelection => ({ kind: 'engineer', rank: entry.id })),
       ...ITEM_TYPES.map((itemType): InitialPlacementSelection => ({ kind: 'item', itemType })),
     ];
     for (const selection of selections) {
@@ -571,7 +577,7 @@ const itemAt = (id: number, cell: GridCell): PlacedItem => ({ id, itemType: 'lin
 // 出現行0のルートは必ず出現セルから右へ水平に出る（最初の曲がり列は ROUTE_TURN_COL_MIN 以上）。その線上（y=30）で、
 // 出現場所の円（中心 (30, 30)、半径 SPAWN_CLEARANCE_RADIUS）には重ならないアイテム。行0のどのルートとも重なる。
 const onRow0Line: GridCell = pointToPlacementCell({ x: 72, y: 24 });
-// 指定したエンジニアを外した名簿とルート。
+// 指定したエンジニアを外した名簿とルート（外した人は名簿からもいなくなる #184）。
 const withoutEngineers = (ids: readonly number[]): { readonly engineers: Engineer[]; readonly routes: Route[] } =>
   ids.reduce(
     (state, id) => {
@@ -632,51 +638,115 @@ describe('isEngineerCandidateCell / listEngineerCandidateCells: エンジニア�
   });
 });
 
-describe('placeInitialEngineer: エンジニアを置いてルートを自動で作る(#157)', () => {
-  it('未配置の最初のエンジニアに、指定セルから出るルートを割り当てる。id は既存の最大 + 1', () => {
-    const { engineers, routes } = withoutEngineers([1]);
-    const result = placeInitialEngineer(engineers, routes, [], spawnRow(0), seededRandom(5));
-    if (!result.ok) throw new Error(`置けませんでした: ${result.reason}`);
-    expect(result.engineerId).toBe(1);
-    expect(result.route.spawn).toEqual(spawnRow(0));
-    expect(result.route.waypoints[0]).toEqual(spawnRow(0));
-    expect(result.route.waypoints[result.route.waypoints.length - 1]).toEqual(RELEASE_POINT_CELL);
-    expect(result.route.id).toBe(Math.max(...routes.map((route) => route.id)) + 1);
-    expect(result.routes).toEqual([...routes, result.route]);
-    expect(result.engineers.find((engineer) => engineer.id === 1)?.routeId).toBe(result.route.id);
-    expect(countUnplacedEngineers(result.engineers)).toBe(0);
+// 雇用の状態（名簿と次の id）。次の id は名簿の最大 + 1（外した人の id は再利用しないので、名簿の人数とは限らない）。
+const hireStateOf = (engineers: readonly Engineer[], nextId: number = Math.max(-1, ...engineers.map((engineer) => engineer.id)) + 1) => ({
+  engineers,
+  nextId,
+});
+// 出現列の行 0 から順に、ジュニアを count 人置いた名簿とルート（canStartPlay・上限の検査用）。
+const placeJuniors = (count: number): { readonly engineers: Engineer[]; readonly routes: Route[]; readonly nextId: number } =>
+  Array.from({ length: count }, (_, row) => row).reduce(
+    (state, row) => {
+      const result = placeInitialEngineer(
+        hireStateOf(state.engineers, state.nextId),
+        'junior',
+        state.routes,
+        [],
+        spawnRow(row),
+        seededRandom(row + 1),
+      );
+      if (!result.ok) throw new Error(`行${row}に置けませんでした: ${result.reason}`);
+      return { engineers: result.engineers, routes: result.routes, nextId: result.engineerId + 1 };
+    },
+    { engineers: [] as Engineer[], routes: [] as Route[], nextId: 0 },
+  );
+
+describe('placeInitialEngineer: ランクを指定して雇い、置いてルートを自動で作る(#157, #184)', () => {
+  it.each(ENGINEER_RANKS.map((entry) => entry.id))(
+    '%s を指定すると、そのランクと月給のエンジニアを次の id で雇い、指定セルから出るルートを割り当てる。他の人とルートは変えない',
+    (rank: EngineerRank) => {
+      const { engineers, routes } = withoutEngineers([1]);
+      const snapshot = structuredClone({ engineers, routes });
+      // 外した人の id（1）は再利用せず、次の id は 3。
+      const result = placeInitialEngineer(hireStateOf(engineers, 3), rank, routes, [], spawnRow(0), seededRandom(5));
+      if (!result.ok) throw new Error(`置けませんでした: ${result.reason}`);
+      expect(result.engineerId).toBe(3);
+      expect(result.route.spawn).toEqual(spawnRow(0));
+      expect(result.route.waypoints[0]).toEqual(spawnRow(0));
+      expect(result.route.waypoints[result.route.waypoints.length - 1]).toEqual(RELEASE_POINT_CELL);
+      expect(result.route.id).toBe(Math.max(...routes.map((route) => route.id)) + 1);
+      expect(result.routes).toEqual([...routes, result.route]);
+      expect(result.engineers).toHaveLength(engineers.length + 1);
+      const placed = result.engineers.at(-1);
+      expect(placed?.id).toBe(3);
+      expect(placed?.rank).toBe(rank);
+      expect(placed?.salary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+      expect(placed?.initialSalary).toBe(ENGINEER_MONTHLY_SALARY_BY_RANK[rank]);
+      expect(placed?.routeId).toBe(result.route.id);
+      result.engineers.slice(0, -1).forEach((engineer, index) => expect(engineer).toBe(engineers[index]));
+      // 入力は変更しない。
+      expect({ engineers, routes }).toEqual(snapshot);
+    },
+  );
+
+  it('シニア → ジュニアの順に置くと、それぞれの行のルートの担当者が指定したランクになる', () => {
+    const senior = placeInitialEngineer(hireStateOf([]), 'senior', [], [], spawnRow(2), seededRandom(1));
+    if (!senior.ok) throw new Error(`置けませんでした: ${senior.reason}`);
+    const junior = placeInitialEngineer(hireStateOf(senior.engineers), 'junior', senior.routes, [], spawnRow(6), seededRandom(2));
+    if (!junior.ok) throw new Error(`置けませんでした: ${junior.reason}`);
+    const rankOnRow = (row: number): EngineerRank | undefined => {
+      const route = junior.routes.find((candidate) => candidate.spawn.row === row);
+      return junior.engineers.find((engineer) => engineer.routeId === route?.id)?.rank;
+    };
+    expect(rankOnRow(2)).toBe('senior');
+    expect(rankOnRow(6)).toBe('junior');
+    expect(junior.engineers.map((engineer) => engineer.id)).toEqual([0, 1]);
   });
 
-  it('未配置が複数なら名簿の並びで最初の人から置く', () => {
-    const { engineers, routes } = withoutEngineers([2, 0]);
-    const first = placeInitialEngineer(engineers, routes, [], spawnRow(8), seededRandom(5));
-    if (!first.ok) throw new Error(`置けませんでした: ${first.reason}`);
-    expect(first.engineerId).toBe(0);
-    const second = placeInitialEngineer(first.engineers, first.routes, [], spawnRow(0), seededRandom(6));
-    if (!second.ok) throw new Error(`置けませんでした: ${second.reason}`);
-    expect(second.engineerId).toBe(2);
+  it(`境界値: ${MAX_ENGINEERS - 1}人なら${MAX_ENGINEERS}人目を置け、${MAX_ENGINEERS}人なら limit（置けないセルより先に判定する）`, () => {
+    const almostFull = placeJuniors(MAX_ENGINEERS - 1);
+    const last = placeInitialEngineer(
+      hireStateOf(almostFull.engineers, almostFull.nextId),
+      'senior',
+      almostFull.routes,
+      [],
+      spawnRow(MAX_ENGINEERS - 1),
+      seededRandom(1),
+    );
+    if (!last.ok) throw new Error(`置けませんでした: ${last.reason}`);
+    expect(last.engineers).toHaveLength(MAX_ENGINEERS);
+    const full = placeJuniors(MAX_ENGINEERS);
+    expect(full.engineers).toHaveLength(MAX_ENGINEERS);
+    expect(placeInitialEngineer(hireStateOf(full.engineers, full.nextId), 'junior', full.routes, [], spawnRow(0), seededRandom(1))).toEqual({
+      ok: false,
+      reason: 'limit',
+    });
+    // 上限の判定は置けないセルより先（出現列の右隣でも limit）。
+    expect(
+      placeInitialEngineer(hireStateOf(full.engineers, full.nextId), 'junior', full.routes, [], { col: 1, row: 0 }, seededRandom(1)),
+    ).toEqual({ ok: false, reason: 'limit' });
   });
 
-  it('判定順: 置けないセル → 未配置のエンジニアがいない → アイテムと重なる', () => {
-    const full = fleet();
-    // 全員配置済みでも、置けないセルなら notCandidate。
-    expect(placeInitialEngineer(full.engineers, full.routes, [], { col: 1, row: 0 }, seededRandom(1))).toEqual({
-      ok: false,
-      reason: 'notCandidate',
-    });
-    expect(placeInitialEngineer(full.engineers, full.routes, [], spawnRow(0), seededRandom(1))).toEqual({
-      ok: false,
-      reason: 'noUnplacedEngineer',
-    });
+  it('判定順: 雇用の上限 → 置けないセル → アイテムと重なる。失敗しても名簿・ルート・次の id は変えない', () => {
     const { engineers, routes } = withoutEngineers([0]);
-    expect(placeInitialEngineer(engineers, routes, [], spawnRow(4), seededRandom(1))).toEqual({
+    const items = [itemAt(0, onRow0Line)];
+    const snapshot = structuredClone({ engineers, routes, items });
+    const hireState = hireStateOf(engineers, 3);
+    // 出現列の右隣・使用中の出現セル（行4）は notCandidate。
+    expect(placeInitialEngineer(hireState, 'junior', routes, [], { col: 1, row: 0 }, seededRandom(1))).toEqual({
       ok: false,
       reason: 'notCandidate',
     });
-    expect(placeInitialEngineer(engineers, routes, [itemAt(0, onRow0Line)], spawnRow(0), seededRandom(1))).toEqual({
+    expect(placeInitialEngineer(hireState, 'junior', routes, [], spawnRow(4), seededRandom(1))).toEqual({
+      ok: false,
+      reason: 'notCandidate',
+    });
+    expect(placeInitialEngineer(hireState, 'junior', routes, items, spawnRow(0), seededRandom(1))).toEqual({
       ok: false,
       reason: 'overlapsItem',
     });
+    expect({ engineers, routes, items }).toEqual(snapshot);
+    expect(hireState.nextId).toBe(3);
   });
 
   it('作ったルートは配置済みアイテムの見た目の四角に重ならない（多数のシード）', () => {
@@ -684,7 +754,7 @@ describe('placeInitialEngineer: エンジニアを置いてルートを自動で
     // 行0から出て、下りる列によっては通る位置（x=200 付近、行0の線上）のアイテム。
     const items = [itemAt(0, pointToPlacementCell({ x: 200, y: 24 }))];
     for (let seed = 1; seed <= 50; seed++) {
-      const result = placeInitialEngineer(engineers, routes, items, spawnRow(0), seededRandom(seed));
+      const result = placeInitialEngineer(hireStateOf(engineers), 'junior', routes, items, spawnRow(0), seededRandom(seed));
       if (!result.ok) continue;
       expect(isPlaceableCell(items[0].cell, { routes: [result.route], placedItems: [], blockedRects: [] })).toBe(true);
     }
@@ -694,8 +764,10 @@ describe('placeInitialEngineer: エンジニアを置いてルートを自動で
     const { engineers, routes } = withoutEngineers([0]);
     const items = [itemAt(0, pointToPlacementCell({ x: 200, y: 24 }))];
     // 同じ乱数列で何回目に重ならないルートが出るかを数え、2回目以降に出るシードを使う。
+    // placeInitialEngineer はルートを作る前に雇う（性格を random で選ぶ）ので、同じ順で乱数を使ってから数える。
     const firstAvoidingAttempt = (seed: number): number | undefined => {
       const random = seededRandom(seed);
+      hireEngineer(hireStateOf(engineers), 'junior', { max: MAX_ENGINEERS }, random);
       for (let attempt = 1; attempt <= INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS; attempt++) {
         const route = addRouteAt(routes, spawnRow(0), random);
         if (route === undefined) throw new Error('ルートを作れませんでした');
@@ -707,8 +779,8 @@ describe('placeInitialEngineer: エンジニアを置いてルートを自動で
     if (seed === undefined) throw new Error('2回目以降に重ならないルートが出るシードが見つかりません');
     const attempts = firstAvoidingAttempt(seed);
     if (attempts === undefined) throw new Error('回数が数えられません');
-    expect(placeInitialEngineer(engineers, routes, items, spawnRow(0), seededRandom(seed), attempts).ok).toBe(true);
-    expect(placeInitialEngineer(engineers, routes, items, spawnRow(0), seededRandom(seed), attempts - 1)).toEqual({
+    expect(placeInitialEngineer(hireStateOf(engineers), 'junior', routes, items, spawnRow(0), seededRandom(seed), attempts).ok).toBe(true);
+    expect(placeInitialEngineer(hireStateOf(engineers), 'junior', routes, items, spawnRow(0), seededRandom(seed), attempts - 1)).toEqual({
       ok: false,
       reason: 'overlapsItem',
     });
@@ -724,93 +796,92 @@ describe('placeInitialEngineer: エンジニアを置いてルートを自動で
       calls += 1;
       return random();
     };
-    expect(placeInitialEngineer(engineers, routes, items, spawnRow(0), counting)).toEqual({ ok: false, reason: 'overlapsItem' });
+    expect(placeInitialEngineer(hireStateOf(engineers), 'junior', routes, items, spawnRow(0), counting)).toEqual({
+      ok: false,
+      reason: 'overlapsItem',
+    });
     expect(calls).toBeGreaterThanOrEqual(INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS);
     expect({ engineers, routes, items }).toEqual(snapshot);
   });
 
   it('出現列の全行に置ける（ルートの上限 MAX_ENGINEER_ROUTES = 行数に収まる）', () => {
-    const engineers: Engineer[] = Array.from({ length: MAX_ENGINEER_ROUTES }, (_, id) => ({
-      ...fleet().engineers[0],
-      id,
-      routeId: null,
-    }));
-    const final = Array.from({ length: FIELD_ROWS }, (_, row) => row).reduce(
-      (state, row) => {
-        const result = placeInitialEngineer(state.engineers, state.routes, [], spawnRow(row), seededRandom(row + 1));
-        if (!result.ok) throw new Error(`行${row}に置けませんでした: ${result.reason}`);
-        return { engineers: result.engineers, routes: result.routes };
-      },
-      { engineers, routes: [] as Route[] },
-    );
+    const final = placeJuniors(FIELD_ROWS);
     expect(final.routes).toHaveLength(MAX_ENGINEER_ROUTES);
+    expect(final.engineers).toHaveLength(FIELD_ROWS);
     expect(canStartPlay(final.engineers)).toBe(true);
   });
 });
 
-describe('removeInitialEngineer / canStartPlay: エンジニアを外す・開始の条件(#157)', () => {
-  it('外すとルートを除き routeId を null に戻す。名簿からは外さず、他の人とルートは変えない', () => {
+describe('removeInitialEngineer: エンジニアを外す(#157, #184)', () => {
+  it('外すとルートを除き、名簿からも外す。他の人とルートは変えず、入力は変更しない', () => {
     const { engineers, routes } = fleet();
+    const snapshot = structuredClone({ engineers, routes });
     const result = removeInitialEngineer(engineers, routes, 1);
     if (!result.ok) throw new Error(`外せませんでした: ${result.reason}`);
     expect(result.routeId).toBe(engineers[1].routeId);
-    expect(result.engineers).toHaveLength(engineers.length);
-    expect(result.engineers[1].routeId).toBeNull();
+    expect(result.engineers).toHaveLength(engineers.length - 1);
+    expect(result.engineers.map((engineer) => engineer.id)).toEqual([0, 2]);
     expect(result.engineers[0]).toBe(engineers[0]);
+    expect(result.engineers[1]).toBe(engineers[2]);
     expect(result.routes).toEqual(routes.filter((route) => route.id !== engineers[1].routeId));
-    expect(engineers[1].routeId).not.toBeNull();
+    expect({ engineers, routes }).toEqual(snapshot);
   });
 
-  it('いない id は notFound、配置していない人は notPlaced', () => {
-    const { engineers, routes } = withoutEngineers([1]);
+  it('境界値: 最後の1人を外すと名簿もルートも空になり、始められなくなる', () => {
+    const one = placeJuniors(1);
+    const result = removeInitialEngineer(one.engineers, one.routes, 0);
+    if (!result.ok) throw new Error(`外せませんでした: ${result.reason}`);
+    expect(result.engineers).toEqual([]);
+    expect(result.routes).toEqual([]);
+    expect(canStartPlay(result.engineers)).toBe(false);
+  });
+
+  it('外したあとに置くと、外した人の id は再利用せず次の id で雇う', () => {
+    const two = placeJuniors(2);
+    const removed = removeInitialEngineer(two.engineers, two.routes, 1);
+    if (!removed.ok) throw new Error(`外せませんでした: ${removed.reason}`);
+    const placed = placeInitialEngineer(hireStateOf(removed.engineers, two.nextId), 'middle', removed.routes, [], spawnRow(1), seededRandom(3));
+    if (!placed.ok) throw new Error(`置けませんでした: ${placed.reason}`);
+    expect(placed.engineerId).toBe(2);
+    expect(placed.engineers.map((engineer) => engineer.id)).toEqual([0, 2]);
+  });
+
+  it('いない id は notFound、ルートのない人は notPlaced（名簿・ルートは変えない）', () => {
+    const { engineers, routes } = fleet();
     expect(removeInitialEngineer(engineers, routes, 99)).toEqual({ ok: false, reason: 'notFound' });
-    expect(removeInitialEngineer(engineers, routes, 1)).toEqual({ ok: false, reason: 'notPlaced' });
+    const unassigned = engineers.map((engineer) => (engineer.id === 1 ? { ...engineer, routeId: null } : engineer));
+    expect(removeInitialEngineer(unassigned, routes, 1)).toEqual({ ok: false, reason: 'notPlaced' });
   });
 
   it('filterPlacedEngineers は routeId がある人だけを返す（全員・N-1人・0人 #176）', () => {
     const { engineers } = fleet();
     expect(filterPlacedEngineers(engineers)).toHaveLength(engineers.length);
-    const missingOne = withoutEngineers([2]).engineers;
-    expect(filterPlacedEngineers(missingOne).map((engineer) => engineer.id)).toEqual(
-      engineers.filter((engineer) => engineer.id !== 2).map((engineer) => engineer.id),
-    );
-    expect(filterPlacedEngineers(withoutEngineers([0, 1, 2]).engineers)).toEqual([]);
+    const missingOne = engineers.map((engineer) => (engineer.id === 2 ? { ...engineer, routeId: null } : engineer));
+    expect(filterPlacedEngineers(missingOne).map((engineer) => engineer.id)).toEqual([0, 1]);
+    expect(filterPlacedEngineers(engineers.map((engineer) => ({ ...engineer, routeId: null })))).toEqual([]);
     expect(filterPlacedEngineers([])).toEqual([]);
-  });
-
-  it('境界値: 全員（N 人）配置なら開始でき、N-1 人なら開始できない', () => {
-    const { engineers } = fleet();
-    expect(countUnplacedEngineers(engineers)).toBe(0);
-    expect(canStartPlay(engineers)).toBe(true);
-    const missingOne = withoutEngineers([2]).engineers;
-    expect(countUnplacedEngineers(missingOne)).toBe(1);
-    expect(canStartPlay(missingOne)).toBe(false);
-    expect(canStartPlay(withoutEngineers([0, 1, 2]).engineers)).toBe(false);
-  });
-
-  it('境界値(#172): 0人（名簿が空）では始められず、配置済みが INITIAL_PLACEMENT_MIN_ENGINEERS 人ちょうどなら始められる', () => {
-    expect(INITIAL_PLACEMENT_MIN_ENGINEERS).toBe(1);
-    expect(canStartPlay([])).toBe(false);
-    const onlyFirst = fleet().engineers.slice(0, INITIAL_PLACEMENT_MIN_ENGINEERS);
-    expect(onlyFirst).toHaveLength(INITIAL_PLACEMENT_MIN_ENGINEERS);
-    expect(onlyFirst.every((engineer) => engineer.routeId !== null)).toBe(true);
-    expect(canStartPlay(onlyFirst)).toBe(true);
-    // 1人雇って未配置のまま（配置済み0人・未配置1人）は始められない。
-    expect(canStartPlay(withoutEngineers([0]).engineers.slice(0, 1))).toBe(false);
   });
 });
 
-describe('canStartPlay: 初期人数を強制しない(#178)', () => {
-  it('境界値: 2人雇って2人とも配置済みなら始められる（3人を強制しない）。2人のうち1人が未配置なら始められない', () => {
-    const twoPlaced = fleet().engineers.slice(0, 2);
-    expect(twoPlaced).toHaveLength(2);
-    expect(twoPlaced.every((engineer) => engineer.routeId !== null)).toBe(true);
-    expect(countUnplacedEngineers(twoPlaced)).toBe(0);
-    expect(canStartPlay(twoPlaced)).toBe(true);
-    const oneUnplaced = withoutEngineers([1]).engineers.slice(0, 2);
-    expect(oneUnplaced).toHaveLength(2);
-    expect(countUnplacedEngineers(oneUnplaced)).toBe(1);
-    expect(canStartPlay(oneUnplaced)).toBe(false);
+describe('canStartPlay: 開始の条件は配置済みが1人以上だけ(#172, #178, #184)', () => {
+  it('境界値: 0人では始められない（INITIAL_PLACEMENT_MIN_ENGINEERS = 1）', () => {
+    expect(INITIAL_PLACEMENT_MIN_ENGINEERS).toBe(1);
+    expect(canStartPlay([])).toBe(false);
+  });
+
+  it.each([1, 2, 3, MAX_ENGINEERS])('境界値: 配置済み %i 人なら始められる（3人を強制しない #178）', (count) => {
+    const placed = placeJuniors(count);
+    expect(placed.engineers).toHaveLength(count);
+    expect(canStartPlay(placed.engineers)).toBe(true);
+  });
+
+  it('ランクを混ぜて置いても始められる（シニア1人・ミドル1人）', () => {
+    const senior = placeInitialEngineer(hireStateOf([]), 'senior', [], [], spawnRow(0), seededRandom(1));
+    if (!senior.ok) throw new Error(`置けませんでした: ${senior.reason}`);
+    expect(canStartPlay(senior.engineers)).toBe(true);
+    const middle = placeInitialEngineer(hireStateOf(senior.engineers), 'middle', senior.routes, [], spawnRow(8), seededRandom(2));
+    if (!middle.ok) throw new Error(`置けませんでした: ${middle.reason}`);
+    expect(canStartPlay(middle.engineers)).toBe(true);
   });
 });
 
@@ -819,21 +890,18 @@ describe('formatStartPlayBlockedMessage: 始められないときのメッセー
     setLocale('ja');
   });
 
-  it('0人なら雇って置くよう、未配置の人がいれば全員置くよう案内する', () => {
+  it('0人なら雇って置くよう案内する', () => {
     expect(formatStartPlayBlockedMessage([])).toBe('エンジニアを1人以上雇って配置してください');
-    expect(formatStartPlayBlockedMessage(withoutEngineers([2]).engineers)).toBe('エンジニアを全員配置してください');
-    // 全員未配置（配置済み0人）でも、未配置の人がいれば全員置くよう案内する。
-    expect(formatStartPlayBlockedMessage(withoutEngineers([0, 1, 2]).engineers)).toBe('エンジニアを全員配置してください');
   });
 
-  it('英語でも同じ判定で出し分ける', () => {
+  it('英語でも同じ判定で出す', () => {
     setLocale('en');
     expect(formatStartPlayBlockedMessage([])).toBe('Hire and place at least one engineer');
-    expect(formatStartPlayBlockedMessage(withoutEngineers([2]).engineers)).toBe('Place all engineers first');
   });
 
   it('始められる状態で呼ぶと投げる', () => {
     expect(() => formatStartPlayBlockedMessage(fleet().engineers)).toThrow();
+    expect(() => formatStartPlayBlockedMessage(placeJuniors(1).engineers)).toThrow();
   });
 });
 
@@ -845,18 +913,19 @@ describe('初期配置の文言と×ボタンの位置(#157)', () => {
     }
   });
 
-  it('エンジニアの選択ボタンは未配置の人数を出す', () => {
-    expect(formatInitialPlacementEngineerButton(0)).toBe('エンジニア 残り0人');
-    expect(formatInitialPlacementEngineerButton(3)).toBe('エンジニア 残り3人');
+  it('エンジニアの選択ボタンは次に置くランクを出す(#184)', () => {
+    expect(formatInitialPlacementEngineerButton('junior')).toBe('エンジニア: ジュニア');
+    expect(formatInitialPlacementEngineerButton('middle')).toBe('エンジニア: ミドル');
+    expect(formatInitialPlacementEngineerButton('senior')).toBe('エンジニア: シニア');
   });
 
-  it('エンジニアの配置の結果メッセージ', () => {
+  it('エンジニアの配置の結果メッセージ。上限は雇うときと同じメッセージ(#184)', () => {
     const { engineers, routes } = withoutEngineers([0]);
-    expect(formatEngineerPlacementMessage(placeInitialEngineer(engineers, routes, [], spawnRow(0), seededRandom(1)))).toBe(
-      'エンジニアを置きました',
-    );
+    expect(
+      formatEngineerPlacementMessage(placeInitialEngineer(hireStateOf(engineers), 'junior', routes, [], spawnRow(0), seededRandom(1))),
+    ).toBe('エンジニアを置きました');
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'limit' })).toBe('これ以上雇えません');
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'notCandidate' })).toBe('エンジニアはここに置けません');
-    expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('置けるエンジニアがいません。先に雇ってください');
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'overlapsItem' })).toBe('アイテムと重なるため置けません');
   });
 
@@ -902,14 +971,14 @@ describe('初期配置の文言（英語 #158）', () => {
     expect(lines).toHaveLength(INITIAL_PLACEMENT_PANEL_LINES);
     expect(lines[0]).toBe(`Setup - Points left: ${STAGE_POINTS_INITIAL}pt`);
     expect(lines[1]).toBe(`Selected: Linter ${linterCost}pt`);
-    expect(formatInitialPlacementPanel(0, { kind: 'engineer' })).toEqual(['Setup - Points left: 0pt', 'Selected: Engineer']);
+    expect(formatInitialPlacementPanel(0, { kind: 'engineer', rank: 'senior' })).toEqual(['Setup - Points left: 0pt', 'Selected: Engineer (Senior)']);
     expect(formatInitialPlacementPanel(0, { kind: 'none' })[1]).toBe('Selected: None');
   });
 
   it('アイテムの枠・エンジニアの選択ボタン', () => {
     expect(formatInitialPlacementItemButton('linter')).toBe(`Linter ${linterCost}pt`);
-    expect(formatInitialPlacementEngineerButton(0)).toBe('Engineers left: 0');
-    expect(formatInitialPlacementEngineerButton(3)).toBe('Engineers left: 3');
+    expect(formatInitialPlacementEngineerButton('junior')).toBe('Engineer: Junior');
+    expect(formatInitialPlacementEngineerButton('middle')).toBe('Engineer: Mid');
   });
 
   it('結果メッセージ', () => {
@@ -919,7 +988,7 @@ describe('初期配置の文言（英語 #158）', () => {
     expect(formatInitialPlacementMessage({ ok: false, reason: 'unknownItem' }, 'foo')).toBe('Unknown item: foo');
     expect(formatInitialPlacementMessage({ ok: false, reason: 'locked' }, 'ci')).toBe('Item not unlocked yet');
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'notCandidate' })).toBe("Engineers can't go here");
-    expect(formatEngineerPlacementMessage({ ok: false, reason: 'noUnplacedEngineer' })).toBe('No engineer to place. Hire one first');
+    expect(formatEngineerPlacementMessage({ ok: false, reason: 'limit' })).toBe("Can't hire any more");
     expect(formatEngineerPlacementMessage({ ok: false, reason: 'overlapsItem' })).toBe("Can't place: overlaps an item");
     expect(getMessages().initialPlacement.startButton).toBe('Start');
   });

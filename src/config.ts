@@ -796,7 +796,7 @@ export const RELEASE_BURST = {
 // 仮・要確認(#47): 企画書(8)は「ステージポイントによる初期配置」とだけで、ポイントの初期値・コスト・返却・持ち越し・開始条件は未記載。以下はすべて仮の値（要調整。一次資料に定義なし）。
 // 仮の規則: ステージポイントは資金(funds)とは別の単位で、プレイ開始前（初期配置フェーズ）にだけ使う。資金は変えない。
 // 配置済みのアイテムは右上の×で撤去して、そのコストを全額返す(#157)。配置ゼロ・残ポイントありでも開始でき、残ポイントは開始時に破棄する（持ち越さない）。
-// 開始できるのは初期エンジニアを全員配置したときだけ(#157)。
+// 開始できるのはエンジニアを INITIAL_PLACEMENT_MIN_ENGINEERS 人以上置いたときだけ(#172。#184 で「全員配置」の条件はやめた)。
 // 再開始（倒産後のリスタート）では毎回 STAGE_POINTS_INITIAL・配置なしから始める。月額アイテムの月額費用は、プレイ中に買ったものと同じく資金から引く(#51)。
 // 仮・要確認(#47): ステージ開始時のステージポイント。
 export const STAGE_POINTS_INITIAL = 6;
@@ -841,7 +841,7 @@ export const INITIAL_PLACEMENT_START_BUTTON_POSITION = {
 // 仮・要確認(#157): 選択中のアイテムの枠・エンジニアの選択ボタンの強調色（塗り・枠線）。通常の色は ITEM_BUTTON_COLORS / HIRE_BUTTON_COLORS。
 // #156 からはメニューの現在値（開発バランスの割合・付けている AIエージェント）と開いているアイコンの強調にも使う。
 export const INITIAL_PLACEMENT_SELECTED_COLORS = { fill: 0x5d4a12, stroke: 0xffd54f } as const;
-// 仮・要確認(#157): 開始できない（未配置のエンジニアがいる）ときの開始ボタンの不透明度。開始できるときは 1。
+// 仮・要確認(#157): 開始できない（置いたエンジニアが INITIAL_PLACEMENT_MIN_ENGINEERS 人に足りない #184）ときの開始ボタンの不透明度。開始できるときは 1。
 export const INITIAL_PLACEMENT_START_BUTTON_ALPHA = { enabled: 1, disabled: 0.4 } as const;
 // 仮・要確認(#47): 初期配置の結果メッセージ（「Linterを置きました」など）の位置・色・表示時間（ミリ秒）。ボタンの行の下（#165 で y=148〜168）。
 export const INITIAL_PLACEMENT_MESSAGE_POSITION = {
@@ -915,8 +915,11 @@ export const PLACEMENT_PREVIEW = {
 // 上限まで重なったら置かない（アイテムは勝手に撤去しない）。
 export const INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS = 20;
 // 仮・要確認(#172): プレイを始めるのに配置しておくエンジニアの最少人数。初期は0人なので、雇って置かずに始めると何も流れない。
-// 0人のまま始めさせないよう1人以上にする（未配置の人がいれば、この人数に関係なく全員置くまで始められない）。
+// 0人のまま始めさせないよう1人以上にする。初期配置の間は雇うのと置くのを同時に行うので、未配置の人はいない(#184)。
 export const INITIAL_PLACEMENT_MIN_ENGINEERS = 1;
+// 仮・要確認(#184): 初期配置で最初に選んでいるエンジニアのランク（ENGINEER_RANKS の id）。エンジニアのメニューでランクを選ぶまで、
+// エンジニアの選択ボタンはこのランクを置く。
+export const INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK: (typeof ENGINEER_RANKS)[number]['id'] = 'junior';
 
 // 仮・要確認(#156): 「画面の情報が多すぎる」への対応。常時表示を経過日数（左上）・右上の3つのアイコン・右下の小さな指標だけにし、
 // 雇用・昇給減給・アイテム購入・開発バランスはアイコンを押すと縦に開くメニュー、休暇・AIエージェントは出現地点を押すと開くポップオーバーに移す。

@@ -15,6 +15,7 @@ import {
   INCIDENT_FLASH_COLOR,
   INCIDENT_FLASH_DURATION_MS,
   INITIAL_FUNDS,
+  INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK,
   INITIAL_PLACEMENT_START_BUTTON_ALPHA,
   INITIAL_PLACEMENT_UI_BOUNDS,
   INPUT_ACTIVE_POINTERS,
@@ -187,6 +188,7 @@ import {
   formatSalaryMessage,
   hireEngineer,
   isAssigneeOnVacation,
+  isEngineerRank,
   selectAdjacentEngineerId,
   isEngineerOnVacation,
   partitionResignedEngineers,
@@ -196,6 +198,7 @@ import {
 import type {
   Engineer,
   EngineerHiredPayload,
+  EngineerRank,
   EngineerResignedPayload,
   EngineerSelectDirection,
   SalaryDirection,
@@ -242,7 +245,6 @@ import {
 import type { ItemPlacedPayload, ItemUsedPayload, PlacedItem } from './itemPlacement';
 import {
   canStartPlay,
-  countUnplacedEngineers,
   createInitialPlacementState,
   filterPlacedEngineers,
   engineerRemoveButtonCenter,
@@ -366,6 +368,8 @@ class MainScene extends Phaser.Scene {
   private initialPlacement: InitialPlacementState = createInitialPlacementState();
   // 初期配置で次に置くもの（アイテムのメニューでアイテム #156、エンジニアの選択ボタンでエンジニアを選ぶ #157）。最初は未選択。
   private initialPlacementSelection: InitialPlacementSelection = { kind: 'none' };
+  // 初期配置で次に置くエンジニアのランク(#184)。エンジニアのメニューのランクのボタンで選び、エンジニアの選択ボタンでこのランクを選び直す。
+  private initialPlacementEngineerRank: EngineerRank = INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK;
   // 初期配置で置いたアイテムの描画（アイテム id がキー）。撤去で destroy() する。プレイ開始後は使わない。
   private initialPlacementDrawings = new Map<number, Phaser.GameObjects.Container>();
   // 初期配置の取消（×）ボタン(#157)。アイテム用はアイテム id、エンジニア用はエンジニア id がキー。撤去時・プレイ開始時に destroy() する。
@@ -456,6 +460,7 @@ class MainScene extends Phaser.Scene {
     this.phase = 'setup';
     this.initialPlacement = createInitialPlacementState();
     this.initialPlacementSelection = { kind: 'none' };
+    this.initialPlacementEngineerRank = INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK;
     this.initialPlacementDrawings = new Map();
     this.initialPlacementMessageText = undefined;
     // 置けるかどうかを示す枠(#162)。隠した状態で作る（前回の枠は Phaser が破棄済みなので作り直す）。
@@ -486,11 +491,12 @@ class MainScene extends Phaser.Scene {
     );
     this.initialPlacementEngineerButton = drawInitialPlacementEngineerButton(
       this,
-      formatInitialPlacementEngineerButton(countUnplacedEngineers(this.engineers)),
+      formatInitialPlacementEngineerButton(this.initialPlacementEngineerRank),
       () => this.selectInitialPlacementEngineer(),
     );
     this.initialPlacementStartButton = drawInitialPlacementStartButton(this, () => this.startPlay());
-    // 初期エンジニアは0人で始める(#172)。setup 中にエンジニアのメニューで雇い、候補セルに置く。位置を変えるときは×で外して置き直す(#157)。
+    // 初期エンジニアは0人で始める(#172)。setup 中にエンジニアのメニューでランクを選び、候補セルを押すとそのランクを雇って置く(#184)。
+    // 位置を変えるときは×で外して置き直す(#157)。
     // 初期編成（createInitialFleet）に人がいれば、既定の出現場所に置いた状態にして×ボタンを付ける。
     this.itemRemoveButtons = new Map();
     this.engineerRemoveButtons = new Map();
@@ -657,13 +663,19 @@ class MainScene extends Phaser.Scene {
     this.refreshInitialPlacementControls();
   }
 
-  // 初期配置で次に置くものをエンジニアにする(#157)。未配置のエンジニアがいなくても選べる（置こうとしたときにメッセージを出す）。
+  // 初期配置で次に置くものをエンジニアにする(#157)。ランクは最後に選んだもの（最初は INITIAL_PLACEMENT_DEFAULT_ENGINEER_RANK #184）。
   private selectInitialPlacementEngineer(): void {
     if (this.phase !== 'setup') {
       return;
     }
-    this.initialPlacementSelection = { kind: 'engineer' };
+    this.initialPlacementSelection = { kind: 'engineer', rank: this.initialPlacementEngineerRank };
     this.refreshInitialPlacementControls();
+  }
+
+  // 初期配置で次に置くエンジニアのランクを選び、次に置くものをそのランクのエンジニアにする(#184)。雇うのは床を押したとき。
+  private selectInitialPlacementEngineerRank(rank: EngineerRank): void {
+    this.initialPlacementEngineerRank = rank;
+    this.selectInitialPlacementEngineer();
   }
 
   // 初期配置UIの表示を今の状態に合わせる(#157)。パネル・エンジニアの選択ボタン・アイテムのメニューの強調・エンジニアを置ける床・開始ボタンの見た目。
@@ -672,7 +684,7 @@ class MainScene extends Phaser.Scene {
     this.initialPlacementPanelText?.setText([
       ...formatInitialPlacementPanel(this.initialPlacement.points, this.initialPlacementSelection),
     ]);
-    this.initialPlacementEngineerButton?.setLabel(formatInitialPlacementEngineerButton(countUnplacedEngineers(this.engineers)));
+    this.initialPlacementEngineerButton?.setLabel(formatInitialPlacementEngineerButton(this.initialPlacementEngineerRank));
     this.initialPlacementEngineerButton?.setSelected(this.initialPlacementSelection.kind === 'engineer');
     this.engineerCandidateOverlay?.destroy();
     this.engineerCandidateOverlay = drawEngineerCandidateOverlay(
@@ -708,7 +720,7 @@ class MainScene extends Phaser.Scene {
       return;
     }
     if (selection.kind === 'engineer') {
-      this.placeInitialEngineerAt(point);
+      this.placeInitialEngineerAt(point, selection.rank);
       return;
     }
     const itemType = selection.itemType;
@@ -759,15 +771,17 @@ class MainScene extends Phaser.Scene {
     this.refreshMonthEndPayment();
   }
 
-  // 押した点を含むルートグリッド（60px）のセルに、未配置の初期エンジニアを1人置いてルートを自動で作る(#157)。
-  // ルートと出現場所は雇用時（addEngineerRoute）と同じく1本だけ描き、休暇マーカーと×ボタンを付ける。未配置が0人になったら未選択に戻す。
-  private placeInitialEngineerAt(point: { readonly x: number; readonly y: number }): void {
+  // 押した点を含むルートグリッド（60px）のセルに、選んだランク（rank）のエンジニアを雇って置き、ルートを自動で作る(#157, #184)。
+  // ルートと出現場所は雇用時（addEngineerRoute）と同じく1本だけ描き、休暇マーカーと×ボタンを付ける。
+  // 置いたあともエンジニアを選んだままにして続けて置ける（アイテムと同じ）。置いた人をエンジニアのメニューに出す。
+  private placeInitialEngineerAt(point: { readonly x: number; readonly y: number }, rank: EngineerRank): void {
     const cell = pointToRouteCell(point);
     if (cell === undefined) {
       throw new Error(`フィールド内の点がルートグリッドのセルになりません: (${point.x}, ${point.y})`);
     }
     const result = placeInitialEngineer(
-      this.engineers,
+      { engineers: this.engineers, nextId: this.nextEngineerId },
+      rank,
       this.routes,
       this.initialPlacement.itemState.placedItems,
       cell,
@@ -779,15 +793,16 @@ class MainScene extends Phaser.Scene {
     }
     this.routes = result.routes;
     this.engineers = result.engineers;
+    this.nextEngineerId = result.engineerId + 1;
     this.drawAddedRoute(result.route);
     const engineer = this.engineers.find((candidate) => candidate.id === result.engineerId);
     if (engineer === undefined) {
       throw new Error(`配置したエンジニアが見つかりません: id=${result.engineerId}`);
     }
     this.addEngineerRemoveButton(engineer);
-    if (countUnplacedEngineers(this.engineers) === 0) {
-      this.initialPlacementSelection = { kind: 'none' };
-    }
+    // 置いた人を選び、エンジニアのメニューの人数・そのランクと月給の表示を更新する(#176)。
+    this.selectedEngineerId = engineer.id;
+    this.refreshSelectedEngineer();
     this.refreshInitialPlacementControls();
     // 置いた人の月給（とAIエージェントの月額）が月末に支払うお金に加わる(#176)。配置に失敗したときは上で戻っているので更新しない。
     this.refreshMonthEndPayment();
@@ -809,7 +824,7 @@ class MainScene extends Phaser.Scene {
     );
   }
 
-  // ×ボタンで初期配置のエンジニアを外す(#157)。ルートを除き、線・出現場所・休暇マーカーと×ボタンを消す。エンジニアは未配置に戻る（名簿には残る）。
+  // ×ボタンで初期配置のエンジニアを外す(#157)。ルートを除き、線・出現場所・休暇マーカーと×ボタンを消す。エンジニアは名簿からも外す(#184)。
   private removeInitialPlacedEngineer(engineerId: number): void {
     if (this.phase !== 'setup') {
       return;
@@ -824,13 +839,18 @@ class MainScene extends Phaser.Scene {
     this.engineerRemoveButtons.get(engineerId)?.destroy();
     this.engineerRemoveButtons.delete(engineerId);
     this.showInitialPlacementMessage(getMessages().initialPlacement.engineerRemoved);
+    // 選んでいた人を外したら、残る先頭の人を選ぶ（いなければ null。退職 #32 と同じ）。エンジニアのメニューの人数も更新する。
+    if (this.findSelectedEngineer() === null) {
+      this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, null, 'next');
+    }
+    this.refreshSelectedEngineer();
     this.refreshInitialPlacementControls();
-    // 外した人は未配置に戻るので、その月給が月末に支払うお金から減る(#176)。
+    // 外した人は名簿からいなくなるので、その月給が月末に支払うお金から減る(#176)。
     this.refreshMonthEndPayment();
   }
 
-  // 初期配置(#47)を終えてプレイを始める。配置ゼロ・残ポイントありでも始められる（残ポイントは破棄）。
-  // 未配置の初期エンジニアがいるときは始めず、メッセージを出して setup のままにする(#157)。
+  // 初期配置(#47)を終えてプレイを始める。アイテムの配置ゼロ・残ポイントありでも始められる（残ポイントは破棄）。
+  // 置いたエンジニアが INITIAL_PLACEMENT_MIN_ENGINEERS 人に足りないときは始めず、メッセージを出して setup のままにする(#172)。
   // 順序: 配置を引き継ぐ → 初期配置UIを消す → playing にする → アイコンの薄い表示を戻し、アイテムのメニューを通常の表示（金額）に戻す
   // → 月末に支払うお金をプレイ中の配置で求め直す → 押したままのポインターで主人公が動かないようにする。
   private startPlay(): void {
@@ -1099,11 +1119,20 @@ class MainScene extends Phaser.Scene {
     this.refreshMenu('balance');
   }
 
-  // ランクを指定して雇う。ゲームオーバー中は何もしない。初期配置の間もプレイ中も雇える(#172)。
+  // ランクを指定して雇う。ゲームオーバー中は何もしない。
+  // 初期配置の間(#184)は雇わずに次に置くランクを選ぶだけにし、床を押したときに雇って置く（未配置の人を作らない）。
   // 雇うときの費用はない(#179)ので資金は変えない（資金のイベントも倒産判定も起こさない）。エンジニアにかかるお金は月末の給料だけ。
-  // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う（初期配置の間は追加せず、未配置のまま置かせる #172）。
+  // ルートの追加は ENGINEER_HIRED_EVENT を購読する onEngineerHired が行う。
   private hire(rank: string): void {
     if (this.gameOver.over) {
+      return;
+    }
+    if (this.phase === 'setup') {
+      // ランクのボタンは ENGINEER_RANKS の id だけを渡すので、ほかの値は呼び出し側の誤り。
+      if (!isEngineerRank(rank)) {
+        throw new Error(`不明なランクです: ${rank}`);
+      }
+      this.selectInitialPlacementEngineerRank(rank);
       return;
     }
     const result = hireEngineer({ engineers: this.engineers, nextId: this.nextEngineerId }, rank, { max: MAX_ENGINEERS });
@@ -1114,9 +1143,8 @@ class MainScene extends Phaser.Scene {
     }
     this.engineers = [...result.engineers];
     this.nextEngineerId = result.engineer.id + 1;
-    // 初期配置の間は雇うたびに新しく雇った人を選び、メニューにそのランクと月給を出す(#176)。
-    // プレイ中は、選択中のエンジニアがいなければ（0人から雇ったときなど）、雇ったエンジニアを選ぶ。
-    if (this.phase === 'setup' || this.findSelectedEngineer() === null) {
+    // 選択中のエンジニアがいなければ（0人から雇ったときなど）、雇ったエンジニアを選ぶ。
+    if (this.findSelectedEngineer() === null) {
       this.selectedEngineerId = result.engineer.id;
     }
     // エンジニアのメニューの人数・選択中の表示と、月末に支払うお金（雇った人の月給）を更新する(#156)。
@@ -1668,13 +1696,8 @@ class MainScene extends Phaser.Scene {
   }
 
   // 雇ったらルートと出現場所を追加し、雇ったエンジニアに割り当てる。ゲームオーバー中・追加できないときは routeId を null のままにする。
-  // 初期配置の間(#172)はルートを足さず未配置のままにし、次に置くものをエンジニアにする（候補セル・残り人数・開始ボタンを描き直す）。
+  // 初期配置の間は hire で雇わない（床を押したときに雇って置く #184）ので、このイベントはプレイ中だけ届く。
   private onEngineerHired(payload: EngineerHiredPayload): void {
-    if (this.phase === 'setup') {
-      this.initialPlacementSelection = { kind: 'engineer' };
-      this.refreshInitialPlacementControls();
-      return;
-    }
     if (!shouldAddRouteOnHire(this.gameOver.over)) {
       return;
     }

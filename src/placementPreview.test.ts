@@ -79,7 +79,7 @@ describe('getSetupPlacementPreview(#162)', () => {
       placeable: false,
     });
     expect(getSetupPlacementPreview({ x: 456, y: 344 }, false, { kind: 'none' }, state, setupContext)).toEqual(HIDDEN_PLACEMENT_PREVIEW);
-    expect(getSetupPlacementPreview({ x: 456, y: 344 }, false, { kind: 'engineer' }, state, setupContext)).toEqual(
+    expect(getSetupPlacementPreview({ x: 456, y: 344 }, false, { kind: 'engineer', rank: 'junior' }, state, setupContext)).toEqual(
       HIDDEN_PLACEMENT_PREVIEW,
     );
   });

@@ -153,16 +153,16 @@ export const ja = {
   },
   // 初期配置(#47, #157)。pt はステージポイント（休暇の pt のパーセントポイントとは別）。
   initialPlacement: {
-    // パネルの3行目までの各行。{selection} は selectionNone・selectionEngineer・itemCost のどれか。
+    // パネルの3行目までの各行。{selection} は selectionNone・selectionEngineer・itemCost のどれか。{rank} は次に置くエンジニアのランク(#184)。
     header: '初期配置 残りポイント: {points}pt',
     selected: '選択: {selection}',
     selectionNone: 'なし',
-    selectionEngineer: 'エンジニア',
+    selectionEngineer: 'エンジニア（{rank}）',
     // 選択中のアイテムと、初期配置の間のアイテムのメニューの枠(#157)。
     itemCost: '{name} {cost}pt',
     startButton: 'プレイ開始',
-    // エンジニアの選択ボタン(#157)。{count} は未配置のエンジニア（初期配置の間に雇った人 #172）の人数。
-    engineerButton: 'エンジニア 残り{count}人',
+    // エンジニアの選択ボタン(#157)。{rank} は次に置くエンジニアのランク（エンジニアのメニューで選ぶ #184）。
+    engineerRankButton: 'エンジニア: {rank}',
     placed: '{name}を置きました',
     removed: '{name}を撤去しました',
     insufficientPoints: 'ステージポイントが足りません',
@@ -171,9 +171,7 @@ export const ja = {
     engineerRemoved: 'エンジニアを外しました',
     engineerNotCandidate: 'エンジニアはここに置けません',
     engineerOverlapsItem: 'アイテムと重なるため置けません',
-    noUnplacedEngineer: '置けるエンジニアがいません。先に雇ってください',
     selectFirst: '先に置くものを選んでください',
-    placeAllEngineers: 'エンジニアを全員配置してください',
     // 置いた人が INITIAL_PLACEMENT_MIN_ENGINEERS 人に足りないとき(#172)。
     hireAndPlaceEngineer: 'エンジニアを1人以上雇って配置してください',
   },
@@ -288,7 +286,7 @@ export const ja = {
     // 主人公のキーボードとバーチャルパッドの操作(#182)。{up}・{down}・{left}・{right}・{attack} はパッドのボタンの文字（VIRTUAL_PAD_LABELS）。
     keyboardPad: 'キーボード: 矢印かWASDで移動、スペースで攻撃。右下のパッド: {up}{down}{left}{right}で移動、中央の{attack}で攻撃',
     // {points} はステージポイントの初期値、{start} は開始ボタンの文言。
-    setup: '開始前: 右上のエンジニアで雇い、色付きの床に置く（1人以上・全員）。アイテムを選んで床をクリック（{points}pt）。×で取消。「{start}」',
+    setup: '開始前: エンジニアのランクを選んで色付きの床へ（1人以上で開始）。アイテムを選んで床をクリック（{points}pt）。×で取消。「{start}」',
     popover: '出現地点をクリック: 休暇・復帰とAIエージェント',
     // {reduction}・{max}・{min} はパーセントポイント（四捨五入した整数）。
     vacation: '休暇: 不正率-{reduction}pt/回・最大-{max}pt・下限{min}%。効果は復帰後も維持。給与は継続、休暇中は生産停止',
