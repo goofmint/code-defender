@@ -1687,12 +1687,6 @@ describe('MainScene: バーチャルパッド(#182)', () => {
 });
 
 describe('MainScene: ゲームの説明（右上の ℹ️）(#165)', () => {
-  // 右上の ℹ️ を押す（最後に描いたアイコンのコールバックを呼ぶ）。
-  const pressHelpIcon = (): void => {
-    const call = vi.mocked(render.drawHelpIcon).mock.calls.at(-1);
-    if (call === undefined) throw new Error('ゲームの説明のアイコンが描かれていません');
-    call[1]();
-  };
   // 最後に開いた説明の閉じるコールバック（背景と ✕ の押下）と destroy。
   const lastHelpOverlay = (): { readonly close: () => void; readonly destroy: Mock } => {
     const call = vi.mocked(render.drawHelpOverlay).mock.calls.at(-1);
