@@ -49,6 +49,7 @@ import {
   formatEngineerPopoverLines,
   formatHireMessage,
   formatHireOption,
+  formatDismissedMessage,
   formatResignedMessage,
   formatSalaryMessage,
   formatSelectedEngineerLines,
@@ -299,11 +300,12 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(intersects(rect, elapsedDaysRect())).toBe(false);
     });
 
-    it('エンジニアのメニューの文言は行の幅に収まる（人数・雇うボタン・選択中の2行・前へ次へ・昇給減給）', () => {
+    it('エンジニアのメニューの文言は行の幅に収まる（人数・雇うボタン・選択中の2行。前へ次へ・昇給減給は #186 で外した）', () => {
       const { rows } = menuPanelLayout('engineer');
       const [countRow, ...rest] = rows;
       const hireRows = rest.slice(0, ENGINEER_RANKS.length);
-      const [selectedRow, selectRow, salaryRow] = rest.slice(ENGINEER_RANKS.length);
+      const [selectedRow, ...extraRows] = rest.slice(ENGINEER_RANKS.length);
+      expect(extraRows).toEqual([]);
       expect(fitsWidth(formatEngineerCount(MAX_ENGINEERS, MAX_ENGINEERS), countRow.width)).toBe(true);
       ENGINEER_RANKS.forEach((entry, index) => {
         expect(fitsWidth(formatHireOption(entry.id), hireRows[index].width)).toBe(true);
@@ -311,12 +313,6 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       for (const engineer of [null, ...engineerVariants]) {
         for (const line of formatSelectedEngineerLines(engineer)) expect(fitsWidth(line, selectedRow.width)).toBe(true);
       }
-      const [previous, next] = splitRow(selectRow, 2);
-      expect(fitsWidth(salaryButtons().previous, previous.width)).toBe(true);
-      expect(fitsWidth(salaryButtons().next, next.width)).toBe(true);
-      const [raise, cut] = splitRow(salaryRow, 2);
-      expect(fitsWidth(salaryButtons().raise, raise.width)).toBe(true);
-      expect(fitsWidth(salaryButtons().cut, cut.width)).toBe(true);
     });
 
     it('アイテムのメニューの枠の文言（プレイ中の金額・初期配置のポイント）とページ表示は幅に収まる', () => {
@@ -377,13 +373,18 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(rect.height).toBe(height);
     });
 
-    it('見出し・状態・休暇ボタン・AIエージェントのボタンは幅（ENGINEER_POPOVER_WIDTH）の内側に収まる（休暇の案内文は #165 でゲームの説明に移した）', () => {
+    it('見出し・状態と月給・昇給減給・休暇／復職と解雇(#186)・AIエージェントのボタンは幅（ENGINEER_POPOVER_WIDTH）の内側に収まる（休暇の案内文は #165 でゲームの説明に移した）', () => {
       const { rows } = popoverLayout({ x: CELL_SIZE / 2, y: 270 });
-      const [headingRow, vacationRow, ...aiRows] = rows;
+      const [headingRow, salaryRow, vacationRow, ...aiRows] = rows;
       expect(aiRows).toHaveLength(AI_AGENT_BUTTON_ORDER.length);
+      const [raise, cut] = splitRow(salaryRow, 2);
+      expect(fitsWidth(salaryButtons().raise, raise.width)).toBe(true);
+      expect(fitsWidth(salaryButtons().cut, cut.width)).toBe(true);
+      const [vacation, dismiss] = splitRow(vacationRow, 2);
+      expect(fitsWidth(getMessages().engineer.dismiss, dismiss.width)).toBe(true);
       for (const engineer of engineerVariants) {
         for (const line of formatEngineerPopoverLines(engineer)) expect(fitsWidth(line, headingRow.width)).toBe(true);
-        expect(fitsWidth(formatVacationButton(engineer), vacationRow.width)).toBe(true);
+        expect(fitsWidth(formatVacationButton(engineer), vacation.width)).toBe(true);
       }
       AI_AGENT_BUTTON_ORDER.forEach((agentType, index) => {
         expect(fitsWidth(formatAiAgentOption(agentType), aiRows[index].width)).toBe(true);
@@ -586,7 +587,7 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
   });
 
   describe('通知の文言(#158)', () => {
-    it('雇用・昇給減給・AIエージェント・退職の通知は通知の矩形（全角30文字相当）に収まる', () => {
+    it('雇用・昇給減給・AIエージェント・退職・解雇(#186)の通知は通知の矩形（全角30文字相当）に収まる', () => {
       const messages = [
         formatHireMessage({ ok: false, reason: 'limit' }, 'junior'),
         formatSalaryMessage({ ok: false, direction: 'raise', engineerId: 99, reason: 'at-max' }),
@@ -594,6 +595,7 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
         formatSalaryMessage({ ok: false, direction: 'raise', engineerId: 99, reason: 'invalid-salary' }),
         formatAiAgentMessage({ ok: false, reason: 'alreadyEquipped' }, 'strong'),
         formatResignedMessage(longestEngineer(null, false)),
+        formatDismissedMessage(longestEngineer(null, false)),
       ];
       for (const message of messages) {
         expect(estimateTextWidth(message, NOTIFICATION_FONT_PX)).toBeLessThanOrEqual(notificationRect.width);

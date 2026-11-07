@@ -1133,17 +1133,15 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     expect(view?.hireOptions).toEqual(ENGINEER_RANKS.map((rank) => ({ rank: rank.id })));
   });
 
-  it('初期配置の間はメニューの選択・昇給減給をしない（ランクを選ぶだけ）', () => {
+  it('エンジニアのメニューには前へ・次へ・昇給・減給がなく（雇うボタンだけ #186）、選択中の表示は最後に置いたエンジニア', () => {
     const harness = createHarness();
     const { scene } = harness;
     hireAndPlace(harness, [0, 1]);
     expect(scene.engineers).toHaveLength(2);
-    const selected = scene.selectedEngineerId;
-    const salaries = scene.engineers.map((engineer) => engineer.salary);
-    lastEngineerMenu().onSelect('next');
-    lastEngineerMenu().onAdjust('raise');
-    expect(scene.selectedEngineerId).toBe(selected);
-    expect(scene.engineers.map((engineer) => engineer.salary)).toEqual(salaries);
+    expect(scene.openMenu).toBe('engineer');
+    expect(Object.keys(lastEngineerMenu())).toEqual(['onHire']);
+    const view = vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1];
+    expect(view?.selected).toEqual(scene.engineers.at(-1));
   });
 
   it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を選んで置くと、ランク別の月給（初期額）のまま表示される(#176)', (rank) => {

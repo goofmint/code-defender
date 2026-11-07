@@ -91,7 +91,7 @@ import {
   formatSelectedEngineerLines,
   formatVacationButton,
 } from './engineer';
-import type { Engineer, EngineerRank, EngineerSelectDirection, SalaryDirection } from './engineer';
+import type { Engineer, EngineerRank, SalaryDirection } from './engineer';
 import { getPlayerStartPosition, PLAYER_COLORS, PLAYER_SIZE } from './player';
 import type { PlayerFacing } from './player';
 import {
@@ -1206,7 +1206,7 @@ export const drawFloatingPanel = (
   return { destroy: () => objects.forEach((object) => object.destroy()) };
 };
 
-// エンジニアのメニュー(#156)の中身。人数、雇うボタン（ランクごと）、選択中のエンジニア、前へ・次へ、昇給・減給。
+// エンジニアのメニュー(#156)の中身。人数、雇うボタン（ランクごと）、選択中のエンジニア。
 export type EngineerMenuView = {
   readonly count: number;
   readonly max: number;
@@ -1214,19 +1214,17 @@ export type EngineerMenuView = {
   readonly hireOptions: readonly { readonly rank: EngineerRank }[];
   readonly selected: Engineer | null;
 };
+// 前へ・次へと昇給・減給のボタンは #186 で外した（昇給・減給はエンジニアのポップオーバーで操作する）。
 export type EngineerMenuCallbacks = {
   readonly onHire: (rank: EngineerRank) => void;
-  readonly onSelect: (direction: EngineerSelectDirection) => void;
-  readonly onAdjust: (direction: SalaryDirection) => void;
 };
 
 export const drawEngineerMenu = (
   scene: Phaser.Scene,
   view: EngineerMenuView,
   callbacks: EngineerMenuCallbacks,
-): FloatingPanel => {
-  const salaryButtons = getMessages().engineer.salaryButtons;
-  return drawFloatingPanel(scene, menuPanelLayout('engineer'), [
+): FloatingPanel =>
+  drawFloatingPanel(scene, menuPanelLayout('engineer'), [
     { kind: 'text', lines: [formatEngineerCount(view.count, view.max)] },
     ...view.hireOptions.map(
       (option): PanelEntry => ({
@@ -1235,22 +1233,7 @@ export const drawEngineerMenu = (
       }),
     ),
     { kind: 'text', lines: formatSelectedEngineerLines(view.selected) },
-    {
-      kind: 'buttons',
-      buttons: [
-        { label: salaryButtons.previous, onPress: () => callbacks.onSelect('previous'), selected: false },
-        { label: salaryButtons.next, onPress: () => callbacks.onSelect('next'), selected: false },
-      ],
-    },
-    {
-      kind: 'buttons',
-      buttons: [
-        { label: salaryButtons.raise, onPress: () => callbacks.onAdjust('raise'), selected: false },
-        { label: salaryButtons.cut, onPress: () => callbacks.onAdjust('cut'), selected: false },
-      ],
-    },
   ]);
-};
 
 // アイテムのメニュー(#156)の中身。ページ内の枠の文言（ITEM_PAGE_SIZE 個。最後のページの空きは null で、ボタンを出さない）、ページ表示、
 // 強調する枠（初期配置で選んでいるアイテム #157。強調しないなら null）。
@@ -1318,12 +1301,14 @@ export const drawBalanceMenu = (
   ]);
 
 export type EngineerPopoverCallbacks = {
+  readonly onAdjustSalary: (direction: SalaryDirection) => void;
   readonly onToggleVacation: () => void;
+  readonly onDismiss: () => void;
   readonly onBuyAiAgent: (agentType: AiAgentType) => void;
 };
 
-// エンジニアのポップオーバー(#156)。出現地点（anchor はその中心）の右に、見出し「#id ランク AI: 種類」・休暇の状態・休暇／復帰ボタン・
-// AIエージェントのボタン（価格付き。付けている種類を強調）を縦に並べる。位置は popoverLayout（フィールドの内側に収める）。
+// エンジニアのポップオーバー(#156)。出現地点（anchor はその中心）の右に、見出し「#id ランク AI: 種類」・休暇の状態と月給・
+// 昇給／減給・休暇／復職と解雇(#186)・AIエージェントのボタン（価格付き。付けている種類を強調）を縦に並べる。位置は popoverLayout（フィールドの内側に収める）。
 // 休暇の案内文(#150)は #165 でゲームの説明（help.ts）に移した。
 export const drawEngineerPopover = (
   scene: Phaser.Scene,
@@ -1335,7 +1320,17 @@ export const drawEngineerPopover = (
     { kind: 'text', lines: formatEngineerPopoverLines(engineer) },
     {
       kind: 'buttons',
-      buttons: [{ label: formatVacationButton(engineer), onPress: callbacks.onToggleVacation, selected: false }],
+      buttons: [
+        { label: getMessages().engineer.salaryButtons.raise, onPress: () => callbacks.onAdjustSalary('raise'), selected: false },
+        { label: getMessages().engineer.salaryButtons.cut, onPress: () => callbacks.onAdjustSalary('cut'), selected: false },
+      ],
+    },
+    {
+      kind: 'buttons',
+      buttons: [
+        { label: formatVacationButton(engineer), onPress: callbacks.onToggleVacation, selected: false },
+        { label: getMessages().engineer.dismiss, onPress: callbacks.onDismiss, selected: false },
+      ],
     },
     ...AI_AGENT_BUTTON_ORDER.map(
       (agentType): PanelEntry => ({

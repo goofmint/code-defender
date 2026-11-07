@@ -117,8 +117,12 @@ describe('パネルの行の並び(#156)', () => {
     expect(() => splitRow({ x: 0, y: 0, width: 100, height: 22 }, count)).toThrow();
   });
 
-  it('各メニューの行の数: エンジニアは人数・雇う（ランクの数）・選択中・前へ次へ・昇給減給、アイテムは枠（ページの枠数）とページ行', () => {
-    expect(ENGINEER_MENU_ROWS).toHaveLength(1 + ENGINEER_RANKS.length + 3);
+  it('各メニューの行の数: エンジニアは人数・雇う（ランクの数）・選択中（前へ次へ・昇給減給は #186 で外した）、アイテムは枠（ページの枠数）とページ行', () => {
+    expect(ENGINEER_MENU_ROWS).toEqual([
+      { kind: 'text', lines: 1 },
+      ...ENGINEER_RANKS.map(() => ({ kind: 'buttons', count: 1 })),
+      { kind: 'text', lines: 2 },
+    ]);
     expect(ITEM_MENU_ROWS).toHaveLength(ITEM_PAGE_SIZE + 1);
     expect(ITEM_MENU_ROWS.at(-1)).toEqual({ kind: 'buttons', count: 3 });
     // 開発バランスは見出し・ゲージ・割合の文言・◀ / ▶ のボタン(#165。11 段階の選択肢はやめた)。
@@ -128,12 +132,26 @@ describe('パネルの行の並び(#156)', () => {
       { kind: 'text', lines: 1 },
       { kind: 'buttons', count: 2 },
     ]);
-    // ポップオーバーは見出しと状態・休暇ボタン・AIエージェント（種類の数）。休暇の案内文はゲームの説明に移した(#165)。
+    // ポップオーバーは見出しと状態・昇給減給（2つ）・休暇／復職と解雇（2つ #186）・AIエージェント（種類の数）。休暇の案内文はゲームの説明に移した(#165)。
     expect(ENGINEER_POPOVER_ROWS).toEqual([
       { kind: 'text', lines: 2 },
-      { kind: 'buttons', count: 1 },
+      { kind: 'buttons', count: 2 },
+      { kind: 'buttons', count: 2 },
       ...AI_AGENT_BUTTON_ORDER.map(() => ({ kind: 'buttons', count: 1 })),
     ]);
+  });
+
+  it('ポップオーバーの高さは見出しと状態（2行）＋ボタン5行（昇給減給・休暇と解雇・AIエージェント3種）と行間5つ、ボタンの幅は内側の半分(#186)', () => {
+    const buttonRows = 2 + AI_AGENT_BUTTON_ORDER.length;
+    expect(panelHeight(ENGINEER_POPOVER_ROWS)).toBe(
+      MENU_PANEL_PADDING * 2 + MENU_LINE_HEIGHT * 2 + MENU_BUTTON_HEIGHT * buttonRows + MENU_ROW_GAP * buttonRows,
+    );
+    const [, salaryRow, vacationRow] = popoverLayout({ x: CELL_SIZE / 2, y: 270 }).rows;
+    for (const row of [salaryRow, vacationRow]) {
+      const [left, right] = splitRow(row, 2);
+      expect(left.width).toBe((ENGINEER_POPOVER_WIDTH - MENU_PANEL_PADDING * 2 - MENU_BUTTON_GAP_X) / 2);
+      expect(right.x + right.width).toBeCloseTo(row.x + row.width);
+    }
   });
 
   it('ゲージの行の高さは BALANCE_GAUGE.height(#165)', () => {
