@@ -694,6 +694,7 @@ describe('MainScene: 初期配置フェーズ(#47)', () => {
       null,
     ]);
     expect(view.pageLabel).toBe('1/1');
+    expect(view.pageCount).toBe(1);
   });
 
   it('解放前のアイテム（CI・コードフリーズ）は選択が残っていても置けず、「まだ使えないアイテムです」を出す。ポイント・資金は変えない(#164)', () => {

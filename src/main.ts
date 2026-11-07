@@ -1235,9 +1235,11 @@ class MainScene extends Phaser.Scene {
     });
     const selection = this.initialPlacementSelection;
     const selectedSlot = setup && selection.kind === 'item' ? items.indexOf(selection.itemType) : -1;
+    const pageCount = getItemPageCount(unlocked.length);
     return {
       labels,
-      pageLabel: formatItemPage(this.itemPage, getItemPageCount(unlocked.length)),
+      pageLabel: formatItemPage(this.itemPage, pageCount),
+      pageCount,
       selectedSlot: selectedSlot === -1 ? null : selectedSlot,
     };
   }
