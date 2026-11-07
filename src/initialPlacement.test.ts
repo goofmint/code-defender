@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getMessages, setLocale } from './i18n';
 import {
-  ENGINEER_HIRE_COST,
   ENGINEER_SPAWN_COL,
   FIELD_ROWS,
   INITIAL_PLACEMENT_ENGINEER_ROUTE_ATTEMPTS,
@@ -13,15 +12,13 @@ import {
   ITEM_PRICE_TIER_BY_TYPE,
   ITEM_SHORT_NAMES,
   MAX_ENGINEER_ROUTES,
-  MAX_ENGINEERS,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
   STAGE_POINT_COST_BY_TIER,
   RELEASE_POINT_CELL,
   STAGE_POINTS_INITIAL,
 } from './config';
-import { hireEngineer } from './engineer';
-import type { Engineer, HireResult } from './engineer';
+import type { Engineer } from './engineer';
 import { rectIntersectsCircle } from './geometry';
 import { CELL_SIZE, FIELD_COLS } from './field';
 import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
@@ -46,7 +43,6 @@ import {
   listEngineerCandidateCells,
   placeInitialEngineer,
   placeInitialItem,
-  refuseSetupHireIntoBankruptcy,
   removeInitialEngineer,
   removeInitialItem,
 } from './initialPlacement';
@@ -838,29 +834,6 @@ describe('formatStartPlayBlockedMessage: 始められないときのメッセー
 
   it('始められる状態で呼ぶと投げる', () => {
     expect(() => formatStartPlayBlockedMessage(fleet().engineers)).toThrow();
-  });
-});
-
-describe('refuseSetupHireIntoBankruptcy: 初期配置の間の雇用で倒産させない(#172)', () => {
-  const cost = ENGINEER_HIRE_COST.junior;
-  const hireWith = (funds: number): HireResult =>
-    hireEngineer({ engineers: [], funds, nextId: 0 }, 'junior', { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST }, () => 0);
-
-  it('境界値: 資金が費用ちょうど（雇うと0円）なら資金不足、費用+1円（雇うと1円）なら雇える', () => {
-    expect(hireWith(cost).ok).toBe(true);
-    expect(refuseSetupHireIntoBankruptcy(hireWith(cost))).toEqual({ ok: false, reason: 'insufficientFunds' });
-    const allowed = hireWith(cost + 1);
-    expect(refuseSetupHireIntoBankruptcy(allowed)).toBe(allowed);
-    if (!allowed.ok) throw new Error('雇えませんでした');
-    expect(allowed.fundsAfter).toBe(1);
-  });
-
-  it('雇えなかった結果はそのまま返す', () => {
-    const refused = hireWith(cost - 1);
-    expect(refused).toEqual({ ok: false, reason: 'insufficientFunds' });
-    expect(refuseSetupHireIntoBankruptcy(refused)).toBe(refused);
-    const limit: HireResult = { ok: false, reason: 'limit' };
-    expect(refuseSetupHireIntoBankruptcy(limit)).toBe(limit);
   });
 });
 

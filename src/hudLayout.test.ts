@@ -7,7 +7,6 @@ import {
   AI_AGENT_BUTTON_ORDER,
   ELAPSED_DAYS_POSITION,
   ELAPSED_DAYS_STYLE,
-  ENGINEER_HIRE_COST,
   ENGINEER_POPOVER_WIDTH,
   ENGINEER_RANKS,
   ENGINEER_SALARY_MAX,
@@ -272,7 +271,7 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       const [selectedRow, selectRow, salaryRow] = rest.slice(ENGINEER_RANKS.length);
       expect(fitsWidth(formatEngineerCount(MAX_ENGINEERS, MAX_ENGINEERS), countRow.width)).toBe(true);
       ENGINEER_RANKS.forEach((entry, index) => {
-        expect(fitsWidth(formatHireOption(entry.id, ENGINEER_HIRE_COST[entry.id]), hireRows[index].width)).toBe(true);
+        expect(fitsWidth(formatHireOption(entry.id), hireRows[index].width)).toBe(true);
       });
       for (const engineer of [null, ...engineerVariants]) {
         for (const line of formatSelectedEngineerLines(engineer)) expect(fitsWidth(line, selectedRow.width)).toBe(true);
@@ -324,7 +323,7 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
 
     it('キー名（[1] や ◀G など）を出さない(#156。キー操作は #165 で廃止)', () => {
       const labels = [
-        ...ENGINEER_RANKS.map((entry) => formatHireOption(entry.id, ENGINEER_HIRE_COST[entry.id])),
+        ...ENGINEER_RANKS.map((entry) => formatHireOption(entry.id)),
         ...Object.values(salaryButtons()),
         ...ITEM_TYPES.map((itemType) => formatItemOption(itemType)),
         ...AI_AGENT_BUTTON_ORDER.map((agentType) => formatAiAgentOption(agentType)),
@@ -552,7 +551,6 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
     it('雇用・昇給減給・AIエージェント・退職の通知は通知の矩形（全角30文字相当）に収まる', () => {
       const messages = [
         formatHireMessage({ ok: false, reason: 'limit' }, 'junior'),
-        formatHireMessage({ ok: false, reason: 'insufficientFunds' }, 'junior'),
         formatSalaryMessage({ ok: false, direction: 'raise', engineerId: 99, reason: 'at-max' }),
         formatSalaryMessage({ ok: false, direction: 'cut', engineerId: 99, reason: 'at-min' }),
         formatSalaryMessage({ ok: false, direction: 'raise', engineerId: 99, reason: 'invalid-salary' }),

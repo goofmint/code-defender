@@ -195,8 +195,8 @@ export const ELAPSED_DAYS_STYLE = {
 export const INITIAL_FUNDS = 1000000;
 // 仮・要確認(#17): 正常なコード1件をリリースしたときの売上（円）。企画書に数値の記載なし。
 // 根拠: 1ルートは2秒に1件=ゲーム内1か月(60秒)に30件出る。正常率は70%→50%（#14）なので月21〜15件。
-// 20000円なら正常コードを全部通したとき月420000〜300000円で、ジュニア1人の給料(300000円/月、ENGINEER_MONTHLY_SALARY_BY_RANK)を上回る〜同等になる。
-// 10000円だと全部通しても給料に届かず常に赤字になる。ミドル・シニアは月給が上がるぶん、正常率が高い間でないと黒字にならない（仮）。
+// 20000円なら正常コードを全部通したとき月420000〜300000円で、ジュニア1人の給料(200000円/月、ENGINEER_MONTHLY_SALARY_BY_RANK #179)を上回る。
+// 10000円だと全部通しても月210000〜150000円で、ジュニア1人の給料と同程度〜下回る。ミドル・シニアは月給が上がるぶん、正常率が高い間でないと黒字にならない（仮）。
 // 仮・要確認(#42): この値は既定の配分（DEFAULT_REFACTORING_RATIO）のときの単価。実際の売上は機能開発の割合 (1 − r) に比例する
 // （getFeatureRevenueMultiplier）。リファクタリング 0%（r=0）で 25000円、100%（r=1）で 0円。
 export const REVENUE_PER_NORMAL_CODE = 20000;
@@ -338,14 +338,14 @@ export const ENGINEER_RANKS = [
 // 仮・要確認(#25): 企画書(6)は「ランクによって、一定期間ごとの支払い（給料）が変わる」とだけで金額は未記載。以下はすべて仮の値。
 // ランク別の月給の初期額（円）(#33)。雇ったとき・初期編成のときに、この額がエンジニア個人の月給（Engineer.salary）になる。
 // ゲーム内1か月（60秒）ごとに、雇っている全員の月給（Engineer.salary）の合計を引く。
-// ジュニアは従来の月給300000円を維持（REVENUE_PER_NORMAL_CODE の釣り合いの根拠と同じ）。
-// ミドル400000円・シニア500000円は CodeRabbit の計画どおりの仮値（ジュニア＋100000円ずつ）。
-// 雇用費(ENGINEER_HIRE_COST: 100000/200000/300000円、雇うときの一時費用)と同じ順序で高くなる。
+// 月給が高すぎたため、ジュニア300000円・ミドル400000円・シニア500000円から、それぞれ100000円ずつ下げた(#179)。
+// ジュニア200000円・ミドル300000円・シニア400000円（ジュニア＋100000円ずつ、ランクの順に高くなる）。
+// 雇うときの費用はない(#179)。エンジニアにかかるお金はこの月給（月末の支払い）だけ。
 // 雇ったあとはプレイヤーが昇給・減給(#34、engineer.ts の adjustEngineerSalary)で個人の月給を変えられる。
 export const ENGINEER_MONTHLY_SALARY_BY_RANK: Readonly<Record<(typeof ENGINEER_RANKS)[number]['id'], number>> = {
-  junior: 300000,
-  middle: 400000,
-  senior: 500000,
+  junior: 200000,
+  middle: 300000,
+  senior: 400000,
 };
 // 仮・要確認(#34): 企画書(6)は「プレイヤーはいつでも昇給・減給できる」とだけで、刻み・上限・下限は未記載。以下はすべて仮の値。
 // 1回の昇給・減給で変わる額（円）。全ランクの初期額との差が、この額の倍数になるようにする（初期額から刻みどおりに上下できる）。
@@ -464,8 +464,6 @@ export const ENGINEER_ATTACHMENT_CHANGE: {
   vacationAttachmentGainPerGameDay: 1,
   highFatigueAttachmentLossPerGameDay: 1,
 };
-// 仮・要確認(#23): 雇う費用（円）。1回払いで資金から引く。月給とは別。
-export const ENGINEER_HIRE_COST = { junior: 100000, middle: 200000, senior: 300000 } as const;
 // 仮・要確認(#23, #172): 最初のエンジニアのランク。ENGINEER_SPAWN_CELLS と同じ数・順序（初期ルートと1対1）。
 // 初期は0人。setup 中に雇って配置する(#172)。
 export const INITIAL_ENGINEER_RANKS: readonly (typeof ENGINEER_RANKS)[number]['id'][] = [];

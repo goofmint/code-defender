@@ -216,9 +216,9 @@ export const ja = {
       cheerful: '陽気',
       gloomy: '根暗',
     } satisfies Record<EngineerPersonalityId, string>,
-    // エンジニアのメニュー(#156)。{cost} は formatShortAmount で整形した一時費用（雇用費）。
+    // エンジニアのメニュー(#156)。雇うときの費用はない(#179)ので、雇うボタンにはランクだけを出す。
     count: 'エンジニア: {count}/{max}',
-    hireOption: '{rank}を雇う {cost}',
+    hireOption: '{rank}を雇う',
     hired: '{rank}を雇いました',
     hireLimit: 'これ以上雇えません',
     // {rank} は渡された生の識別子（不明なので表示名はない）。

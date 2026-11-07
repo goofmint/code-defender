@@ -13,8 +13,7 @@ import {
   STAGE_POINTS_INITIAL,
 } from './config';
 import { assignEngineerRoute } from './engineer';
-import type { Engineer, HireResult } from './engineer';
-import { isBankrupt } from './gameOver';
+import type { Engineer } from './engineer';
 import { pointInRect, rectIntersectsCircle, rectsOverlap } from './geometry';
 import { getMessages, interpolate } from './i18n';
 import { getItemPlacement, isItemUnlocked, ITEM_TYPES } from './item';
@@ -212,11 +211,6 @@ export const formatStartPlayBlockedMessage = (engineers: readonly Engineer[]): s
   const text = getMessages().initialPlacement;
   return countUnplacedEngineers(engineers) > 0 ? text.placeAllEngineers : text.hireAndPlaceEngineer;
 };
-
-// 初期配置の間の雇用(#172)。雇うと資金が倒産の額（isBankrupt）になるときは、雇えた結果を資金不足（insufficientFunds）に置き換える。
-// 開始前に倒産してゲームオーバーにならないようにするため。雇えなかった結果と、倒産しない額で雇えた結果はそのまま返す。
-export const refuseSetupHireIntoBankruptcy = (result: HireResult): HireResult =>
-  result.ok && isBankrupt(result.fundsAfter) ? { ok: false, reason: 'insufficientFunds' } : result;
 
 const isSameCell = (a: GridCell, b: GridCell): boolean => a.col === b.col && a.row === b.row;
 

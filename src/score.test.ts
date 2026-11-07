@@ -17,7 +17,6 @@ const REASONS: Record<FundsChangeReason, true> = {
   sales: true,
   penalty: true,
   damage: true,
-  hire: true,
   item: true,
   itemFee: true,
   aiAgent: true,
@@ -69,7 +68,7 @@ describe('accumulateScore: 理由', () => {
     expect(accumulateScore(100, event(20000, reason), false)).toBe(100);
   });
 
-  // 'penalty'（正常なコードへの攻撃）、'damage'（不正コードのリリースによる損害）、'salary'（給料）、'hire'（エンジニア雇用費）、'itemFee'（月額アイテム費）は資金を減らす。スコアは変えない。
+  // 'penalty'（正常なコードへの攻撃）、'damage'（不正コードのリリースによる損害）、'salary'（給料）、'itemFee'（月額アイテム費）は資金を減らす。スコアは変えない。
   // 資金が正→負になる（倒産する）イベントも含める。
   it.each([
     ['penalty', 0, -50000, 1000000, 950000],
@@ -78,9 +77,6 @@ describe('accumulateScore: 理由', () => {
     ['damage', 0, -30000, 1000000, 970000],
     ['damage', 100, -30000, 1000000, 970000],
     ['damage', 100, -30000, 10000, -20000],
-    ['hire', 0, -500000, 1000000, 500000],
-    ['hire', 100, -500000, 1000000, 500000],
-    ['hire', 100, -500000, 200000, -300000],
     ['itemFee', 0, -600000, 1000000, 400000],
     ['itemFee', 100, -600000, 1000000, 400000],
     ['itemFee', 100, -600000, 200000, -400000],

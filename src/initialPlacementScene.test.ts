@@ -6,7 +6,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import type { Mock } from 'vitest';
 import {
   CELL_SIZE,
-  ENGINEER_HIRE_COST,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
   ENGINEER_RANKS,
   ENGINEER_SPAWN_COL,
@@ -24,6 +23,7 @@ import {
   STAGE_POINTS_INITIAL,
 } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
+import { FUNDS_CHANGED_EVENT } from './funds';
 import { ENGINEER_HIRED_EVENT, formatSelectedEngineerLines, getRankLabel, hireEngineer } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
 import type { GameOverState } from './gameOver';
@@ -448,9 +448,9 @@ const hireAndPlace = (harness: Harness, rows: readonly number[] = FIXTURE_ROWS):
 // route を担当するジュニア1人(#172)。ルートを固定のもの（fixedRoute）に置き換えるテストで、開始の条件（1人以上を配置）を満たすために使う。
 const engineerOn = (route: Route): Engineer => {
   const hired = hireEngineer(
-    { engineers: [], funds: ENGINEER_HIRE_COST.junior, nextId: 0 },
+    { engineers: [], nextId: 0 },
     'junior',
-    { max: MAX_ENGINEERS, costs: ENGINEER_HIRE_COST },
+    { max: MAX_ENGINEERS },
     () => 0,
   );
   if (!hired.ok) throw new Error(`雇えませんでした: ${hired.reason}`);
@@ -940,7 +940,9 @@ describe('MainScene: 初期配置でエンジニアの位置を選ぶ(#157)', ()
 });
 
 describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () => {
-  const cost = ENGINEER_HIRE_COST.junior;
+  // 資金の変化のイベント（FUNDS_CHANGED_EVENT）を出した回数。雇うときの費用はない(#179)ので、雇っても出ない。
+  const fundsChangedEmits = (scene: SceneUnderTest): number =>
+    scene.events.emit.mock.calls.filter(([event]) => event === FUNDS_CHANGED_EVENT).length;
 
   it('0人のままでは開始できず「エンジニアを1人以上雇って配置してください」を出す。開始ボタンは薄い', () => {
     const { scene } = createHarness();
@@ -964,14 +966,15 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     expect(render.drawEngineerMenu).toHaveBeenCalledOnce();
   });
 
-  it('雇うと未配置が1人増え、資金は雇う費用だけ減り、ルートは足さず、次に置くものがエンジニアになる', () => {
+  it('雇うと未配置が1人増え、資金は変わらず（雇うときの費用はない #179）、ルートは足さず、次に置くものがエンジニアになる', () => {
     const { scene } = createHarness();
     hireInSetup(scene);
     expect(scene.engineers).toHaveLength(1);
     expect(scene.engineers[0]?.routeId).toBeNull();
     expect(scene.engineers[0]?.rank).toBe('junior');
     expect(scene.nextEngineerId).toBe(1);
-    expect(scene.funds).toBe(INITIAL_FUNDS - cost);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+    expect(fundsChangedEmits(scene)).toBe(0);
     expect(scene.routes).toEqual([]);
     expect(render.drawRoutes).toHaveBeenCalledOnce();
     expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer' });
@@ -997,22 +1000,43 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     expect(scene.phase).toBe('playing');
   });
 
-  it('境界値: 雇うと資金がちょうど0円になるなら雇わず資金不足を出し、1円残るなら雇える（開始前に倒産しない）', () => {
+  it.each(ENGINEER_RANKS.map((rank) => rank.id))('%s を雇っても資金は変わらず、資金のイベントも出ない(#179)', (rank) => {
     const { scene } = createHarness();
-    scene.funds = cost;
-    hireInSetup(scene);
-    expect(scene.engineers).toEqual([]);
-    expect(scene.funds).toBe(cost);
-    expect(scene.nextEngineerId).toBe(0);
-    expect(scene.initialPlacementSelection).toEqual({ kind: 'none' });
-    expect(render.drawHireMessage).toHaveBeenLastCalledWith(scene, getMessages().common.insufficientFunds);
-    expect(scene.gameOver.over).toBe(false);
+    hireInSetup(scene, rank);
+    expect(scene.engineers.map((engineer) => engineer.rank)).toEqual([rank]);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+    expect(fundsChangedEmits(scene)).toBe(0);
+    expect(scene.initialPlacementSelection).toEqual({ kind: 'engineer' });
+  });
 
-    scene.funds = cost + 1;
+  it.each([0, 1, -1])('境界値: 資金が %i 円でも雇えて、資金は変わらず倒産もしない（雇うときの費用はない #179）', (funds) => {
+    const { scene } = createHarness();
+    scene.funds = funds;
     hireInSetup(scene);
     expect(scene.engineers).toHaveLength(1);
-    expect(scene.funds).toBe(1);
+    expect(scene.funds).toBe(funds);
+    expect(fundsChangedEmits(scene)).toBe(0);
     expect(scene.gameOver.over).toBe(false);
+    expect(render.drawHireMessage).toHaveBeenLastCalledWith(scene, interpolate(getMessages().engineer.hired, { rank: getRankLabel('junior') }));
+  });
+
+  it(`境界値: ${MAX_ENGINEERS - 1}人なら${MAX_ENGINEERS}人目を雇え、${MAX_ENGINEERS}人なら上限で断る（資金は変わらない）`, () => {
+    const { scene } = createHarness();
+    for (let i = 0; i < MAX_ENGINEERS; i += 1) hireInSetup(scene);
+    expect(scene.engineers).toHaveLength(MAX_ENGINEERS);
+    hireInSetup(scene);
+    expect(scene.engineers).toHaveLength(MAX_ENGINEERS);
+    expect(scene.nextEngineerId).toBe(MAX_ENGINEERS);
+    expect(render.drawHireMessage).toHaveBeenLastCalledWith(scene, getMessages().engineer.hireLimit);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+    expect(fundsChangedEmits(scene)).toBe(0);
+  });
+
+  it('エンジニアのメニューの雇うボタンはランクだけで、金額を渡さない(#179)', () => {
+    createHarness();
+    pressIcon('engineer');
+    const view = vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1];
+    expect(view?.hireOptions).toEqual(ENGINEER_RANKS.map((rank) => ({ rank: rank.id })));
   });
 
   it('初期配置の間はメニューの選択・昇給減給をしない（雇うだけ）', () => {
@@ -1058,19 +1082,19 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     expect(lines[1]).toContain(formatYen(ENGINEER_MONTHLY_SALARY_BY_RANK.senior));
   });
 
-  it('×で外しても名簿に残り（返金しない）、置き直せる', () => {
+  it('×で外しても名簿に残り、置き直せる。雇うときの費用はない(#179)ので、雇っても外しても資金は変わらない', () => {
     const harness = createHarness();
     const { scene, pointerDown } = harness;
     hireAndPlace(harness, [3]);
     const [engineer] = scene.engineers;
     if (engineer === undefined) throw new Error('エンジニアがいません');
-    const fundsAfterHire = scene.funds;
-    expect(fundsAfterHire).toBe(INITIAL_FUNDS - cost);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
     removeButtonAt(engineerRemoveButtonCenter(routeOf(scene, engineer).spawn)).press();
     expect(scene.engineers).toHaveLength(1);
     expect(scene.engineers[0]?.routeId).toBeNull();
     expect(scene.routes).toEqual([]);
-    expect(scene.funds).toBe(fundsAfterHire);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+    expect(fundsChangedEmits(scene)).toBe(0);
     lastEngineerButton().onSelect();
     pointerDown(spawnPoint(5));
     const placed = scene.engineers[0];
@@ -1084,7 +1108,7 @@ describe('MainScene: 0人から初期配置の間に雇って置く(#172)', () =
     const harness = createHarness();
     const { scene, pointerDown } = harness;
     hireAndPlace(harness);
-    expect(scene.funds).toBe(INITIAL_FUNDS - cost * FIXTURE_ROWS.length);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
     pressStart();
     scene.gameOver = { over: true, at: 0 };
     scene.time.now = Number.MAX_SAFE_INTEGER;

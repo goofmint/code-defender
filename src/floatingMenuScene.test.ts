@@ -7,7 +7,6 @@ import type { Mock } from 'vitest';
 import { getAiAgentMonthlyFee, getAiAgentPrice } from './aiAgent';
 import {
   DEFAULT_REFACTORING_RATIO,
-  ENGINEER_HIRE_COST,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
   INITIAL_FUNDS,
   INITIAL_PLACEMENT_UI_BOUNDS,
@@ -419,13 +418,14 @@ describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
     expect(render.drawBalanceMenu).toHaveBeenCalledTimes(2);
   });
 
-  it('エンジニアのメニューから雇うと人数が増え、メニューを描き直す。月末に支払うお金に月給を足す', () => {
+  it('エンジニアのメニューから雇うと人数が増え、メニューを描き直す。月末に支払うお金に月給を足す。資金は変えない(#179)', () => {
     const { scene } = createPlacedHarness();
     startPlay();
     pressIcon('engineer');
     const before = scene.engineers.length;
-    const fundsBefore = scene.funds;
-    expect(fundsBefore).toBe(INITIAL_FUNDS - ENGINEER_HIRE_COST.junior * FIXTURE_ROWS.length);
+    // 初期配置の間に雇っても資金は減らない（雇うときの費用はない #179）。
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+    const setFundsCalls = lastStatusPanel().setFunds.mock.calls.length;
     const [, view, callbacks] = vi.mocked(render.drawEngineerMenu).mock.calls.at(-1) ?? [];
     if (view === undefined || callbacks === undefined) throw new Error('エンジニアのメニューが描かれていません');
     expect(view.count).toBe(before);
@@ -433,7 +433,9 @@ describe('MainScene: 右上のアイコンとメニュー(#156)', () => {
     expect(scene.engineers).toHaveLength(before + 1);
     expect(vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1].count).toBe(before + 1);
     expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(payroll(scene.engineers));
-    expect(scene.funds).toBe(fundsBefore - ENGINEER_HIRE_COST.junior);
+    // プレイ中も雇うときの費用はない(#179)。資金も、資金の表示も変わらない。
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+    expect(lastStatusPanel().setFunds.mock.calls.length).toBe(setFundsCalls);
   });
 });
 
@@ -612,16 +614,18 @@ describe('MainScene: 月末に支払うお金の更新(#156)', () => {
     expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(base);
   });
 
-  it('初期配置の間に雇うと月給を足し、資金は雇う費用だけ減らす(#172)', () => {
+  it('初期配置の間に雇うと月給を足し、資金は変えない(#172, #179)', () => {
     const { scene } = createHarness();
     expect(payroll(scene.engineers)).toBe(0);
     pressIcon('engineer');
+    const setFundsCalls = lastStatusPanel().setFunds.mock.calls.length;
     lastEngineerMenuCallbacks().onHire('junior');
     expect(scene.engineers).toHaveLength(1);
     expect(payroll(scene.engineers)).toBeGreaterThan(0);
     // 雇っただけで未配置なので、月末に支払う予告は0円のまま(#176)。
     expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(0);
-    expect(lastStatusPanel().setFunds).toHaveBeenLastCalledWith(INITIAL_FUNDS - ENGINEER_HIRE_COST.junior);
+    expect(scene.funds).toBe(INITIAL_FUNDS);
+    expect(lastStatusPanel().setFunds.mock.calls.length).toBe(setFundsCalls);
     expect(vi.mocked(render.drawEngineerMenu).mock.calls.at(-1)?.[1].count).toBe(1);
   });
 

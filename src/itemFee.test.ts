@@ -272,8 +272,9 @@ describe('給料と同じ月: 給料 → アイテム費の順', () => {
 
   it('給料後の資金からアイテム費を引く', () => {
     const { salary, fee } = monthBoundary(1000000, false);
-    expect(salary.fundsAfter).toBe(700000);
-    expect(fee).toEqual({ month: 1, amount: 50000, itemCount: 1, fundsBefore: 700000, fundsAfter: 650000 });
+    // ジュニア1人の月給 200,000円(#179) を引いた 800,000円から、アイテム費 50,000円を引く。
+    expect(salary.fundsAfter).toBe(800000);
+    expect(fee).toEqual({ month: 1, amount: 50000, itemCount: 1, fundsBefore: 800000, fundsAfter: 750000 });
   });
 
   it('給料で倒産したらアイテム費は引かない', () => {

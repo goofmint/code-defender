@@ -171,7 +171,7 @@ export const en: Messages = {
       gloomy: 'Gloomy',
     },
     count: 'Engineers: {count}/{max}',
-    hireOption: 'Hire {rank} {cost}',
+    hireOption: 'Hire {rank}',
     hired: 'Hired a {rank}',
     hireLimit: "Can't hire any more",
     unknownRank: 'Unknown rank: {rank}',
