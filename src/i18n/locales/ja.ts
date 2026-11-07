@@ -275,35 +275,11 @@ export const ja = {
     // リリース地点の円の上に出すラベル。
     label: 'リリース',
   },
-  // ゲームの説明(#165)。右上の ℹ️ で開くパネルの見出しと説明の行（help.ts の buildHelpLines が上から順に並べる）。
-  // 数値は config.ts の値から埋め込む（文言に数値を直接書かない）。操作はマウスだけなので、キーの名前は書かない。
+  // ゲームの説明(#165)。見出しと説明の行は言語ごとの Markdown（src/i18n/help/<言語>.md #185）に置く。
+  // ここには目的の行の {bankrupt} に入れる語句だけを残す（BANKRUPT_INCLUDES_ZERO で選ぶ）。
   help: {
-    title: 'ゲームの説明',
-    // {funds} は formatYen(0)、{bankrupt} は bankruptAtOrBelow か bankruptBelow（BANKRUPT_INCLUDES_ZERO）。
-    goal: '正常なコードはリリースまで通し、不正なコードは倒す。資金が{funds}{bankrupt}になると倒産',
     bankruptAtOrBelow: '以下',
     bankruptBelow: '未満',
-    // {range} は攻撃の射程（px）。
-    controls: 'マウスを押し続けると主人公がそこへ動く。主人公をクリックすると{range}px以内の不正なコードを攻撃',
-    // 主人公のキーボードとバーチャルパッドの操作(#182)。{up}・{down}・{left}・{right}・{attack} はパッドのボタンの文字（VIRTUAL_PAD_LABELS）。
-    keyboardPad: 'キーボード: 矢印かWASDで移動、スペースで攻撃。右下のパッド: {up}{down}{left}{right}で移動、中央の{attack}で攻撃',
-    // {points} はステージポイントの初期値、{start} は開始ボタンの文言。
-    setup: '開始前: エンジニアのランクを選んで色付きの床へ（1人以上で開始）。アイテムを選んで床をクリック（{points}pt）。×で取消。「{start}」',
-    popover: '出現地点をクリック: 昇給・減給・休暇・復職・解雇とAIエージェント',
-    // {reduction}・{max}・{min} はパーセントポイント（四捨五入した整数）。
-    vacation: '休暇: 不正率-{reduction}pt/回・最大-{max}pt・下限{min}%。効果は復帰後も維持。給与は継続、休暇中は生産停止',
-    // {max} はエンジニアの上限人数。
-    hire: '右上のエンジニア: 雇用（最大{max}人）。給料は月末に払う',
-    aiAgent: 'AIエージェント: 出力ペースが上がる。安いほど不正なコードが混ざりやすい。月額',
-    // {days} はレベルが上がる間隔（日）。
-    items: '右上のアイテム: 資金で買い、主人公の位置に置く。{days}日ごとにレベルが上がり、使えるアイテムが増える',
-    // {refactoring}・{feature} はボタンの文字（◀ / ▶）、{step} は1回で変える割合（%）。
-    balance: '右上の開発バランス: ゲージの左が機能開発（売上）、右がリファクタリング（負債を返す）。{refactoring} {feature}で{step}%ずつ',
-    // {days}・{funds}・{sales}・{payment} は HUD_ICONS の絵文字。
-    hudIcons: '{days}経過日数 {funds}資金 {sales}累計売上 {payment}次の月末に払う額',
-    // {normal}・{caution}・{critical} は段階の絵文字、*Min・*Max はその段階の範囲。{outage} は大障害の閾値、{days} は放置できる日数。
-    techDebt:
-      '技術的負債: {normal}{normalMin}〜{normalMax} {caution}{cautionMin}〜{cautionMax} {critical}{criticalMin}〜{criticalMax}。{outage}を超えたまま{days}日で大障害',
   },
 };
 

@@ -1,4 +1,4 @@
-// ゲームの説明(#165)の文言と配置。数値が config.ts の値と一致すること、キーの名前をキーボード操作の行(#182)のほかに出さないこと、どの言語の行もパネルに収まることを確かめる。
+// ゲームの説明(#165)の文言と配置。文言の正本は言語ごとの Markdown（src/i18n/help/<言語>.md #185）。数値が config.ts の値と一致すること、キーの名前をキーボード操作の行(#182)のほかに出さないこと、どの言語の行もパネルに収まることを確かめる。
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ATTACK_RANGE } from './attack';
 import {
@@ -19,9 +19,11 @@ import {
 } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import { MS_PER_GAME_DAY } from './gameTime';
-import { buildHelpLines, canOpenHelp, helpLayout } from './help';
-import { getMessages, setLocale } from './i18n';
-import { SUPPORTED_LOCALES } from './i18n/resolveLocale';
+import { buildHelpContent, buildHelpParams, canOpenHelp, helpLayout } from './help';
+import { parseHelpMarkdown } from './helpMarkdown';
+import { getMessages, getPlaceholderNames, interpolate, setLocale } from './i18n';
+import { HELP_MARKDOWN } from './i18n/help';
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES } from './i18n/resolveLocale';
 import { estimateTextWidth } from './textMetrics';
 
 type Rect = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
@@ -35,9 +37,13 @@ const points = (ratio: number): number => Math.round(ratio * 100);
 const lineFontPx = parseInt(HELP_OVERLAY.lineFontSize, 10);
 const titleFontPx = parseInt(HELP_OVERLAY.titleFontSize, 10);
 
-describe('buildHelpLines（日本語）(#165)', () => {
-  const lines = buildHelpLines();
+describe('buildHelpContent（日本語）(#165, #185)', () => {
+  const { title, lines } = buildHelpContent();
   const joined = lines.join('\n');
+
+  it('見出しは ja.md の # の行（ゲームの説明）', () => {
+    expect(title).toBe('ゲームの説明');
+  });
 
   it('目的・操作・キーボードとパッド(#182)・初期配置・ポップオーバー・休暇・雇用・AI・アイテム・開発バランス・絵文字・負債の12行', () => {
     expect(lines).toHaveLength(12);
@@ -94,14 +100,14 @@ describe.each(SUPPORTED_LOCALES)('ゲームの説明（言語 %s #165）', (loca
   });
 
   it('キーの名前（Enter・Space・キー・[1] など）は、キーボードとパッドの行(#182)のほかには出さない（ほかの操作はマウスだけ）', () => {
-    const lines = buildHelpLines();
-    for (const line of [getMessages().help.title, ...lines.filter((_, index) => index !== 2)]) {
+    const { title, lines } = buildHelpContent();
+    for (const line of [title, ...lines.filter((_, index) => index !== 2)]) {
       expect(line).not.toMatch(/\b(enter|space|shift|esc|key|keys|wasd)\b|キー|スペース|矢印|\[\d\]|\b[A-Z]\/[A-Z]\b/i);
     }
   });
 
   it('キーボードとパッドの行(#182)は、移動の WASD・攻撃のスペース・パッドの5つのボタンの文字を含み、ほかのキーの名前は出さない', () => {
-    const line = buildHelpLines()[2];
+    const line = buildHelpContent().lines[2];
     expect(line).toContain('WASD');
     expect(line).toContain(locale === 'ja' ? 'スペース' : 'Space');
     for (const label of Object.values(VIRTUAL_PAD_LABELS)) expect(line).toContain(label);
@@ -109,7 +115,7 @@ describe.each(SUPPORTED_LOCALES)('ゲームの説明（言語 %s #165）', (loca
   });
 
   it('初期配置の行は、ランクを選んで床をクリックして置き、1人以上で始められることを含み、全員の配置は求めない(#178, #184)', () => {
-    const setupLine = buildHelpLines()[3];
+    const setupLine = buildHelpContent().lines[3];
     if (locale === 'ja') {
       expect(setupLine).toContain('ランクを選んで');
       expect(setupLine).toContain('1人以上で開始');
@@ -122,11 +128,11 @@ describe.each(SUPPORTED_LOCALES)('ゲームの説明（言語 %s #165）', (loca
   });
 
   it('プレースホルダーが残らない', () => {
-    for (const line of buildHelpLines()) expect(line).not.toMatch(/[{}]/);
+    for (const line of buildHelpContent().lines) expect(line).not.toMatch(/[{}]/);
   });
 
   it('説明の行はどれもパネルの内側の幅に収まる（推定幅）', () => {
-    const lines = buildHelpLines();
+    const { lines } = buildHelpContent();
     const layout = helpLayout(lines.length);
     for (const line of lines) {
       expect(estimateTextWidth(line, lineFontPx), line).toBeLessThanOrEqual(layout.innerWidth);
@@ -134,14 +140,51 @@ describe.each(SUPPORTED_LOCALES)('ゲームの説明（言語 %s #165）', (loca
   });
 
   it('見出しは ✕ のボタンと重ならない', () => {
-    const layout = helpLayout(buildHelpLines().length);
-    expect(layout.title.x + estimateTextWidth(getMessages().help.title, titleFontPx)).toBeLessThanOrEqual(layout.close.x);
+    const { title, lines } = buildHelpContent();
+    const layout = helpLayout(lines.length);
+    expect(layout.title.x + estimateTextWidth(title, titleFontPx)).toBeLessThanOrEqual(layout.close.x);
+  });
+});
+
+describe('言語ごとの Markdown の同期(#185)', () => {
+  const reference = parseHelpMarkdown(HELP_MARKDOWN[DEFAULT_LOCALE]);
+  const paramNames = Object.keys(buildHelpParams());
+
+  it.each(SUPPORTED_LOCALES)('%s の説明の行数は既定言語（ja）と同じで、パネルの高さに収まる', (locale) => {
+    const { lines } = parseHelpMarkdown(HELP_MARKDOWN[locale]);
+    expect(lines).toHaveLength(reference.lines.length);
+    expect(() => helpLayout(lines.length)).not.toThrow();
+  });
+
+  it.each(SUPPORTED_LOCALES)('%s の同じ位置の行は既定言語（ja）と同じプレースホルダー名の集合を使う', (locale) => {
+    const { lines } = parseHelpMarkdown(HELP_MARKDOWN[locale]);
+    lines.forEach((line, index) => {
+      expect(getPlaceholderNames(line).sort(), line).toEqual(getPlaceholderNames(reference.lines[index]).sort());
+    });
+  });
+
+  it.each(SUPPORTED_LOCALES)('%s のプレースホルダーはすべて共有の辞書（buildHelpParams）にあり、見出しには使わない', (locale) => {
+    const { title, lines } = parseHelpMarkdown(HELP_MARKDOWN[locale]);
+    expect(getPlaceholderNames(title)).toEqual([]);
+    for (const line of lines) {
+      for (const name of getPlaceholderNames(line)) expect(paramNames, line).toContain(name);
+    }
+  });
+
+  it('共有の辞書の名前はどれも Markdown のどこかで使う（使われない値を残さない）', () => {
+    const used = new Set(reference.lines.flatMap((line) => getPlaceholderNames(line)));
+    expect([...paramNames].sort()).toEqual([...used].sort());
+  });
+
+  it('辞書にない名前を Markdown に書くと、埋めるときに例外になる（未定義のプレースホルダーを黙って表示しない）', () => {
+    const { lines } = parseHelpMarkdown('# 見出し\n- 未定義の{undefinedName}');
+    expect(() => lines.map((line) => interpolate(line, buildHelpParams()))).toThrow('{undefinedName}');
   });
 });
 
 describe('helpLayout(#165)', () => {
   const field: Rect = { x: 0, y: 0, width: FIELD_WIDTH, height: FIELD_HEIGHT };
-  const lineCount = buildHelpLines().length;
+  const lineCount = buildHelpContent().lines.length;
   const layout = helpLayout(lineCount);
   const lineHeight = Math.ceil(lineFontPx * 1.25) + HELP_OVERLAY.lineSpacing;
 

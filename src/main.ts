@@ -293,7 +293,7 @@ import {
 import type { ActiveEffect, IncidentRecord, ScheduledIncident } from './itemEffect';
 import { toggleMenu } from './floatingMenu';
 import type { MenuKind } from './floatingMenu';
-import { buildHelpLines, canOpenHelp } from './help';
+import { buildHelpContent, canOpenHelp } from './help';
 import type { Point, Route } from './route';
 import { getMessages, setLocale } from './i18n';
 import { applyDocumentLang, getBrowserLanguages, getLocationSearch } from './i18n/browserEnvironment';
@@ -1340,7 +1340,8 @@ class MainScene extends Phaser.Scene {
     this.helpOpen = true;
     // 開いている間に離した指でパッドの移動が残らないようにする(#182)。
     this.clearPadInput();
-    this.helpOverlay = drawHelpOverlay(this, getMessages().help.title, buildHelpLines(), () => this.closeHelp());
+    const help = buildHelpContent();
+    this.helpOverlay = drawHelpOverlay(this, help.title, help.lines, () => this.closeHelp());
   }
 
   // ゲームの説明を閉じる（背景か ✕ の押下）(#165)。閉じた押下のまま主人公が動かないよう、プレイ開始（startPlay）と同じく離すまでポインター移動を止める。
