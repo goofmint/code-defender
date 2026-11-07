@@ -1,8 +1,8 @@
 // ゲームの説明(#165)。右上の ℹ️ で開くパネルの文言と配置を決める純粋関数だけを置く。Phaser には依存しない（テスト可能にするため）。
 // 「「出現地点の「休」で休暇/復帰」とかそんな説明いらない。右上にℹ️アイコンを置いて、それをクリックしたらゲーム説明を出せば良い」(#165) への対応で、
 // 常時出していた説明（初期配置の操作説明・ポップオーバーの休暇の案内文）はここに移した。
-// 文言は言語カタログ（help）、数値は config.ts の値から埋め込む（値を変えれば説明も変わる）。ほかの操作はマウスだけなので、キーの名前は
-// 主人公のキーボードとバーチャルパッドの操作の行（keyboardPad #182）にだけ出す。
+// 見出しと文言は言語ごとの Markdown（src/i18n/help/<言語>.md #185）、数値は config.ts の値から埋め込む（値を変えれば説明も変わる）。ほかの操作はマウスだけなので、キーの名前は
+// 主人公のキーボードとバーチャルパッドの操作の行（#182）にだけ出す。
 import { ATTACK_RANGE } from './attack';
 import {
   BALANCE_STEP_BUTTON_LABELS,
@@ -24,66 +24,75 @@ import {
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import { MS_PER_GAME_DAY } from './gameTime';
 import type { Rect } from './geometry';
-import { formatYen, getMessages, interpolate } from './i18n';
+import { formatYen, getLocale, getMessages, interpolate } from './i18n';
+import { HELP_MARKDOWN } from './i18n/help';
+import { parseHelpMarkdown } from './helpMarkdown';
+import type { HelpMarkdown } from './helpMarkdown';
 import type { Point } from './route';
 
 // 0〜1 の割合をパーセントポイント（四捨五入した整数）にする。
 const toPercentPoints = (ratio: number): number => Math.round(ratio * 100);
 
-// 説明の行（見出しを除く。上から順）。目的・操作（押し続けて移動・クリックで攻撃）・キーボードとバーチャルパッドの操作(#182)・初期配置・出現地点のポップオーバー・休暇の効果・
-// 雇用と給料・AIエージェント・アイテムとレベル・開発バランスのゲージ・HUD の絵文字・技術的負債の段階。
-export const buildHelpLines = (): readonly string[] => {
+// 説明の行のプレースホルダーに入れる値(#185)。すべての行で共有する1つの辞書なので、名前は行をまたいで一意にする
+// （行の追加・削除・並べ替えは Markdown だけで済む）。Markdown にない名前の値は使われないだけで、辞書にない名前は interpolate が例外にする。
+// 名前と意味の一覧は README.md の「ゲームの説明の編集」にも書く（名前を変えるときは ja.md・en.md・README も合わせる）。テストで全言語の Markdown と突き合わせるので公開する。
+export const buildHelpParams = (): Readonly<Record<string, string | number>> => {
   const text = getMessages().help;
   const levels = TECH_DEBT_LEVELS;
-  return [
-    interpolate(text.goal, {
-      funds: formatYen(0),
-      bankrupt: BANKRUPT_INCLUDES_ZERO ? text.bankruptAtOrBelow : text.bankruptBelow,
-    }),
-    interpolate(text.controls, { range: ATTACK_RANGE }),
-    interpolate(text.keyboardPad, {
-      up: VIRTUAL_PAD_LABELS.up,
-      down: VIRTUAL_PAD_LABELS.down,
-      left: VIRTUAL_PAD_LABELS.left,
-      right: VIRTUAL_PAD_LABELS.right,
-      attack: VIRTUAL_PAD_LABELS.attack,
-    }),
-    interpolate(text.setup, { points: STAGE_POINTS_INITIAL, start: getMessages().initialPlacement.startButton }),
-    text.popover,
-    interpolate(text.vacation, {
-      reduction: toPercentPoints(VACATION_MALICIOUS_RATE_REDUCTION),
-      max: toPercentPoints(VACATION_MALICIOUS_RATE_REDUCTION_MAX),
-      min: toPercentPoints(CODE_MALICIOUS_RATE_MIN),
-    }),
-    interpolate(text.hire, { max: MAX_ENGINEERS }),
-    text.aiAgent,
-    interpolate(text.items, { days: LEVEL_UP_INTERVAL_DAYS }),
-    interpolate(text.balance, {
-      refactoring: BALANCE_STEP_BUTTON_LABELS.refactoring,
-      feature: BALANCE_STEP_BUTTON_LABELS.feature,
-      step: REFACTORING_RATIO_STEP_PERCENT,
-    }),
-    interpolate(text.hudIcons, {
-      days: HUD_ICONS.days,
-      funds: HUD_ICONS.funds,
-      sales: HUD_ICONS.sales,
-      payment: HUD_ICONS.monthEndPayment,
-    }),
+  return {
+    // 目的: 倒産の境目の資金と「以下」/「未満」。
+    zeroFunds: formatYen(0),
+    bankrupt: BANKRUPT_INCLUDES_ZERO ? text.bankruptAtOrBelow : text.bankruptBelow,
+    // 操作: 攻撃の射程（px）。
+    range: ATTACK_RANGE,
+    // キーボードとバーチャルパッド(#182): パッドのボタンの文字。
+    up: VIRTUAL_PAD_LABELS.up,
+    down: VIRTUAL_PAD_LABELS.down,
+    left: VIRTUAL_PAD_LABELS.left,
+    right: VIRTUAL_PAD_LABELS.right,
+    attack: VIRTUAL_PAD_LABELS.attack,
+    // 初期配置: ステージポイントの初期値と開始ボタンの文言。
+    points: STAGE_POINTS_INITIAL,
+    start: getMessages().initialPlacement.startButton,
+    // 休暇: 1回で下がる不正率・下げられる上限・下限（パーセントポイント。四捨五入した整数）。
+    vacationReduction: toPercentPoints(VACATION_MALICIOUS_RATE_REDUCTION),
+    vacationMax: toPercentPoints(VACATION_MALICIOUS_RATE_REDUCTION_MAX),
+    vacationMin: toPercentPoints(CODE_MALICIOUS_RATE_MIN),
+    // 雇用: エンジニアの上限人数。
+    maxEngineers: MAX_ENGINEERS,
+    // アイテム: レベルが上がる間隔（日）。
+    levelUpDays: LEVEL_UP_INTERVAL_DAYS,
+    // 開発バランス: ボタンの文字（◀ / ▶）と1回で変える割合（%）。
+    refactoring: BALANCE_STEP_BUTTON_LABELS.refactoring,
+    feature: BALANCE_STEP_BUTTON_LABELS.feature,
+    step: REFACTORING_RATIO_STEP_PERCENT,
+    // HUD の絵文字。
+    daysIcon: HUD_ICONS.days,
+    fundsIcon: HUD_ICONS.funds,
+    salesIcon: HUD_ICONS.sales,
+    paymentIcon: HUD_ICONS.monthEndPayment,
+    // 技術的負債: 段階の絵文字と範囲、大障害の閾値と放置できる日数。
     // 段階の範囲は四捨五入した整数（getTechDebtLevel）で、下の段階の上限の次の値から始まる（0〜30・31〜60・61〜100）。
-    interpolate(text.techDebt, {
-      normal: levels.normal.icon,
-      normalMin: 0,
-      normalMax: levels.normal.max,
-      caution: levels.caution.icon,
-      cautionMin: levels.normal.max + 1,
-      cautionMax: levels.caution.max,
-      critical: levels.critical.icon,
-      criticalMin: levels.caution.max + 1,
-      criticalMax: levels.critical.max,
-      outage: TECH_DEBT_OUTAGE_THRESHOLD,
-      days: TECH_DEBT_OUTAGE_GRACE_MS / MS_PER_GAME_DAY,
-    }),
-  ];
+    normal: levels.normal.icon,
+    normalMin: 0,
+    normalMax: levels.normal.max,
+    caution: levels.caution.icon,
+    cautionMin: levels.normal.max + 1,
+    cautionMax: levels.caution.max,
+    critical: levels.critical.icon,
+    criticalMin: levels.caution.max + 1,
+    criticalMax: levels.critical.max,
+    outage: TECH_DEBT_OUTAGE_THRESHOLD,
+    outageDays: TECH_DEBT_OUTAGE_GRACE_MS / MS_PER_GAME_DAY,
+  };
+};
+
+// ゲームの説明の見出しと説明の行（上から順）(#185)。現在の言語の Markdown（src/i18n/help/<言語>.md）を解析し、
+// 各行のプレースホルダーを共有の辞書で埋める。行の順序と内容は Markdown のとおり。
+export const buildHelpContent = (): HelpMarkdown => {
+  const { title, lines } = parseHelpMarkdown(HELP_MARKDOWN[getLocale()]);
+  const params = buildHelpParams();
+  return { title, lines: lines.map((line) => interpolate(line, params)) };
 };
 
 // 文字サイズ（'13px' など）の px。

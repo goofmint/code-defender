@@ -43,7 +43,7 @@ import {
   listEngineerCandidateCells,
 } from './initialPlacement';
 import type { InitialPlacementSelection, InitialPlacementState } from './initialPlacement';
-import { buildHelpLines } from './help';
+import { buildHelpContent } from './help';
 import { formatYen, getMessages, setLocale } from './i18n';
 import { getItemPlacement, ITEM_REQUIRED_LEVELS, ITEM_TYPES } from './item';
 import type { ItemType } from './item';
@@ -1761,13 +1761,13 @@ describe('MainScene: ゲームの説明（右上の ℹ️）(#165)', () => {
     expect(scene.helpOpen).toBe(false);
   });
 
-  it('ℹ️ を押すと、見出しと buildHelpLines の行で説明を開く。開いている間にもう一度押しても重ねて開かない', () => {
+  it('ℹ️ を押すと、見出しと buildHelpContent の行で説明を開く。開いている間にもう一度押しても重ねて開かない', () => {
     const { scene } = createFixture();
     pressHelpIcon();
     expect(scene.helpOpen).toBe(true);
     expect(render.drawHelpOverlay).toHaveBeenCalledOnce();
-    expect(vi.mocked(render.drawHelpOverlay).mock.calls[0]?.[1]).toBe(getMessages().help.title);
-    expect(vi.mocked(render.drawHelpOverlay).mock.calls[0]?.[2]).toEqual(buildHelpLines());
+    expect(vi.mocked(render.drawHelpOverlay).mock.calls[0]?.[1]).toBe(buildHelpContent().title);
+    expect(vi.mocked(render.drawHelpOverlay).mock.calls[0]?.[2]).toEqual(buildHelpContent().lines);
     pressHelpIcon();
     expect(render.drawHelpOverlay).toHaveBeenCalledOnce();
   });

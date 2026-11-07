@@ -220,23 +220,9 @@ export const en: Messages = {
     // 推定幅（textMetrics.ts）が 60px 以下になる長さ（リリース地点の中心 x=930 から画面右端 960 まで 30px）。
     label: 'Release',
   },
-  // ゲームの説明(#165)。各行はパネルの内側の幅に収まる長さにする（help.test.ts）。pts はパーセントポイント。
+  // ゲームの説明(#165)。見出しと説明の行は src/i18n/help/en.md（#185）。ここは目的の行の {bankrupt} に入れる語句だけ。
   help: {
-    title: 'How to play',
-    goal: 'Let good code reach release and defeat bad code. You go bankrupt when funds are {bankrupt} {funds}',
     bankruptAtOrBelow: 'at or below',
     bankruptBelow: 'below',
-    controls: 'Hold the mouse button to walk there. Click the hero to attack bad code within {range}px',
-    keyboardPad: 'Keyboard: arrows or WASD move, Space attacks. Pad (bottom right): {up}{down}{left}{right} move, centre {attack} attacks',
-    setup: 'Setup: pick a rank, click a coloured cell (start with 1 or more). Pick an item, click ({points}pt). × undo. "{start}"',
-    popover: 'Click a spawn point: raise / cut, vacation / return, dismiss, AI agents',
-    vacation: 'Vacation: bad code -{reduction}pts each, max -{max}, min {min}%. Lasts after return. Salary paid; no code on leave',
-    hire: 'Engineer icon: hire (max {max}). Salaries are paid at month end',
-    aiAgent: 'AI agents: faster output; cheaper ones mix in more bad code. Paid monthly',
-    items: 'Item icon: buy with funds; placed at the hero. The level rises every {days} days and unlocks more items',
-    balance: 'Balance icon: gauge left = features (sales), right = refactoring (repays debt). {refactoring} {feature} move {step}%',
-    hudIcons: '{days} days {funds} funds {sales} total sales {payment} next month-end payment',
-    techDebt:
-      'Tech debt: {normal}{normalMin}-{normalMax} {caution}{cautionMin}-{cautionMax} {critical}{criticalMin}-{criticalMax}. Over {outage} for {days} days: major outage',
   },
 };
