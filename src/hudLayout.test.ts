@@ -40,6 +40,7 @@ import {
   STATUS_PANEL_RECT,
   STATUS_PANEL_ROWS,
   TECH_DEBT_LEVELS,
+  VIRTUAL_PAD_RECT,
 } from './config';
 import { formatAiAgentMessage, formatAiAgentOption } from './aiAgent';
 import {
@@ -72,6 +73,7 @@ import { MS_PER_GAME_DAY } from './gameTime';
 import { getCatalogue, getMessages, interpolate, setLocale } from './i18n';
 import { SUPPORTED_LOCALES } from './i18n/resolveLocale';
 import { STATUS_PANEL_CELLS, statusPanelCellRect } from './statusPanel';
+import { getReleasePointLabelBounds } from './releasePoint';
 import { formatTechDebtStatus } from './techDebt';
 import { estimateTextWidth } from './textMetrics';
 
@@ -179,11 +181,12 @@ describe('intersects（ヘルパー）', () => {
   });
 });
 
-describe('置けない矩形と上帯・下帯(#151, #156)', () => {
-  it('境界値: アイテムを置けない矩形は上帯（行0）と下帯（最終行）の2つだけ（左の HUD の矩形は撤去）', () => {
+describe('置けない矩形と上帯・下帯(#151, #156, #182)', () => {
+  it('境界値: アイテムを置けない矩形は上帯（行0）・下帯（最終行）・バーチャルパッド(#182)の3つ（左の HUD の矩形は撤去）', () => {
     expect(ITEM_BLOCKED_RECTS).toEqual([
       { x: 0, y: 0, width: FIELD_WIDTH, height: CELL_SIZE },
       { x: 0, y: FIELD_HEIGHT - CELL_SIZE, width: FIELD_WIDTH, height: CELL_SIZE },
+      VIRTUAL_PAD_RECT,
     ]);
   });
 });
@@ -248,6 +251,38 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
           expect(intersects(iconRects[i].rect, iconRects[j].rect)).toBe(false);
         }
       }
+    });
+  });
+
+  describe('バーチャルパッドのレイアウト(#182)', () => {
+    it('境界値: 右下の下帯の上（x=808〜952、y=336〜480）。下端は下帯の上端に接し、右端はフィールドの右端から 8px 内側（右下の指標の右端と同じ）', () => {
+      expect(VIRTUAL_PAD_RECT).toEqual({ x: 808, y: 336, width: 144, height: 144 });
+      expect(within(VIRTUAL_PAD_RECT, field)).toBe(true);
+      expect(VIRTUAL_PAD_RECT.y + VIRTUAL_PAD_RECT.height).toBe(bottomBand.y);
+      expect(VIRTUAL_PAD_RECT.x + VIRTUAL_PAD_RECT.width).toBe(STATUS_PANEL_RECT.x + STATUS_PANEL_RECT.width);
+    });
+
+    it('右下の指標・下帯・上帯・右上のアイコンと交差しない（指標とは縦に離れる）', () => {
+      expect(intersects(VIRTUAL_PAD_RECT, STATUS_PANEL_RECT)).toBe(false);
+      expect(VIRTUAL_PAD_RECT.y + VIRTUAL_PAD_RECT.height).toBeLessThan(STATUS_PANEL_RECT.y);
+      expect(intersects(VIRTUAL_PAD_RECT, bottomBand)).toBe(false);
+      expect(intersects(VIRTUAL_PAD_RECT, topBand)).toBe(false);
+      for (const { rect } of iconRects) expect(intersects(VIRTUAL_PAD_RECT, rect)).toBe(false);
+    });
+
+    it('リリース地点のセル（パルスを含む）とそのラベル（現在の言語の文言）より下で交差しない', () => {
+      const releaseCell = cellRect(RELEASE_POINT_CELL.col, RELEASE_POINT_CELL.row);
+      expect(intersects(VIRTUAL_PAD_RECT, releaseCell)).toBe(false);
+      expect(VIRTUAL_PAD_RECT.y).toBeGreaterThanOrEqual(releaseCell.y + releaseCell.height);
+      expect(intersects(VIRTUAL_PAD_RECT, getReleasePointLabelBounds())).toBe(false);
+    });
+
+    it('購入結果のメッセージ・通知・経過日数・最終行の休暇マーカー・初期配置UIと交差しない', () => {
+      expect(intersects(VIRTUAL_PAD_RECT, itemMessageRect())).toBe(false);
+      expect(intersects(VIRTUAL_PAD_RECT, notificationRect)).toBe(false);
+      expect(intersects(VIRTUAL_PAD_RECT, elapsedDaysRect())).toBe(false);
+      for (const row of spawnRows) expect(intersects(VIRTUAL_PAD_RECT, vacationMarkerRect(row))).toBe(false);
+      for (const uiRect of INITIAL_PLACEMENT_UI_BOUNDS) expect(intersects(VIRTUAL_PAD_RECT, uiRect)).toBe(false);
     });
   });
 

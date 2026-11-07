@@ -285,6 +285,8 @@ export const ja = {
     bankruptBelow: '未満',
     // {range} は攻撃の射程（px）。
     controls: 'マウスを押し続けると主人公がそこへ動く。主人公をクリックすると{range}px以内の不正なコードを攻撃',
+    // 主人公のキーボードとバーチャルパッドの操作(#182)。{up}・{down}・{left}・{right}・{attack} はパッドのボタンの文字（VIRTUAL_PAD_LABELS）。
+    keyboardPad: 'キーボード: 矢印かWASDで移動、スペースで攻撃。右下のパッド: {up}{down}{left}{right}で移動、中央の{attack}で攻撃',
     // {points} はステージポイントの初期値、{start} は開始ボタンの文言。
     setup: '開始前: 右上のエンジニアで雇い、色付きの床に置く（1人以上・全員）。アイテムを選んで床をクリック（{points}pt）。×で取消。「{start}」',
     popover: '出現地点をクリック: 休暇・復帰とAIエージェント',

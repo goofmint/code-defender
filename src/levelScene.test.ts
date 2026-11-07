@@ -141,6 +141,8 @@ vi.mock('./render', () => {
         ),
     ),
     drawVacationMarker: vi.fn(() => ({ container: fakes.make(), setOnVacation: () => undefined })),
+    // バーチャルパッド(#182)。プレイ開始（startPlay）で描く。このハーネスにはキーボードがない（input.keyboard なしでも動く）。
+    drawVirtualPad: vi.fn(),
     flashCode: vi.fn(),
   };
 });

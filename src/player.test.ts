@@ -3,10 +3,14 @@ import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './
 import { PLAYER_POINTER_DEAD_ZONE, PLAYER_SCREEN_GLOW_ALPHA, PLAYER_SHADOW_ALPHA } from './config';
 import {
   clampToField,
+  directionFromInput,
   facingFromHorizontal,
   getPlayerStartPosition,
   getPointerDirection,
+  mergeDirectionInputs,
+  movePlayerInDirection,
   movePlayerToward,
+  NO_DIRECTION_INPUT,
   PLAYER_COLORS,
   PLAYER_SIZE,
   PLAYER_START_COL,
@@ -183,5 +187,53 @@ describe('主人公の配色(#144)', () => {
       expect(alpha).toBeGreaterThan(0);
       expect(alpha).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+describe('上下左右の入力による移動(#182)', () => {
+  const input = (pressed: Partial<Record<'up' | 'down' | 'left' | 'right', boolean>>) => ({ ...NO_DIRECTION_INPUT, ...pressed });
+
+  it('何も押していなければ {0,0}', () => {
+    expect(directionFromInput(NO_DIRECTION_INPUT)).toEqual({ x: 0, y: 0 });
+  });
+
+  it('1つの向きだけなら、その向きの長さ 1 の方向（上は y が負、下は y が正）', () => {
+    expect(directionFromInput(input({ up: true }))).toEqual({ x: 0, y: -1 });
+    expect(directionFromInput(input({ down: true }))).toEqual({ x: 0, y: 1 });
+    expect(directionFromInput(input({ left: true }))).toEqual({ x: -1, y: 0 });
+    expect(directionFromInput(input({ right: true }))).toEqual({ x: 1, y: 0 });
+  });
+
+  it('斜めは正規化して長さ 1（斜めでも速くならない）', () => {
+    const direction = directionFromInput(input({ up: true, right: true }));
+    expect(direction.x).toBeCloseTo(Math.SQRT1_2);
+    expect(direction.y).toBeCloseTo(-Math.SQRT1_2);
+    expect(Math.hypot(direction.x, direction.y)).toBeCloseTo(1);
+  });
+
+  it('反対の向きを同時に押すと打ち消す（上下・左右どちらも。残りの向きだけ進む）', () => {
+    expect(directionFromInput(input({ up: true, down: true }))).toEqual({ x: 0, y: 0 });
+    expect(directionFromInput(input({ left: true, right: true }))).toEqual({ x: 0, y: 0 });
+    expect(directionFromInput(input({ up: true, down: true, left: true }))).toEqual({ x: -1, y: 0 });
+    expect(directionFromInput(input({ up: true, down: true, left: true, right: true }))).toEqual({ x: 0, y: 0 });
+  });
+
+  it('入力の合成: どれかで押していれば押している。空の一覧は何も押していない', () => {
+    expect(mergeDirectionInputs([])).toEqual(NO_DIRECTION_INPUT);
+    expect(mergeDirectionInputs([input({ up: true }), input({ right: true })])).toEqual(input({ up: true, right: true }));
+    // キーボードの左とパッドの右は打ち消す。
+    expect(directionFromInput(mergeDirectionInputs([input({ left: true }), input({ right: true })]))).toEqual({ x: 0, y: 0 });
+  });
+
+  it('移動距離は speed × deltaMs / 1000（境界値: deltaMs = 0 なら動かない）', () => {
+    expect(movePlayerInDirection({ x: 100, y: 100 }, { x: 1, y: 0 }, 500, 240)).toEqual({ x: 220, y: 100 });
+    expect(movePlayerInDirection({ x: 100, y: 100 }, { x: 0, y: -1 }, 1000, 240)).toEqual({ x: 100, y: -140 });
+    expect(movePlayerInDirection({ x: 100, y: 100 }, { x: 1, y: 0 }, 0, 240)).toEqual({ x: 100, y: 100 });
+    expect(movePlayerInDirection({ x: 100, y: 100 }, { x: 0, y: 0 }, 1000, 240)).toEqual({ x: 100, y: 100 });
+  });
+
+  it('フィールドの外へ進んだ位置は clampToField で端に止まる', () => {
+    const next = movePlayerInDirection({ x: PLAYER_SIZE / 2, y: 100 }, { x: -1, y: 0 }, 1000, 240);
+    expect(clampToField(next)).toEqual({ x: PLAYER_SIZE / 2, y: 100 });
   });
 });

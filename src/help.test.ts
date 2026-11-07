@@ -1,4 +1,4 @@
-// ゲームの説明(#165)の文言と配置。数値が config.ts の値と一致すること、キーの名前を出さないこと、どの言語の行もパネルに収まることを確かめる。
+// ゲームの説明(#165)の文言と配置。数値が config.ts の値と一致すること、キーの名前をキーボード操作の行(#182)のほかに出さないこと、どの言語の行もパネルに収まることを確かめる。
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ATTACK_RANGE } from './attack';
 import {
@@ -15,6 +15,7 @@ import {
   TECH_DEBT_OUTAGE_THRESHOLD,
   VACATION_MALICIOUS_RATE_REDUCTION,
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
+  VIRTUAL_PAD_LABELS,
 } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import { MS_PER_GAME_DAY } from './gameTime';
@@ -38,14 +39,19 @@ describe('buildHelpLines（日本語）(#165)', () => {
   const lines = buildHelpLines();
   const joined = lines.join('\n');
 
-  it('目的・操作・初期配置・ポップオーバー・休暇・雇用・AI・アイテム・開発バランス・絵文字・負債の11行', () => {
-    expect(lines).toHaveLength(11);
+  it('目的・操作・キーボードとパッド(#182)・初期配置・ポップオーバー・休暇・雇用・AI・アイテム・開発バランス・絵文字・負債の12行', () => {
+    expect(lines).toHaveLength(12);
     expect(lines[0]).toBe('正常なコードはリリースまで通し、不正なコードは倒す。資金が0円以下になると倒産');
     expect(lines[1]).toBe(`マウスを押し続けると主人公がそこへ動く。主人公をクリックすると${ATTACK_RANGE}px以内の不正なコードを攻撃`);
   });
 
+  it('キーボードとバーチャルパッドの行(#182): 矢印かWASDで移動・スペースで攻撃、パッドのボタンの文字は config と同じで中央が攻撃', () => {
+    const { up, down, left, right, attack } = VIRTUAL_PAD_LABELS;
+    expect(lines[2]).toBe(`キーボード: 矢印かWASDで移動、スペースで攻撃。右下のパッド: ${up}${down}${left}${right}で移動、中央の${attack}で攻撃`);
+  });
+
   it('休暇の効果の数値は config から作る（-10pt/回・最大-20pt・下限5%。給与は継続・休暇中は生産停止）', () => {
-    expect(lines[4]).toBe(
+    expect(lines[5]).toBe(
       `休暇: 不正率-${points(VACATION_MALICIOUS_RATE_REDUCTION)}pt/回・最大-${points(VACATION_MALICIOUS_RATE_REDUCTION_MAX)}pt・下限${points(CODE_MALICIOUS_RATE_MIN)}%。効果は復帰後も維持。給与は継続、休暇中は生産停止`,
     );
     expect(joined).toContain('-10pt/回');
@@ -54,28 +60,28 @@ describe('buildHelpLines（日本語）(#165)', () => {
   });
 
   it('初期配置のポイント・開始ボタンの文言、雇用の上限、レベルの間隔、割合の刻みとボタンの文字は config と同じ', () => {
-    expect(lines[2]).toContain(`（${STAGE_POINTS_INITIAL}pt）`);
-    expect(lines[2]).toContain(`「${getMessages().initialPlacement.startButton}」`);
+    expect(lines[3]).toContain(`（${STAGE_POINTS_INITIAL}pt）`);
+    expect(lines[3]).toContain(`「${getMessages().initialPlacement.startButton}」`);
     // 初期は0人なので、初期配置の間にエンジニアを雇って色付きの床に置く手順を書く(#172)。
-    expect(lines[2]).toContain('右上のエンジニアで雇い、色付きの床に置く');
-    expect(lines[5]).toContain(`最大${MAX_ENGINEERS}人`);
-    expect(lines[7]).toContain(`${LEVEL_UP_INTERVAL_DAYS}日ごと`);
-    expect(lines[8]).toContain(`${BALANCE_STEP_BUTTON_LABELS.refactoring} ${BALANCE_STEP_BUTTON_LABELS.feature}で${REFACTORING_RATIO_STEP_PERCENT}%ずつ`);
+    expect(lines[3]).toContain('右上のエンジニアで雇い、色付きの床に置く');
+    expect(lines[6]).toContain(`最大${MAX_ENGINEERS}人`);
+    expect(lines[8]).toContain(`${LEVEL_UP_INTERVAL_DAYS}日ごと`);
+    expect(lines[9]).toContain(`${BALANCE_STEP_BUTTON_LABELS.refactoring} ${BALANCE_STEP_BUTTON_LABELS.feature}で${REFACTORING_RATIO_STEP_PERCENT}%ずつ`);
   });
 
   it('HUD の絵文字の意味（📅 経過日数・💰 資金・📈 累計売上・💸 次の月末に払う額）', () => {
-    expect(lines[9]).toBe(
+    expect(lines[10]).toBe(
       `${HUD_ICONS.days}経過日数 ${HUD_ICONS.funds}資金 ${HUD_ICONS.sales}累計売上 ${HUD_ICONS.monthEndPayment}次の月末に払う額`,
     );
   });
 
   it('境界値: 負債の段階の範囲は四捨五入の判定と同じ（🔵0〜30 🟡31〜60 🔴61〜100）。大障害の閾値と放置日数も config から作る', () => {
     const { normal, caution, critical } = TECH_DEBT_LEVELS;
-    expect(lines[10]).toBe(
+    expect(lines[11]).toBe(
       `技術的負債: ${normal.icon}0〜${normal.max} ${caution.icon}${normal.max + 1}〜${caution.max} ${critical.icon}${caution.max + 1}〜${critical.max}。${TECH_DEBT_OUTAGE_THRESHOLD}を超えたまま${TECH_DEBT_OUTAGE_GRACE_MS / MS_PER_GAME_DAY}日で大障害`,
     );
-    expect(lines[10]).toContain('🔵0〜30 🟡31〜60 🔴61〜100');
-    expect(lines[10]).toContain('80を超えたまま30日');
+    expect(lines[11]).toContain('🔵0〜30 🟡31〜60 🔴61〜100');
+    expect(lines[11]).toContain('80を超えたまま30日');
   });
 });
 
@@ -87,14 +93,23 @@ describe.each(SUPPORTED_LOCALES)('ゲームの説明（言語 %s #165）', (loca
     setLocale('ja');
   });
 
-  it('キーの名前（Enter・Space・キー・[1] など）を出さない（マウスだけで操作する）', () => {
-    for (const line of [getMessages().help.title, ...buildHelpLines()]) {
-      expect(line).not.toMatch(/\b(enter|space|shift|esc|key|keys)\b|キー|\[\d\]|\b[A-Z]\/[A-Z]\b/i);
+  it('キーの名前（Enter・Space・キー・[1] など）は、キーボードとパッドの行(#182)のほかには出さない（ほかの操作はマウスだけ）', () => {
+    const lines = buildHelpLines();
+    for (const line of [getMessages().help.title, ...lines.filter((_, index) => index !== 2)]) {
+      expect(line).not.toMatch(/\b(enter|space|shift|esc|key|keys|wasd)\b|キー|スペース|矢印|\[\d\]|\b[A-Z]\/[A-Z]\b/i);
     }
   });
 
+  it('キーボードとパッドの行(#182)は、移動の WASD・攻撃のスペース・パッドの5つのボタンの文字を含み、ほかのキーの名前は出さない', () => {
+    const line = buildHelpLines()[2];
+    expect(line).toContain('WASD');
+    expect(line).toContain(locale === 'ja' ? 'スペース' : 'Space');
+    for (const label of Object.values(VIRTUAL_PAD_LABELS)) expect(line).toContain(label);
+    expect(line).not.toMatch(/\b(enter|shift|esc)\b|\[\d\]/i);
+  });
+
   it('初期配置の行は、人数が自由（1人以上）で雇った全員を置くと始められる条件を含む(#178)', () => {
-    const setupLine = buildHelpLines()[2];
+    const setupLine = buildHelpLines()[3];
     if (locale === 'ja') {
       expect(setupLine).toContain('1人以上');
       expect(setupLine).toContain('全員');

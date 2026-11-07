@@ -229,6 +229,7 @@ export const en: Messages = {
     bankruptAtOrBelow: 'at or below',
     bankruptBelow: 'below',
     controls: 'Hold the mouse button to walk there. Click the hero to attack bad code within {range}px',
+    keyboardPad: 'Keyboard: arrows or WASD move, Space attacks. Pad (bottom right): {up}{down}{left}{right} move, centre {attack} attacks',
     setup: 'Setup: hire 1 or more, place all on coloured cells. Pick an item, click floor ({points}pt). × undo. "{start}"',
     popover: 'Click a spawn point: vacation / return and AI agents',
     vacation: 'Vacation: bad code -{reduction}pts each, max -{max}, min {min}%. Lasts after return. Salary paid; no code on leave',

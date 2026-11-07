@@ -67,8 +67,19 @@ export const PLAYER_SCREEN_GLOW_ALPHA = 0.3;
 // 仮: 主人公の移動速度（ピクセル/秒）。240 = 4セル/秒。後続のアイテム効果（速度倍率）の基準値。企画書には数値の記載なし。
 export const PLAYER_SPEED = 240;
 // 仮・要確認(#165): 操作はマウス（タッチ）だけにする（「キーボードショートカット、うざい。マウスのみでいい」）。移動は押し続けた位置へ向かう。
+// #182 で主人公の移動・攻撃だけはキーボード（矢印・WASD・スペース）とバーチャルパッド（VIRTUAL_PAD_RECT）でもできるようにした（ほかの操作はマウスだけのまま）。
 // 仮: タッチ/マウス操作で、目標との距離がこの値（ピクセル）以内なら止まる（震え防止）。企画書には未記載。
 export const PLAYER_POINTER_DEAD_ZONE = 4;
+// 仮・要確認(#182): 主人公を動かすキー（「上下左右とWASDで移動」）と攻撃のキー（「スペースキーで攻撃」）。値は Phaser の addKey に渡すキー名。
+export const PLAYER_MOVE_KEYS = {
+  up: ['UP', 'W'],
+  down: ['DOWN', 'S'],
+  left: ['LEFT', 'A'],
+  right: ['RIGHT', 'D'],
+} as const;
+export const PLAYER_ATTACK_KEY = 'SPACE';
+// 仮・要確認(#182): 同時に扱うタッチの数（Phaser の input.activePointers）。バーチャルパッドの向きを押したまま、別の指で中央（攻撃）を押せるよう 2 にする。
+export const INPUT_ACTIVE_POINTERS = 2;
 
 // 仮・要確認: 企画書(3-1)では不正なコードの種類ごとの見た目は未定。以下は正常/不正を見分けるための仮の見た目。
 // コードのサイズ比率（セルに対する割合）。主人公(0.7)より小さくする。
@@ -571,13 +582,41 @@ export const ITEM_PRICE_TIER_BY_TYPE = {
   worksFine: 'cheap',
   seniorNote: 'expensive',
 } as const;
+// 仮・要確認(#182): バーチャルパッド（「上下左右、中央押しで攻撃」）。3 × 3 のセル（一辺 cellSize）の十字で、上下左右のセルで移動、中央のセルで攻撃、四隅は何もしない。
+// 置き場所は右下: 下端は下帯（最終行 y=480〜540。右下の指標がある）の上端、右端はフィールドの右端から margin の内側。
+// 重ならない根拠: リリース地点のセル（行4、y<300）とそのラベルより下、右下の指標（下帯の中）より上、右上のアイコン（上帯の中）より下（hudLayout.test.ts で確かめる）。
+// 深さは HUD(2) より上、メニュー・ポップオーバー（MENU_PANEL_DEPTH = 2.2）より下（開いたメニューが上に重なる）。ゲームの説明（HELP_OVERLAY.depth）が上から覆う。
+// 半透明にして、下を流れるコードと主人公が見えるようにする。
+export const VIRTUAL_PAD_CELL_SIZE = 48;
+export const VIRTUAL_PAD_CELLS = 3;
+const VIRTUAL_PAD_MARGIN = 8;
+const VIRTUAL_PAD_SIZE = VIRTUAL_PAD_CELL_SIZE * VIRTUAL_PAD_CELLS;
+export const VIRTUAL_PAD_RECT = {
+  x: CELL_SIZE * FIELD_COLS - VIRTUAL_PAD_MARGIN - VIRTUAL_PAD_SIZE,
+  y: CELL_SIZE * (FIELD_ROWS - 1) - VIRTUAL_PAD_SIZE,
+  width: VIRTUAL_PAD_SIZE,
+  height: VIRTUAL_PAD_SIZE,
+} as const;
+export const VIRTUAL_PAD_STYLE = {
+  depth: 2.1,
+  alpha: 0.5,
+  fill: 0x1e2a4a,
+  stroke: 0x6c8cff,
+  strokeWidth: 2,
+  glyphFontSize: '20px',
+  glyphColor: '#ffffff',
+} as const;
+// ボタンの文字。上下左右は向きの三角、中央（攻撃）は丸。
+export const VIRTUAL_PAD_LABELS = { up: '▲', down: '▼', left: '◀', right: '▶', attack: '●' } as const;
 // 仮・要確認(#48, #151, #156): アイテムを置けない範囲（ピクセル矩形）。アイテムのフットプリント（ITEM_BOX_SIZE = 16px の正方形）が 1px でも重なると置けない
 // （辺や角が接するだけなら置ける）。上帯（行0: 経過日数・右上のアイコン・通知）と下帯（最終行: 購入結果のメッセージ・右下の指標）はルートグリッドの行の高さ（CELL_SIZE）のまま。
 // #156 で左の HUD（資金・累計売上・技術的負債・昇給減給・AIエージェント・休暇の案内文）を撤去したため、その矩形（旧 ITEM_HUD_BOUNDS）は外す。
 // 右上のアイコンを押して開くパネルは一時的に重ねる UI で、背景が押下を受け止めるだけなので、置けない範囲には入れない。
+// #182 でバーチャルパッド（VIRTUAL_PAD_RECT）を足した。プレイ中ずっと出ているので、初期配置・購入で置いたアイテムがパッドの下に隠れないようにする。
 export const ITEM_BLOCKED_RECTS = [
   { x: 0, y: 0, width: CELL_SIZE * FIELD_COLS, height: CELL_SIZE },
   { x: 0, y: CELL_SIZE * (FIELD_ROWS - 1), width: CELL_SIZE * FIELD_COLS, height: CELL_SIZE },
+  VIRTUAL_PAD_RECT,
 ] as const;
 // 仮・要確認(#58): アイテムが 18 個になったため、購入バーをページ切替式にした。
 // 仮・要確認(#58, #165): アイテムのメニュー1ページの枠数。#165 で購入キー（4〜9）を廃止したので、枠数を直接持つ（値は購入キーの数だった 6 のまま）。

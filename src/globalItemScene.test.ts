@@ -8,7 +8,9 @@ import {
   CODE_SPAWN_INTERVAL_MS,
   DEFAULT_MALICIOUS_CODE_HP,
   DEFAULT_REFACTORING_RATIO,
+  ENERGY_DRINK_BOOST_DURATION_MS,
   ENERGY_DRINK_BOOST_SPEED_MULTIPLIER,
+  ENERGY_DRINK_SLUMP_SPEED_MULTIPLIER,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
   ITEM_POWER_DAMAGE,
   PIZZA_SPAWN_INTERVAL_MULTIPLIER,
@@ -99,6 +101,13 @@ type SceneUnderTest = {
   player?: FakePlayer;
   input: { readonly activePointer: { readonly isDown: boolean; readonly worldX: number; readonly worldY: number } };
   attackPointerHeld: boolean;
+  // 主人公を動かすキー(#182)。キーの移動のテストだけが入れる（Key は isDown だけを読む）。
+  movementKeys?: {
+    readonly up: readonly { readonly isDown: boolean }[];
+    readonly down: readonly { readonly isDown: boolean }[];
+    readonly left: readonly { readonly isDown: boolean }[];
+    readonly right: readonly { readonly isDown: boolean }[];
+  };
   codes: FakeCode[];
   codeHp: Map<number, number>;
   spawnElapsed: Map<number, number>;
@@ -341,6 +350,43 @@ describe('エナジードリンク(#58): 主人公の速度', () => {
   it('効果がなければ通常の速度', () => {
     const scene = createScene();
     holdPointerFarRight(scene);
+
+    scene.updatePlayer(DELTA);
+
+    expect(scene.player?.setPosition).toHaveBeenCalledWith(300 + (PLAYER_SPEED * DELTA) / 1000, 300);
+  });
+
+  // → キーを押している（キーボード・バーチャルパッドの向きの移動 #182）。
+  const holdRightKey = (scene: SceneUnderTest): void => {
+    scene.movementKeys = { up: [], down: [], left: [], right: [{ isDown: true }] };
+  };
+
+  it('加速期はキーの移動(#182)の距離も同じ倍率倍になる', () => {
+    const scene = createScene();
+    scene.activeEffects = startEnergyDrink([], NOW);
+    holdRightKey(scene);
+
+    scene.updatePlayer(DELTA);
+
+    const step = (PLAYER_SPEED * ENERGY_DRINK_BOOST_SPEED_MULTIPLIER * DELTA) / 1000;
+    expect(scene.player?.setPosition).toHaveBeenCalledWith(300 + step, 300);
+  });
+
+  it('鈍化期はキーの移動(#182)の距離も同じ倍率倍になる', () => {
+    const scene = createScene();
+    scene.activeEffects = startEnergyDrink([], NOW);
+    scene.elapsedMs = NOW + ENERGY_DRINK_BOOST_DURATION_MS;
+    holdRightKey(scene);
+
+    scene.updatePlayer(DELTA);
+
+    const step = (PLAYER_SPEED * ENERGY_DRINK_SLUMP_SPEED_MULTIPLIER * DELTA) / 1000;
+    expect(scene.player?.setPosition).toHaveBeenCalledWith(300 + step, 300);
+  });
+
+  it('効果がなければキーの移動(#182)は通常の速度', () => {
+    const scene = createScene();
+    holdRightKey(scene);
 
     scene.updatePlayer(DELTA);
 

@@ -124,6 +124,10 @@ import {
   PLACEMENT_PREVIEW,
   PLACEMENT_ROWS,
   REVEALED_CODE_STYLE,
+  VIRTUAL_PAD_CELL_SIZE,
+  VIRTUAL_PAD_LABELS,
+  VIRTUAL_PAD_RECT,
+  VIRTUAL_PAD_STYLE,
 } from './config';
 import type { ItemPageDirection } from './itemBar';
 import { placementCellCenter } from './itemPlacement';
@@ -138,6 +142,7 @@ import type { MenuKind, PanelLayout } from './floatingMenu';
 import type { Rect } from './geometry';
 import { formatMonthEndPayment } from './monthBoundary';
 import { helpLayout } from './help';
+import { VIRTUAL_PAD_BUTTONS } from './virtualPad';
 import { STATUS_PANEL_CELLS, statusPanelCellRect } from './statusPanel';
 
 // 後続オブジェクトより常に下に描画する。
@@ -1470,4 +1475,31 @@ export const drawHelpOverlay = (
   closeButton.on('pointerdown', () => onClose());
   const objects: Phaser.GameObjects.GameObject[] = [backdrop, background, titleText, ...lineTexts, closeButton];
   return { destroy: () => objects.forEach((object) => object.destroy()) };
+};
+
+// バーチャルパッド(#182)。VIRTUAL_PAD_RECT の 3 × 3 のセルのうち、上下左右と中央（攻撃）の5つのボタンを半透明で描く（四隅は描かず、押下も受け取らない）。
+// 押すと onPress(pointer) を呼ぶ。どのボタンかは main.ts が押した位置（virtualPadZoneAt）で決める（押したまま隣のボタンへ指を滑らせたときも同じ判定にする）。
+// 当たり判定は見た目の正方形と同じ。stopPropagation はしない（main.ts が currentlyOver で移動・攻撃・配置を止める）。
+export const drawVirtualPad = (scene: Phaser.Scene, onPress: (pointer: Phaser.Input.Pointer) => void): void => {
+  const size = VIRTUAL_PAD_CELL_SIZE;
+  VIRTUAL_PAD_BUTTONS.forEach(({ zone, col, row }) => {
+    const background = scene.add
+      .rectangle(0, 0, size, size, VIRTUAL_PAD_STYLE.fill)
+      .setOrigin(0)
+      .setStrokeStyle(VIRTUAL_PAD_STYLE.strokeWidth, VIRTUAL_PAD_STYLE.stroke);
+    const glyph = scene.add
+      .text(size / 2, size / 2, VIRTUAL_PAD_LABELS[zone], {
+        fontSize: VIRTUAL_PAD_STYLE.glyphFontSize,
+        fontFamily: ELAPSED_DAYS_STYLE.fontFamily,
+        color: VIRTUAL_PAD_STYLE.glyphColor,
+      })
+      .setOrigin(0.5);
+    const container = scene.add
+      .container(VIRTUAL_PAD_RECT.x + col * size, VIRTUAL_PAD_RECT.y + row * size, [background, glyph])
+      .setSize(size, size)
+      .setDepth(VIRTUAL_PAD_STYLE.depth)
+      .setAlpha(VIRTUAL_PAD_STYLE.alpha);
+    container.setInteractive(new Phaser.Geom.Rectangle(size / 2, size / 2, size, size), Phaser.Geom.Rectangle.Contains);
+    container.on('pointerdown', (pointer: Phaser.Input.Pointer) => onPress(pointer));
+  });
 };
