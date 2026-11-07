@@ -223,14 +223,14 @@ export const ja = {
     unknownRank: '不明なランクです: {rank}',
     // 自主退職(#32)。
     resigned: '#{id} {rank}が退職しました',
+    // 解雇(#186)。
+    dismissed: '#{id} {rank}を解雇しました',
     // 選択中のエンジニア（メニューでは2行）。{salary} は formatYen で整形した月給、{ai} は付けている AIエージェントの短い名前か aiNone。
     selectedNone: '選択: 対象なし',
     selectedHeading: '選択: #{id} {rank}',
     selectedDetail: '月給 {salary} AI: {ai}',
     aiNone: 'なし',
     salaryButtons: {
-      previous: '◀ 前へ',
-      next: '次へ ▶',
       raise: '昇給',
       cut: '減給',
     },
@@ -243,13 +243,15 @@ export const ja = {
     salaryAtMax: 'これ以上昇給できません（上限 {amount}）',
     salaryAtMin: 'これ以上減給できません（下限 {amount}）',
     salaryInvalid: '#{id} の月給が不正です',
-    // エンジニアのポップオーバー(#156)の見出し・休暇の状態・休暇ボタン。
+    // エンジニアのポップオーバー(#156)の見出し・休暇の状態と月給（{salary} は formatYen #186）・休暇ボタン・解雇ボタン(#186)。
+    // 昇給・減給のボタンは salaryButtons を使う(#186)。
     popoverHeading: '#{id} {rank} AI: {ai}',
-    popoverState: '状態: {state}',
+    popoverState: '状態: {state} 月給 {salary}',
     working: '勤務中',
     onVacation: '休暇中',
     startVacation: '休暇にする',
-    endVacation: '復帰する',
+    endVacation: '復職する',
+    dismiss: '解雇する',
   },
   // 不正なコードの種類の表示名（企画書 3-1 の9名称）。
   maliciousCode: {
@@ -287,11 +289,11 @@ export const ja = {
     keyboardPad: 'キーボード: 矢印かWASDで移動、スペースで攻撃。右下のパッド: {up}{down}{left}{right}で移動、中央の{attack}で攻撃',
     // {points} はステージポイントの初期値、{start} は開始ボタンの文言。
     setup: '開始前: エンジニアのランクを選んで色付きの床へ（1人以上で開始）。アイテムを選んで床をクリック（{points}pt）。×で取消。「{start}」',
-    popover: '出現地点をクリック: 休暇・復帰とAIエージェント',
+    popover: '出現地点をクリック: 昇給・減給・休暇・復職・解雇とAIエージェント',
     // {reduction}・{max}・{min} はパーセントポイント（四捨五入した整数）。
     vacation: '休暇: 不正率-{reduction}pt/回・最大-{max}pt・下限{min}%。効果は復帰後も維持。給与は継続、休暇中は生産停止',
     // {max} はエンジニアの上限人数。
-    hire: '右上のエンジニア: 雇用（最大{max}人）・昇給・減給。給料は月末に払う',
+    hire: '右上のエンジニア: 雇用（最大{max}人）。給料は月末に払う',
     aiAgent: 'AIエージェント: 出力ペースが上がる。安いほど不正なコードが混ざりやすい。月額',
     // {days} はレベルが上がる間隔（日）。
     items: '右上のアイテム: 資金で買い、主人公の位置に置く。{days}日ごとにレベルが上がり、使えるアイテムが増える',

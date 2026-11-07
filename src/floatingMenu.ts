@@ -105,23 +105,23 @@ export const splitRow = (row: Rect, count: number): readonly Rect[] => {
   }));
 };
 
-// エンジニアのメニュー: 人数（1行）、雇うボタン（ランクごとに1行）、選択中のエンジニア（2行）、前へ・次へ、昇給・減給。
+// エンジニアのメニュー: 人数（1行）、雇うボタン（ランクごとに1行）、選択中のエンジニア（2行）。
+// 前へ・次へと昇給・減給は #186 で外した（昇給・減給はエンジニアのポップオーバーで操作する）。
 export const ENGINEER_MENU_ROWS: readonly PanelRowSpec[] = [
   textRow(1),
   ...ENGINEER_RANKS.map(() => buttonRow(1)),
   textRow(2),
-  buttonRow(2),
-  buttonRow(2),
 ];
 // アイテムのメニュー: ページ内の枠（ITEM_PAGE_SIZE 個、1枠1行）と、ページ行（前のページ・ページ表示・次のページ）。
 export const ITEM_MENU_ROWS: readonly PanelRowSpec[] = [...Array.from({ length: ITEM_PAGE_SIZE }, () => buttonRow(1)), buttonRow(3)];
 // 開発バランスのメニュー(#165): 見出し（1行）、2色のゲージ、割合の文言（1行）、◀ / ▶ のボタン（1行に2つ）。
 export const BALANCE_MENU_ROWS: readonly PanelRowSpec[] = [textRow(1), gaugeRow, textRow(1), buttonRow(2)];
-// エンジニアのポップオーバー: 見出しと休暇の状態（2行）、休暇／復帰ボタン、AIエージェントのボタン（種類ごとに1行）。
-// 休暇の案内文は #165 でゲームの説明（help.ts）に移した。
+// エンジニアのポップオーバー: 見出しと休暇の状態・月給（2行）、昇給・減給（1行に2つ #186）、休暇／復職と解雇（1行に2つ #186）、
+// AIエージェントのボタン（種類ごとに1行）。休暇の案内文は #165 でゲームの説明（help.ts）に移した。
 export const ENGINEER_POPOVER_ROWS: readonly PanelRowSpec[] = [
   textRow(2),
-  buttonRow(1),
+  buttonRow(2),
+  buttonRow(2),
   ...AI_AGENT_BUTTON_ORDER.map(() => buttonRow(1)),
 ];
 

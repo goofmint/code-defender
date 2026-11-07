@@ -60,6 +60,8 @@ import {
   setEngineerVacation,
   shouldResign,
   formatResignedMessage,
+  dismissEngineer,
+  formatDismissedMessage,
   toggleEngineerVacation,
   updateEngineerParameters,
 } from './engineer';
@@ -1734,16 +1736,19 @@ describe('formatSelectedEngineerLines(#34, #156)', () => {
 });
 
 describe('エンジニアのポップオーバーの文言(#156)', () => {
-  it('見出しは「#id ランク AI: 種類」、2行目は休暇の状態', () => {
-    expect(formatEngineerPopoverLines(makeEngineer(5, 'middle', 0))).toEqual(['#5 ミドル AI: なし', '状態: 勤務中']);
+  it('見出しは「#id ランク AI: 種類」、2行目は休暇の状態と月給(#186)', () => {
+    expect(formatEngineerPopoverLines(makeEngineer(5, 'middle', 0))).toEqual(['#5 ミドル AI: なし', '状態: 勤務中 月給 300,000円']);
     expect(formatEngineerPopoverLines({ ...makeEngineer(5, 'middle', 0), aiAgent: 'cheap', onVacation: true })).toEqual([
       '#5 ミドル AI: 安い',
-      '状態: 休暇中',
+      '状態: 休暇中 月給 300,000円',
     ]);
   });
-  it('休暇ボタンは勤務中なら「休暇にする」、休暇中なら「復帰する」', () => {
+  it('月給は昇給・減給した今の額を出す(#186)', () => {
+    expect(formatEngineerPopoverLines({ ...makeEngineer(5, 'middle', 0), salary: 1_000_000 })[1]).toBe('状態: 勤務中 月給 1,000,000円');
+  });
+  it('休暇ボタンは勤務中なら「休暇にする」、休暇中なら「復職する」(#186)', () => {
     expect(formatVacationButton(makeEngineer(0, 'junior', 0))).toBe('休暇にする');
-    expect(formatVacationButton({ ...makeEngineer(0, 'junior', 0), onVacation: true })).toBe('復帰する');
+    expect(formatVacationButton({ ...makeEngineer(0, 'junior', 0), onVacation: true })).toBe('復職する');
   });
 });
 
@@ -2073,6 +2078,38 @@ describe('自主退職(#32): formatResignedMessage', () => {
   });
 });
 
+describe('解雇(#186): dismissEngineer / formatDismissedMessage', () => {
+  const roster = (): Engineer[] => [makeEngineer(10, 'junior', 0), makeEngineer(11, 'middle', 1), makeEngineer(12, 'senior', 2)];
+
+  it.each([10, 11, 12])('id %i を外し、残る人は元の並び順・同じ参照のまま。入力は変えない', (id) => {
+    const engineers = roster();
+    const snapshot = [...engineers];
+    const result = dismissEngineer(engineers, id);
+    if (!result.ok) throw new Error('解雇できませんでした');
+    expect(result.engineer).toBe(engineers.find((engineer) => engineer.id === id));
+    expect(result.engineers.map((engineer) => engineer.id)).toEqual(snapshot.map((engineer) => engineer.id).filter((entry) => entry !== id));
+    result.engineers.forEach((engineer) => expect(snapshot).toContain(engineer));
+    expect(engineers).toEqual(snapshot);
+  });
+
+  it.each([9, 13])('境界値: 名簿の id の外側（%i）は not-found で名簿を返さない', (id) => {
+    expect(dismissEngineer(roster(), id)).toEqual({ ok: false, engineerId: id, reason: 'not-found' });
+  });
+
+  it('空の名簿は not-found', () => {
+    expect(dismissEngineer([], 0)).toEqual({ ok: false, engineerId: 0, reason: 'not-found' });
+  });
+
+  it('最後の1人を外すと空の名簿', () => {
+    const result = dismissEngineer([makeEngineer(0, 'junior', 0)], 0);
+    expect(result.ok && result.engineers).toEqual([]);
+  });
+
+  it('メッセージは id とランク名を出す', () => {
+    expect(formatDismissedMessage(makeEngineer(3, 'senior', 3))).toBe(`#3 ${getRankLabel('senior')}を解雇しました`);
+  });
+});
+
 describe('ランク・性格の表示名（英語 #158）', () => {
   beforeEach(() => {
     setLocale('en');
@@ -2118,6 +2155,10 @@ describe('エンジニアの文言（英語 #158）', () => {
     expect(formatResignedMessage(makeEngineer(3, 'senior', 3))).toBe('#3 Senior resigned');
   });
 
+  it('解雇のメッセージ(#186)', () => {
+    expect(formatDismissedMessage(makeEngineer(3, 'senior', 3))).toBe('#3 Senior was dismissed');
+  });
+
   it.each<[string, SalaryAdjustResult, string]>([
     ['昇給', adjustEngineerSalary([makeEngineer(3, 'junior', 0)], 3, 'raise'), '#3 Raise: ¥200,000→¥250,000'],
     ['減給', adjustEngineerSalary([makeEngineer(3, 'junior', 0)], 3, 'cut'), '#3 Cut: ¥200,000→¥150,000'],
@@ -2137,10 +2178,10 @@ describe('エンジニアの文言（英語 #158）', () => {
     expect(formatSelectedEngineerLines(null)).toEqual(['Selected: none']);
   });
 
-  it('ポップオーバーの見出し・状態・休暇ボタン', () => {
-    expect(formatEngineerPopoverLines(makeEngineer(5, 'middle', 0))).toEqual(['#5 Mid AI: None', 'Status: Working']);
+  it('ポップオーバーの見出し・状態と月給(#186)・休暇ボタン', () => {
+    expect(formatEngineerPopoverLines(makeEngineer(5, 'middle', 0))).toEqual(['#5 Mid AI: None', 'Status: Working Salary ¥300,000']);
     const resting: Engineer = { ...makeEngineer(5, 'middle', 0), aiAgent: 'cheap', onVacation: true };
-    expect(formatEngineerPopoverLines(resting)).toEqual(['#5 Mid AI: Budget', 'Status: On vacation']);
+    expect(formatEngineerPopoverLines(resting)).toEqual(['#5 Mid AI: Budget', 'Status: On vacation Salary ¥300,000']);
     expect(formatVacationButton(makeEngineer(0, 'junior', 0))).toBe('Send on vacation');
     expect(formatVacationButton(resting)).toBe('Back to work');
   });

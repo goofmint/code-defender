@@ -8,6 +8,9 @@ import { getAiAgentMonthlyFee, getAiAgentPrice } from './aiAgent';
 import {
   DEFAULT_REFACTORING_RATIO,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
+  ENGINEER_SALARY_MAX,
+  ENGINEER_SALARY_MIN,
+  ENGINEER_SALARY_STEP,
   INITIAL_FUNDS,
   INITIAL_PLACEMENT_UI_BOUNDS,
   ITEM_BLOCKED_RECTS,
@@ -16,7 +19,8 @@ import {
   TECH_DEBT_INITIAL,
 } from './config';
 import type { Engineer } from './engineer';
-import { findEngineerByRoute } from './engineer';
+import { findEngineerByRoute, formatDismissedMessage } from './engineer';
+import { getMessages } from './i18n';
 import type { GameOverState } from './gameOver';
 import { ITEM_TYPES } from './item';
 import { getItemMonthlyFee, isPlaceableCell, placementCellCenter } from './itemPlacement';
@@ -142,6 +146,8 @@ type MenuKind = 'engineer' | 'item' | 'balance';
 type FakePointer = { readonly worldX: number; readonly worldY: number; isDown: boolean };
 type PointerDownHandler = (pointer: FakePointer, currentlyOver: readonly object[]) => void;
 type EventHandler = (payload: object) => void;
+// 解雇(#186)で片付くかを確かめるための、流れているコードの偽物（MainScene の discardCode が触る分だけ）。
+type FakeCode = { readonly id: number; readonly routeId: number; readonly graphics: { readonly destroy: Mock<() => void> } };
 
 // テストで触る MainScene の private メンバーと、create() が使う Phaser のプロパティだけを表す型。
 type SceneUnderTest = {
@@ -150,6 +156,11 @@ type SceneUnderTest = {
   routes: Route[];
   placedItems: readonly PlacedItem[];
   funds: number;
+  score: number;
+  codes: FakeCode[];
+  codeHp: Map<number, number>;
+  spawnElapsed: Map<number, number>;
+  routeDrawings: Map<number, object>;
   refactoringRatio: number;
   selectedEngineerId: number | null;
   openMenu: MenuKind | null;
@@ -168,7 +179,7 @@ type SceneUnderTest = {
     readonly emit: (event: string, payload: object) => boolean;
   };
   time: { now: number; readonly delayedCall: Mock<(delay: number, callback: () => void) => void> };
-  tweens: { readonly pauseAll: Mock<() => void> };
+  tweens: { readonly pauseAll: Mock<() => void>; readonly killTweensOf: Mock<(target: object) => void> };
   scene: { readonly restart: Mock<() => void> };
   create(): void;
 };
@@ -220,7 +231,7 @@ const createHarness = (): Harness => {
     },
   };
   scene.time = { now: 0, delayedCall: vi.fn<(delay: number, callback: () => void) => void>() };
-  scene.tweens = { pauseAll: vi.fn<() => void>() };
+  scene.tweens = { pauseAll: vi.fn<() => void>(), killTweensOf: vi.fn<(target: object) => void>() };
   scene.scene = { restart: vi.fn<() => void>() };
   scene.create();
   return {
@@ -587,6 +598,211 @@ describe('MainScene: エンジニアのポップオーバー(#156)', () => {
   });
 });
 
+// 最後に出した雇用・給与・解雇のメッセージ（drawHireMessage に渡した文言）。
+const lastHireMessage = (): string => {
+  const call = vi.mocked(render.drawHireMessage).mock.calls.at(-1);
+  if (call === undefined) throw new Error('メッセージが出ていません');
+  return call[1];
+};
+
+// エンジニアの id をルートの id からずらしたシーン（id = ルート id + 10）。ポップオーバーの操作がルートではなくエンジニアの id を対象にすることを確かめる。
+const createShiftedIdHarness = (): Harness => {
+  const harness = createPlacedHarness();
+  startPlay();
+  const { scene } = harness;
+  scene.engineers = scene.engineers.map((engineer) => ({ ...engineer, id: engineer.id + 10 }));
+  scene.selectedEngineerId = scene.engineers[0].id;
+  scene.engineers.forEach((engineer) => {
+    if (engineer.routeId === engineer.id) throw new Error('エンジニアの id とルートの id が同じです');
+  });
+  return harness;
+};
+
+const engineerOfRoute = (scene: SceneUnderTest, routeId: number): Engineer => {
+  const engineer = findEngineerByRoute(scene.engineers, routeId);
+  if (engineer === undefined) throw new Error(`担当エンジニアがいません: routeId=${routeId}`);
+  return engineer;
+};
+
+describe('MainScene: ポップオーバーの昇給・減給(#186)', () => {
+  it('昇給・減給はポップオーバーの担当エンジニアの月給を ENGINEER_SALARY_STEP だけ変え、ポップオーバーと月末支払を描き直す', () => {
+    const { scene } = createShiftedIdHarness();
+    const route = scene.routes[1];
+    const target = engineerOfRoute(scene, route.id);
+    pressMarker(scene, route.id);
+    lastPopover().callbacks.onAdjustSalary('raise');
+    expect(engineerOfRoute(scene, route.id).salary).toBe(target.salary + ENGINEER_SALARY_STEP);
+    expect(lastPopover().engineer.salary).toBe(target.salary + ENGINEER_SALARY_STEP);
+    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(payroll(scene.engineers));
+    lastPopover().callbacks.onAdjustSalary('cut');
+    expect(engineerOfRoute(scene, route.id).salary).toBe(target.salary);
+    expect(lastPopover().engineer.salary).toBe(target.salary);
+    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(payroll(scene.engineers));
+  });
+
+  it('開いたあとに選択中のエンジニアが変わっても、ポップオーバーの担当エンジニアの月給を変える', () => {
+    const { scene } = createShiftedIdHarness();
+    const route = scene.routes[1];
+    const target = engineerOfRoute(scene, route.id);
+    pressMarker(scene, route.id);
+    const other = scene.engineers.find((engineer) => engineer.id !== target.id);
+    if (other === undefined) throw new Error('ほかのエンジニアがいません');
+    scene.selectedEngineerId = other.id;
+    const { callbacks } = lastPopover();
+    callbacks.onAdjustSalary('raise');
+    expect(scene.engineers.find((engineer) => engineer.id === target.id)?.salary).toBe(target.salary + ENGINEER_SALARY_STEP);
+    expect(scene.engineers.find((engineer) => engineer.id === other.id)?.salary).toBe(other.salary);
+  });
+
+  it('境界値: 上限の 1 刻み手前は上限まで上がり、上限ちょうどでは上がらず上限のメッセージを出す', () => {
+    const { scene } = createShiftedIdHarness();
+    const route = scene.routes[0];
+    const target = engineerOfRoute(scene, route.id);
+    scene.engineers = scene.engineers.map((engineer) =>
+      engineer.id === target.id ? { ...engineer, salary: ENGINEER_SALARY_MAX - ENGINEER_SALARY_STEP } : engineer,
+    );
+    pressMarker(scene, route.id);
+    lastPopover().callbacks.onAdjustSalary('raise');
+    expect(engineerOfRoute(scene, route.id).salary).toBe(ENGINEER_SALARY_MAX);
+    const payment = lastStatusPanel().setMonthEndPayment;
+    const calls = payment.mock.calls.length;
+    lastPopover().callbacks.onAdjustSalary('raise');
+    expect(engineerOfRoute(scene, route.id).salary).toBe(ENGINEER_SALARY_MAX);
+    expect(lastHireMessage()).toContain(getMessages().engineer.salaryAtMax.split('{amount}')[0]);
+    expect(payment.mock.calls.length).toBe(calls);
+  });
+
+  it('境界値: 下限の 1 刻み上は下限まで下がり、下限ちょうどでは下がらず下限のメッセージを出す', () => {
+    const { scene } = createShiftedIdHarness();
+    const route = scene.routes[0];
+    const target = engineerOfRoute(scene, route.id);
+    scene.engineers = scene.engineers.map((engineer) =>
+      engineer.id === target.id ? { ...engineer, salary: ENGINEER_SALARY_MIN + ENGINEER_SALARY_STEP } : engineer,
+    );
+    pressMarker(scene, route.id);
+    lastPopover().callbacks.onAdjustSalary('cut');
+    expect(engineerOfRoute(scene, route.id).salary).toBe(ENGINEER_SALARY_MIN);
+    lastPopover().callbacks.onAdjustSalary('cut');
+    expect(engineerOfRoute(scene, route.id).salary).toBe(ENGINEER_SALARY_MIN);
+    expect(lastHireMessage()).toContain(getMessages().engineer.salaryAtMin.split('{amount}')[0]);
+  });
+
+  it('描いた時点の担当エンジニアが名簿にいなければ（古い id）、選択中のエンジニアには付け替えず対象なしのメッセージを出す', () => {
+    const { scene } = createShiftedIdHarness();
+    const route = scene.routes[0];
+    pressMarker(scene, route.id);
+    const { callbacks } = lastPopover();
+    const target = engineerOfRoute(scene, route.id);
+    // 描いたあとに担当エンジニアだけ名簿から外す（ポップオーバーは古い id を持ったまま）。
+    scene.engineers = scene.engineers.filter((engineer) => engineer.id !== target.id);
+    scene.selectedEngineerId = scene.engineers[0].id;
+    const before = scene.engineers;
+    callbacks.onAdjustSalary('raise');
+    expect(scene.engineers).toBe(before);
+    expect(lastHireMessage()).toBe(getMessages().common.noTargetEngineer);
+  });
+});
+
+describe('MainScene: ポップオーバーの解雇(#186)', () => {
+  // 各ルートに2個ずつ流れているコード（id はルート id × 10 + 0・1）を置いたプレイ中のシーン。
+  const createDismissHarness = (): Harness => {
+    const harness = createShiftedIdHarness();
+    const { scene } = harness;
+    scene.codes = scene.routes.flatMap((route) =>
+      [0, 1].map((n) => ({ id: route.id * 10 + n, routeId: route.id, graphics: { destroy: vi.fn<() => void>() } })),
+    );
+    scene.codeHp = new Map(scene.codes.map((code) => [code.id, 1]));
+    scene.routes.forEach((route) => scene.spawnElapsed.set(route.id, 100));
+    return harness;
+  };
+
+  it('ポップオーバーの担当エンジニアを名簿から外し、そのルートの描画・タイマー・コードだけを片付け、ポップオーバーを閉じる。資金・スコアは変えない', () => {
+    const { scene } = createDismissHarness();
+    const route = scene.routes[1];
+    const target = engineerOfRoute(scene, route.id);
+    const keptRouteIds = scene.routes.filter((candidate) => candidate.id !== route.id).map((candidate) => candidate.id);
+    const removedCodes = scene.codes.filter((code) => code.routeId === route.id);
+    const keptCodes = scene.codes.filter((code) => code.routeId !== route.id);
+    const fundsBefore = scene.funds;
+    const scoreBefore = scene.score;
+    pressMarker(scene, route.id);
+    const popoverDestroy = lastPanelDestroy(render.drawEngineerPopover);
+    lastPopover().callbacks.onDismiss();
+    expect(scene.engineers.some((engineer) => engineer.id === target.id)).toBe(false);
+    expect(scene.engineers).toHaveLength(FIXTURE_ROWS.length - 1);
+    expect(scene.routes.map((candidate) => candidate.id)).toEqual(keptRouteIds);
+    expect([...scene.routeDrawings.keys()]).toEqual(keptRouteIds);
+    expect([...scene.spawnElapsed.keys()]).toEqual(keptRouteIds);
+    expect(scene.codes).toEqual(keptCodes);
+    removedCodes.forEach((code) => {
+      expect(code.graphics.destroy).toHaveBeenCalledOnce();
+      expect(scene.codeHp.has(code.id)).toBe(false);
+    });
+    keptCodes.forEach((code) => {
+      expect(code.graphics.destroy).not.toHaveBeenCalled();
+      expect(scene.codeHp.has(code.id)).toBe(true);
+    });
+    expect(scene.popoverRouteId).toBeNull();
+    expect(popoverDestroy).toHaveBeenCalledOnce();
+    expect(scene.funds).toBe(fundsBefore);
+    expect(scene.score).toBe(scoreBefore);
+    expect(lastHireMessage()).toBe(formatDismissedMessage(target));
+  });
+
+  it('月末に支払うお金から解雇したエンジニアの月給を引く', () => {
+    const { scene } = createDismissHarness();
+    const route = scene.routes[0];
+    const target = engineerOfRoute(scene, route.id);
+    const before = payroll(scene.engineers);
+    pressMarker(scene, route.id);
+    lastPopover().callbacks.onDismiss();
+    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(before - target.salary);
+  });
+
+  it('選択中のエンジニアを解雇すると残る先頭のエンジニアを選ぶ。最後の1人を解雇すると選択は null', () => {
+    const { scene } = createDismissHarness();
+    const [first, second, third] = scene.routes.map((route) => route.id);
+    pressMarker(scene, second);
+    lastPopover().callbacks.onDismiss();
+    expect(scene.selectedEngineerId).toBe(scene.engineers[0].id);
+    pressMarker(scene, first);
+    lastPopover().callbacks.onDismiss();
+    pressMarker(scene, third);
+    lastPopover().callbacks.onDismiss();
+    expect(scene.engineers).toEqual([]);
+    expect(scene.routes).toEqual([]);
+    expect(scene.selectedEngineerId).toBeNull();
+  });
+
+  it('描いた時点の担当エンジニアが名簿にいなければ（古い id）、何も変えず対象なしのメッセージを出す', () => {
+    const { scene } = createDismissHarness();
+    const route = scene.routes[0];
+    pressMarker(scene, route.id);
+    const { callbacks } = lastPopover();
+    const target = engineerOfRoute(scene, route.id);
+    scene.engineers = scene.engineers.filter((engineer) => engineer.id !== target.id);
+    const engineersBefore = scene.engineers;
+    const routesBefore = scene.routes;
+    const codesBefore = scene.codes;
+    callbacks.onDismiss();
+    expect(scene.engineers).toBe(engineersBefore);
+    expect(scene.routes).toBe(routesBefore);
+    expect(scene.codes).toBe(codesBefore);
+    expect(lastHireMessage()).toBe(getMessages().common.noTargetEngineer);
+  });
+
+  it('ゲームオーバー中は解雇しない', () => {
+    const { scene } = createDismissHarness();
+    const route = scene.routes[0];
+    pressMarker(scene, route.id);
+    const { callbacks } = lastPopover();
+    scene.gameOver = { over: true, at: 0 };
+    const engineersBefore = scene.engineers;
+    callbacks.onDismiss();
+    expect(scene.engineers).toBe(engineersBefore);
+  });
+});
+
 describe('MainScene: 月末に支払うお金の更新(#156)', () => {
   it('初期配置で月額アイテムを置く・×で外すと更新し、プレイ開始でもプレイ中の配置で求め直す', () => {
     const { scene, pointerDown } = createPlacedHarness();
@@ -726,12 +942,12 @@ describe('MainScene: 月末に支払うお金の更新(#156)', () => {
     });
   });
 
-  it('昇給すると月給の増分を足す', () => {
+  it('ポップオーバーで昇給すると月給の増分を足す(#186)', () => {
     const { scene } = createPlacedHarness();
     startPlay();
-    pressIcon('engineer');
-    lastEngineerMenuCallbacks().onAdjust('raise');
-    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(payroll(scene.engineers));
-    expect(payroll(scene.engineers)).toBeGreaterThan(0);
+    const before = payroll(scene.engineers);
+    pressMarker(scene, scene.routes[0].id);
+    lastPopover().callbacks.onAdjustSalary('raise');
+    expect(lastStatusPanel().setMonthEndPayment).toHaveBeenLastCalledWith(before + ENGINEER_SALARY_STEP);
   });
 });

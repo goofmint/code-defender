@@ -179,10 +179,12 @@ import {
   advanceEngineersAttachment,
   assignEngineerRoute,
   createInitialFleet,
+  dismissEngineer,
   ENGINEER_HIRED_EVENT,
   ENGINEER_RANKS,
   ENGINEER_RESIGNED_EVENT,
   findEngineerByRoute,
+  formatDismissedMessage,
   formatHireMessage,
   formatResignedMessage,
   formatSalaryMessage,
@@ -200,7 +202,6 @@ import type {
   EngineerHiredPayload,
   EngineerRank,
   EngineerResignedPayload,
-  EngineerSelectDirection,
   SalaryDirection,
 } from './engineer';
 import { addRoute, cellCenter, pointToRouteCell, removeRoute } from './route';
@@ -1164,31 +1165,44 @@ class MainScene extends Phaser.Scene {
     this.refreshMenu('engineer');
   }
 
-  // 昇給・減給の対象を前・次のエンジニアに切り替える。ゲームオーバー中は何もしない。
-  private selectEngineer(direction: EngineerSelectDirection): void {
-    if (this.gameOver.over || this.phase === 'setup') {
-      return;
-    }
-    this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, this.selectedEngineerId, direction);
-    this.refreshSelectedEngineer();
-  }
-
-  // 仮・要確認(#34): 選択中のエンジニアを昇給・減給する。ゲームオーバー中は何もしない。
+  // 仮・要確認(#34): engineerId のエンジニアを昇給・減給する。初期配置の間・ゲームオーバー中は何もしない。
+  // 対象はエンジニアのポップオーバー(#186)が描いた時点の担当エンジニアの id（選択中のエンジニアには頼らない）。いなければ失敗のメッセージを出す。
   // 変えた額はすぐ Engineer.salary に入り、次の月次精算（onMonthElapsed → getEngineerSalaries）から支払う。手数料はかけない（changeFunds は呼ばない）。
   // メッセージは雇用メッセージと同じ場所に出し、直前の雇用・給与メッセージは消す。
-  private adjustSalary(direction: SalaryDirection): void {
+  private adjustSalary(direction: SalaryDirection, engineerId: number): void {
     if (this.gameOver.over || this.phase === 'setup') {
       return;
     }
-    const result = adjustEngineerSalary(this.engineers, this.selectedEngineerId, direction);
+    const result = adjustEngineerSalary(this.engineers, engineerId, direction);
     this.hireMessageText?.destroy();
     this.hireMessageText = drawHireMessage(this, formatSalaryMessage(result));
     if (!result.ok) {
       return;
     }
     this.engineers = [...result.engineers];
+    // メニューの選択中の表示・ポップオーバーの月給と、月末に支払うお金を更新する(#186)。
     this.refreshSelectedEngineer();
+    this.redrawEngineerPopover();
     this.refreshMonthEndPayment();
+  }
+
+  // engineerId のエンジニアを解雇する(#186)。初期配置の間（取消は × で行う）・ゲームオーバー中は何もしない。
+  // 仮・要確認(#186): 確認なしですぐ外す。退職金・AIエージェントの返金はなく、資金・スコアは変えない。
+  // 後片付けは自主退職(#32)と同じ（cleanUpDepartedEngineer。流れているコードは精算せずに消す）。いなければ失敗のメッセージを出し、状態は変えない。
+  private dismiss(engineerId: number): void {
+    if (this.gameOver.over || this.phase === 'setup') {
+      return;
+    }
+    const result = dismissEngineer(this.engineers, engineerId);
+    if (!result.ok) {
+      this.hireMessageText?.destroy();
+      this.hireMessageText = drawHireMessage(this, getMessages().common.noTargetEngineer);
+      return;
+    }
+    this.engineers = [...result.engineers];
+    this.cleanUpDepartedEngineer(result.engineer.routeId);
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatDismissedMessage(result.engineer));
   }
 
   // アイテムのメニューの現在ページの枠 slot のアイテムを買う(#58)。空の枠なら何もしない（アイテムのメニューの枠のボタンから呼ぶ）。
@@ -1287,8 +1301,6 @@ class MainScene extends Phaser.Scene {
           },
           {
             onHire: (rank) => this.hire(rank),
-            onSelect: (direction) => this.selectEngineer(direction),
-            onAdjust: (direction) => this.adjustSalary(direction),
           },
         );
         return;
@@ -1341,9 +1353,9 @@ class MainScene extends Phaser.Scene {
     this.clearPadInput();
   }
 
-  // 出現地点（休暇マーカー）を押したとき、そのルートを担当するエンジニアのポップオーバーを開く(#156)。休暇・AIエージェントはここから操作する。
-  // 初期配置の間・ゲームオーバー中・担当がいないときは何もしない。同じ出現地点をもう一度押すと閉じる。
-  // 開くときは担当エンジニアを選択中にして（エンジニアのメニューの昇給・減給もこの人が対象になる）、メニューを閉じる（一度に1つだけ）。
+  // 出現地点（休暇マーカー）を押したとき、そのルートを担当するエンジニアのポップオーバーを開く(#156)。昇給・減給・休暇・復職・解雇(#186)・
+  // AIエージェントはここから操作する。初期配置の間・ゲームオーバー中・担当がいないときは何もしない。同じ出現地点をもう一度押すと閉じる。
+  // 開くときは担当エンジニアを選択中にして（エンジニアのメニューの選択中の表示がこの人になる）、メニューを閉じる（一度に1つだけ）。
   private openEngineerPopover(routeId: number): void {
     if (this.gameOver.over || this.phase === 'setup') {
       return;
@@ -1363,7 +1375,8 @@ class MainScene extends Phaser.Scene {
   }
 
   // 開いているポップオーバー（popoverRouteId）を今の状態で作り直す。前のものは destroy() し、閉じていれば作らない。
-  // AIエージェントは描いた時点の担当エンジニアの id に付ける（routeId と engineerId は同じとは限らない。選択中のエンジニアが変わっても対象は変わらない）。
+  // 昇給・減給・解雇(#186)と AIエージェントは描いた時点の担当エンジニアの id を対象にする（routeId と engineerId は同じとは限らない。
+  // 選択中のエンジニアが変わっても対象は変わらない）。
   private redrawEngineerPopover(): void {
     this.engineerPopover?.destroy();
     this.engineerPopover = undefined;
@@ -1378,7 +1391,9 @@ class MainScene extends Phaser.Scene {
     }
     const engineerId = engineer.id;
     this.engineerPopover = drawEngineerPopover(this, cellCenter(route.spawn), engineer, {
+      onAdjustSalary: (direction) => this.adjustSalary(direction, engineerId),
       onToggleVacation: () => this.toggleVacation(routeId),
+      onDismiss: () => this.dismiss(engineerId),
       onBuyAiAgent: (agentType) => this.buyAiAgent(agentType, engineerId),
     });
   }
@@ -1722,23 +1737,28 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  // 退職者のルートと関連状態（線・出現場所・休暇マーカー・生成タイマー・流れているコード）を片付ける(#32)。
-  // 流れているコードは精算せずに消す（撃破エフェクト・資金・売上・技術的負債・障害・CODE_DEFEATED/CODE_RELEASED イベントなし）。
+  // 退職者のルートと関連状態（線・出現場所・休暇マーカー・生成タイマー・流れているコード）を片付けて(#32)、退職のメッセージを出す。
   // 全員が退職してもゲームは続ける（0人から雇い直せる）。
   private onEngineerResigned(payload: EngineerResignedPayload): void {
-    // 退職者の出現地点のポップオーバーを開いていれば閉じる(#156)。ルート・マーカーを消す前に閉じる（描き直しでルートを探さない）。
-    if (payload.routeId !== null && payload.routeId === this.popoverRouteId) {
+    this.cleanUpDepartedEngineer(payload.routeId);
+    this.hireMessageText?.destroy();
+    this.hireMessageText = drawHireMessage(this, formatResignedMessage(payload.engineer));
+  }
+
+  // 名簿から外したエンジニア（自主退職 #32・解雇 #186）の後片付け。this.engineers はもう残る人だけにしてから呼ぶ。routeId は外した人の担当ルート。
+  // ポップオーバーを閉じ、選択中の人を直し、メニューと月末に支払うお金を描き直して、ルートと関連状態を片付ける。
+  // 流れているコードは精算せずに消す（撃破エフェクト・資金・売上・技術的負債・障害・CODE_DEFEATED/CODE_RELEASED イベントなし）。
+  private cleanUpDepartedEngineer(routeId: number | null): void {
+    // 外した人の出現地点のポップオーバーを開いていれば閉じる(#156)。ルート・マーカーを消す前に閉じる（描き直しでルートを探さない）。
+    if (routeId !== null && routeId === this.popoverRouteId) {
       this.closeEngineerPopover();
     }
-    // 昇給・減給の選択中の人が退職したら、残る先頭の人を選ぶ（いなければ null）。
+    // 選択中の人を外したら、残る先頭の人を選ぶ（いなければ null）。
     if (this.findSelectedEngineer() === null) {
       this.selectedEngineerId = selectAdjacentEngineerId(this.engineers, null, 'next');
     }
     this.refreshSelectedEngineer();
     this.refreshMonthEndPayment();
-    this.hireMessageText?.destroy();
-    this.hireMessageText = drawHireMessage(this, formatResignedMessage(payload.engineer));
-    const { routeId } = payload;
     if (routeId === null) {
       return;
     }

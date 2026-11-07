@@ -460,6 +460,10 @@ export const formatEngineerCount = (count: number, max: number): string =>
 export const formatResignedMessage = (engineer: Engineer): string =>
   interpolate(getMessages().engineer.resigned, { id: engineer.id, rank: getRankLabel(engineer.rank) });
 
+// 解雇(#186)のメッセージ。退職と同じく雇用メッセージの場所に出す。
+export const formatDismissedMessage = (engineer: Engineer): string =>
+  interpolate(getMessages().engineer.dismissed, { id: engineer.id, rank: getRankLabel(engineer.rank) });
+
 // エンジニアのメニュー(#156)の雇うボタンの文言。「ジュニアを雇う」（英語は「Hire Junior」#158）。キー名（1〜3）は出さない。
 // 雇うときの費用はない(#179)ので金額は出さない。
 export const formatHireOption = (rank: EngineerRank): string =>
@@ -559,6 +563,30 @@ export const formatSalaryMessage = (result: SalaryAdjustResult): string => {
   return common.noTargetEngineer;
 };
 
+// 解雇(#186)。ポップオーバーの「解雇する」から、描いた時点の担当エンジニアの id を渡す。退職金はなく、資金・スコアは変えない。
+// 結果の形は adjustEngineerSalary に合わせる（失敗時は名簿を返さない）。
+export type DismissResult =
+  | {
+      readonly ok: true;
+      readonly engineer: Engineer;
+      readonly engineers: readonly Engineer[];
+    }
+  | {
+      readonly ok: false;
+      readonly engineerId: number;
+      readonly reason: 'not-found';
+    };
+
+// 名簿から engineerId のエンジニアを外した結果を返す。名簿にない id（退職などでいなくなった）なら not-found。
+// 成功時は対象だけを除いた新しい配列（残る人は同じ参照・元の並び順）。入力は変更しない。
+export const dismissEngineer = (engineers: readonly Engineer[], engineerId: number): DismissResult => {
+  const engineer = engineers.find((entry) => entry.id === engineerId);
+  if (engineer === undefined) {
+    return { ok: false, engineerId, reason: 'not-found' };
+  }
+  return { ok: true, engineer, engineers: engineers.filter((entry) => entry.id !== engineerId) };
+};
+
 export type EngineerSelectDirection = 'previous' | 'next';
 
 // 仮・要確認(#34): 選択中のエンジニアの前・次の id（名簿の並び順で、端では反対側へ回る）。
@@ -595,15 +623,19 @@ export const formatSelectedEngineerLines = (engineer: Engineer | null): readonly
       ];
 };
 
-// エンジニアのポップオーバー(#156)の見出しと休暇の状態。「#id ランク AI: 種類」「状態: 勤務中」（休暇中なら「状態: 休暇中」）。
+// エンジニアのポップオーバー(#156)の見出しと休暇の状態・月給。「#id ランク AI: 種類」「状態: 勤務中 月給 200,000円」（休暇中なら「状態: 休暇中 …」）。
+// 昇給・減給はポップオーバーから操作する(#186)ので、結果をその場で確かめられるよう月給（formatYen）を出す。
 export const formatEngineerPopoverLines = (engineer: Engineer): readonly string[] => {
   const text = getMessages().engineer;
   return [
     interpolate(text.popoverHeading, { id: engineer.id, rank: getRankLabel(engineer.rank), ai: formatAiAgentName(engineer) }),
-    interpolate(text.popoverState, { state: isEngineerOnVacation(engineer) ? text.onVacation : text.working }),
+    interpolate(text.popoverState, {
+      state: isEngineerOnVacation(engineer) ? text.onVacation : text.working,
+      salary: formatYen(engineer.salary),
+    }),
   ];
 };
 
-// ポップオーバーの休暇ボタンの文言(#156)。勤務中は「休暇にする」、休暇中は「復帰する」。
+// ポップオーバーの休暇ボタンの文言(#156)。勤務中は「休暇にする」、休暇中は「復職する」(#186)。
 export const formatVacationButton = (engineer: Engineer): string =>
   isEngineerOnVacation(engineer) ? getMessages().engineer.endVacation : getMessages().engineer.startVacation;
