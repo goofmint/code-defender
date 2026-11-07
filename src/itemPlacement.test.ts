@@ -11,6 +11,7 @@ import {
   PLACEMENT_CELL_SIZE,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
+  VIRTUAL_PAD_RECT,
 } from './config';
 import { CELL_SIZE, FIELD_COLS, FIELD_HEIGHT, FIELD_ROWS, FIELD_WIDTH } from './field';
 import {
@@ -455,11 +456,30 @@ describe('isPlaceableCell: 置ける場所（配置グリッド #151）', () => 
     expect(isPlaceableCell({ col: 20, row: PLACEMENT_ROWS }, bare)).toBe(false);
   });
 
-  it('既定の置けない矩形は上帯・下帯の2つ（#156 で左の HUD の矩形を外した）', () => {
+  it('既定の置けない矩形は上帯・下帯・バーチャルパッドの3つ（#156 で左の HUD の矩形を外し、#182 でパッドを足した）', () => {
     expect(ITEM_BLOCKED_RECTS).toEqual([
       { x: 0, y: 0, width: FIELD_WIDTH, height: CELL_SIZE },
       { x: 0, y: FIELD_HEIGHT - CELL_SIZE, width: FIELD_WIDTH, height: CELL_SIZE },
+      VIRTUAL_PAD_RECT,
     ]);
+  });
+
+  it('境界値: バーチャルパッド(#182)に1px でも重なるセルには置けず、辺が接するだけのセルには置ける', () => {
+    const bare = { routes: [], placedItems: [] };
+    const { x, y, width, height } = VIRTUAL_PAD_RECT;
+    // パッドの縦・横の中ほどの行・列（ほかの置けない矩形に重ならない）。
+    const midCol = Math.floor((x + width / 2) / PLACEMENT_CELL_SIZE);
+    const midRow = Math.floor((y + height / 2) / PLACEMENT_CELL_SIZE);
+    // 上端: パッドの上端（y=336）は配置グリッドの境目なので、その行は重なり、1つ上の行は辺が接するだけ。
+    expect(y % PLACEMENT_CELL_SIZE).toBe(0);
+    expect(isPlaceableCell({ col: midCol, row: y / PLACEMENT_CELL_SIZE }, bare)).toBe(false);
+    expect(isPlaceableCell({ col: midCol, row: y / PLACEMENT_CELL_SIZE - 1 }, bare)).toBe(true);
+    // 左端: パッドの左端（x=808）を含む列は重なり、その左の列（右端 x=800）は重ならない。
+    const leftCol = Math.floor(x / PLACEMENT_CELL_SIZE);
+    expect(isPlaceableCell({ col: leftCol, row: midRow }, bare)).toBe(false);
+    expect(isPlaceableCell({ col: leftCol - 1, row: midRow }, bare)).toBe(true);
+    // 中ほどのセルは置けない。
+    expect(isPlaceableCell({ col: midCol, row: midRow }, bare)).toBe(false);
   });
 });
 

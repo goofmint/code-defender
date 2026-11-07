@@ -1,7 +1,8 @@
 // ゲームの説明(#165)。右上の ℹ️ で開くパネルの文言と配置を決める純粋関数だけを置く。Phaser には依存しない（テスト可能にするため）。
 // 「「出現地点の「休」で休暇/復帰」とかそんな説明いらない。右上にℹ️アイコンを置いて、それをクリックしたらゲーム説明を出せば良い」(#165) への対応で、
 // 常時出していた説明（初期配置の操作説明・ポップオーバーの休暇の案内文）はここに移した。
-// 文言は言語カタログ（help）、数値は config.ts の値から埋め込む（値を変えれば説明も変わる）。操作はマウスだけなので、キーの名前は出さない。
+// 文言は言語カタログ（help）、数値は config.ts の値から埋め込む（値を変えれば説明も変わる）。ほかの操作はマウスだけなので、キーの名前は
+// 主人公のキーボードとバーチャルパッドの操作の行（keyboardPad #182）にだけ出す。
 import { ATTACK_RANGE } from './attack';
 import {
   BALANCE_STEP_BUTTON_LABELS,
@@ -18,6 +19,7 @@ import {
   TECH_DEBT_OUTAGE_THRESHOLD,
   VACATION_MALICIOUS_RATE_REDUCTION,
   VACATION_MALICIOUS_RATE_REDUCTION_MAX,
+  VIRTUAL_PAD_LABELS,
 } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
 import { MS_PER_GAME_DAY } from './gameTime';
@@ -28,7 +30,7 @@ import type { Point } from './route';
 // 0〜1 の割合をパーセントポイント（四捨五入した整数）にする。
 const toPercentPoints = (ratio: number): number => Math.round(ratio * 100);
 
-// 説明の行（見出しを除く。上から順）。目的・操作（押し続けて移動・クリックで攻撃）・初期配置・出現地点のポップオーバー・休暇の効果・
+// 説明の行（見出しを除く。上から順）。目的・操作（押し続けて移動・クリックで攻撃）・キーボードとバーチャルパッドの操作(#182)・初期配置・出現地点のポップオーバー・休暇の効果・
 // 雇用と給料・AIエージェント・アイテムとレベル・開発バランスのゲージ・HUD の絵文字・技術的負債の段階。
 export const buildHelpLines = (): readonly string[] => {
   const text = getMessages().help;
@@ -39,6 +41,13 @@ export const buildHelpLines = (): readonly string[] => {
       bankrupt: BANKRUPT_INCLUDES_ZERO ? text.bankruptAtOrBelow : text.bankruptBelow,
     }),
     interpolate(text.controls, { range: ATTACK_RANGE }),
+    interpolate(text.keyboardPad, {
+      up: VIRTUAL_PAD_LABELS.up,
+      down: VIRTUAL_PAD_LABELS.down,
+      left: VIRTUAL_PAD_LABELS.left,
+      right: VIRTUAL_PAD_LABELS.right,
+      attack: VIRTUAL_PAD_LABELS.attack,
+    }),
     interpolate(text.setup, { points: STAGE_POINTS_INITIAL, start: getMessages().initialPlacement.startButton }),
     text.popover,
     interpolate(text.vacation, {

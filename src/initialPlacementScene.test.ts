@@ -1,10 +1,12 @@
-// 初期配置フェーズ(#47)を、実際の MainScene の create() / update() / pointerdown / 開始ボタン / tryRestart() で確かめる（キー操作は #165 で廃止）。
+// 初期配置フェーズ(#47)を、実際の MainScene の create() / update() / pointerdown / 開始ボタン / tryRestart() で確かめる（ほかのキー操作は #165 で廃止）。
+// 主人公の移動・攻撃のキー（矢印・WASD・スペース）とバーチャルパッド(#182)もここで確かめる。
 // ゲームの説明（右上の ℹ️ #165）の開閉と、開いている間に時間・配置・攻撃が止まることもここで確かめる。
 // main.ts は読み込み時に new Phaser.Game(config) を実行するので、このファイルの中だけで phaser をモックする（engineerResign.test.ts と同じ形）。
 // 描画（render.ts）もモックして、Phaser の GameObject を作らずに create() を通す。
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import {
+  ATTACK_COOLDOWN_MS,
   CELL_SIZE,
   ENGINEER_MONTHLY_SALARY_BY_RANK,
   ENGINEER_RANKS,
@@ -20,10 +22,14 @@ import {
   MAX_ENGINEERS,
   PLACEMENT_COLS,
   PLACEMENT_ROWS,
+  PLAYER_SPEED,
   STAGE_POINTS_INITIAL,
+  VIRTUAL_PAD_CELL_SIZE,
+  VIRTUAL_PAD_RECT,
 } from './config';
 import { FIELD_HEIGHT, FIELD_WIDTH } from './field';
-import { FUNDS_CHANGED_EVENT } from './funds';
+import { createFundsChangedEvent, FUNDS_CHANGED_EVENT } from './funds';
+import type { FundsChangedEvent } from './funds';
 import { ENGINEER_HIRED_EVENT, formatSelectedEngineerLines, getRankLabel, hireEngineer } from './engineer';
 import type { Engineer, EngineerRank } from './engineer';
 import type { GameOverState } from './gameOver';
@@ -160,13 +166,22 @@ vi.mock('./render', () => {
         ),
     ),
     drawVacationMarker: vi.fn(() => ({ container: fakes.make(), setOnVacation: () => undefined })),
+    // バーチャルパッド(#182)。押したときのコールバックは mock.calls の2番目の引数（押した Pointer を渡す）。
+    drawVirtualPad: vi.fn(),
     flashCode: vi.fn(),
+    setPlayerFacing: vi.fn(),
   };
 });
 
 const render = await import('./render');
 
-type FakePointer = { readonly worldX: number; readonly worldY: number; isDown: boolean };
+type FakePointer = { worldX: number; worldY: number; isDown: boolean };
+// Phaser の Key の偽物(#182)。isDown（押している）と、on で登録したハンドラー（イベント名がキー）だけを持つ。
+type FakeKey = {
+  isDown: boolean;
+  readonly handlers: Map<string, (() => void)[]>;
+  readonly on: (event: string, handler: () => void) => FakeKey;
+};
 type PointerDownHandler = (pointer: FakePointer, currentlyOver: readonly object[]) => void;
 // pointerdown と pointermove(#162) は同じ形の引数で呼ばれる。
 type PointerHandler = PointerDownHandler;
@@ -194,10 +209,14 @@ type SceneUnderTest = {
   helpOpen: boolean;
   lastAttackTime: number | null;
   player?: { x: number; y: number };
+  padPointer: FakePointer | null;
+  // ゲームオーバー(#182 のパッドの押下をやめる)を onFundsChanged で起こすテストだけが入れる。
+  tweens?: { readonly pauseAll: Mock<() => void> };
+  onFundsChanged(event: FundsChangedEvent): void;
   input: {
     readonly activePointer: FakePointer;
-    // キー操作は #165 で廃止した。登録されないことを確かめるため、呼び出しを記録するだけにする。
-    readonly keyboard: { readonly addKey: Mock<(name: string) => object> };
+    // 主人公の移動・攻撃のキー(#182)。addKey はキー名ごとに新しい FakeKey を返す（Phaser は restart の shutdown でキーを破棄する）。
+    readonly keyboard: { readonly addKey: Mock<(name: string, enableCapture: boolean, emitOnRepeat: boolean) => FakeKey> };
     readonly on: (event: string, handler: PointerHandler) => void;
   };
   events: {
@@ -218,6 +237,8 @@ type Harness = {
   readonly pointerDown: (point: { readonly x: number; readonly y: number }, currentlyOver?: readonly object[]) => void;
   // ポインターを動かす（pointermove #162）。
   readonly pointerMove: (point: { readonly x: number; readonly y: number }, currentlyOver?: readonly object[]) => void;
+  // 最後に登録したキー名 name の FakeKey(#182)。登録されていなければエラー。
+  readonly key: (name: string) => FakeKey;
 };
 
 let mainScenePrototype: object;
@@ -246,9 +267,23 @@ const createHarness = (): Harness => {
   let pointerHandlers = new Map<string, PointerHandler[]>();
   const scene: SceneUnderTest = Object.create(mainScenePrototype);
   const activePointer: FakePointer = { worldX: 0, worldY: 0, isDown: false };
+  const keys = new Map<string, FakeKey>();
   scene.input = {
     activePointer,
-    keyboard: { addKey: vi.fn<(name: string) => object>(() => ({})) },
+    keyboard: {
+      addKey: vi.fn<(name: string, enableCapture: boolean, emitOnRepeat: boolean) => FakeKey>((name) => {
+        const fakeKey: FakeKey = {
+          isDown: false,
+          handlers: new Map(),
+          on: (event, handler) => {
+            fakeKey.handlers.set(event, [...(fakeKey.handlers.get(event) ?? []), handler]);
+            return fakeKey;
+          },
+        };
+        keys.set(name, fakeKey);
+        return fakeKey;
+      }),
+    },
     on: (event, handler) => {
       pointerHandlers.set(event, [...(pointerHandlers.get(event) ?? []), handler]);
     },
@@ -285,6 +320,11 @@ const createHarness = (): Harness => {
       (pointerHandlers.get('pointermove') ?? []).forEach((handler) =>
         handler({ worldX: point.x, worldY: point.y, isDown: false }, currentlyOver),
       );
+    },
+    key: (name) => {
+      const fakeKey = keys.get(name);
+      if (fakeKey === undefined) throw new Error(`キーが登録されていません: ${name}`);
+      return fakeKey;
     },
   };
 };
@@ -1294,8 +1334,11 @@ describe('MainScene: 描画どおりの配置判定と置けるかどうかの�
     pointerMove({ x: 960, y: 344 });
     expect(lastPreview()).toEqual({ visible: false });
     pointerMove({ x: 959.99, y: 344 });
-    // フィールド内の右端（959.99）は判定する。セル (59, 21) は x=944〜960 でフィールドに収まり、何にも重ならない。
-    expect(lastPreview()).toEqual({ visible: true, cell: { col: 59, row: 21 }, placeable: true });
+    // フィールド内の右端（959.99）は判定する。セル (59, 21) は x=944〜960・y=336〜352 で、バーチャルパッド（x=808〜952・y=336〜480 #182）に重なるので置けない。
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 59, row: 21 }, placeable: false });
+    // 境界値: 1つ上のセル (59, 20)（y=320〜336）はパッドの上端に接するだけなので置ける。
+    pointerMove({ x: 959.99, y: 335.99 });
+    expect(lastPreview()).toEqual({ visible: true, cell: { col: 59, row: 20 }, placeable: true });
     // エンジニアを選ぶと隠す（エンジニアはルートグリッドのセルに置くため）。
     lastEngineerButton().onSelect();
     expect(lastPreview()).toEqual({ visible: false });
@@ -1341,20 +1384,305 @@ describe('MainScene: 描画どおりの配置判定と置けるかどうかの�
   });
 });
 
-describe('MainScene: マウスだけの操作(#165)', () => {
-  it('create() はキーを1つも登録しない（移動・攻撃・雇用・選択・給与・AI・アイテム・ページ・割合・開始・リスタート）', () => {
+// 右上の ℹ️ を押す（最後に描いたアイコンのコールバックを呼ぶ）。
+const pressHelpIcon = (): void => {
+  const call = vi.mocked(render.drawHelpIcon).mock.calls.at(-1);
+  if (call === undefined) throw new Error('ゲームの説明のアイコンが描かれていません');
+  call[1]();
+};
+// 最後に開いた説明を閉じる（背景と ✕ の押下）。
+const closeHelpOverlay = (): void => {
+  const call = vi.mocked(render.drawHelpOverlay).mock.calls.at(-1);
+  if (call === undefined) throw new Error('ゲームの説明が開いていません');
+  call[3]();
+};
+
+// 固定のルートと担当1人で作り、開始して主人公を中央（480, 270）に置いたシーン(#182)。
+const PLAYER_CENTER = { x: 480, y: 270 } as const;
+const createPlayingFixture = (): Harness & { readonly player: { x: number; y: number } } => {
+  const harness = createHarness();
+  harness.scene.routes = [fixedRoute];
+  harness.scene.engineers = [engineerOn(fixedRoute)];
+  pressStart();
+  const player = harness.scene.player;
+  if (player === undefined) throw new Error('主人公がいません');
+  player.x = PLAYER_CENTER.x;
+  player.y = PLAYER_CENTER.y;
+  return { ...harness, player };
+};
+
+// 押した1回の攻撃キー（スペース）。Phaser の Key と同じく、押したときに 'down' のハンドラーを呼ぶ。
+const pressAttackKey = (harness: Harness): void => {
+  const space = harness.key('SPACE');
+  space.isDown = true;
+  (space.handlers.get('down') ?? []).forEach((handler) => handler());
+  space.isDown = false;
+};
+
+const STEP_MS = 500;
+const STEP_PX = (PLAYER_SPEED * STEP_MS) / 1000;
+
+describe('MainScene: 主人公のキー操作（矢印・WASD・スペース）(#182)', () => {
+  it('create() は移動の8キー（矢印・WASD）と攻撃のスペースの9キーだけを、キャプチャあり・リピートなしで登録する（ほかの操作のキーは登録しない #165）', () => {
     const { scene } = createHarness();
-    expect(scene.input.keyboard.addKey).not.toHaveBeenCalled();
+    const names = scene.input.keyboard.addKey.mock.calls.map(([name]) => name);
+    expect([...names].sort()).toEqual(['A', 'D', 'DOWN', 'LEFT', 'RIGHT', 'S', 'SPACE', 'UP', 'W']);
+    for (const [, enableCapture, emitOnRepeat] of scene.input.keyboard.addKey.mock.calls) {
+      expect(enableCapture).toBe(true);
+      expect(emitOnRepeat).toBe(false);
+    }
   });
 
-  it('倒産後のリスタート（押下で create() をやり直す）でもキーを登録しない', () => {
-    const { scene, pointerDown } = createHarness();
-    pressStart();
+  it('倒産後のリスタート（create() のやり直し）でキーを登録し直し、攻撃のハンドラーは新しいスペースに1つだけ', () => {
+    const harness = createPlayingFixture();
+    const { scene, pointerDown } = harness;
+    const before = harness.key('SPACE');
     scene.gameOver = { over: true, at: 0 };
     scene.time.now = Number.MAX_SAFE_INTEGER;
     pointerDown({ x: 480, y: 270 });
     expect(scene.scene.restart).toHaveBeenCalledOnce();
-    expect(scene.input.keyboard.addKey).not.toHaveBeenCalled();
+    expect(scene.input.keyboard.addKey).toHaveBeenCalledTimes(18);
+    const after = harness.key('SPACE');
+    expect(after).not.toBe(before);
+    expect(after.handlers.get('down')).toHaveLength(1);
+  });
+
+  it.each([
+    ['UP', 0, -1],
+    ['W', 0, -1],
+    ['DOWN', 0, 1],
+    ['S', 0, 1],
+    ['LEFT', -1, 0],
+    ['A', -1, 0],
+    ['RIGHT', 1, 0],
+    ['D', 1, 0],
+  ] as const)('プレイ中に %s を押している間は、その向きへ PLAYER_SPEED で進む', (name, dx, dy) => {
+    const harness = createPlayingFixture();
+    harness.key(name).isDown = true;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject({ x: PLAYER_CENTER.x + dx * STEP_PX, y: PLAYER_CENTER.y + dy * STEP_PX });
+    // 離すと止まる。
+    harness.key(name).isDown = false;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject({ x: PLAYER_CENTER.x + dx * STEP_PX, y: PLAYER_CENTER.y + dy * STEP_PX });
+  });
+
+  it('斜め（↑ と D）は正規化して同じ速さ。反対の向き（← と →）は打ち消して動かない', () => {
+    const harness = createPlayingFixture();
+    harness.key('UP').isDown = true;
+    harness.key('D').isDown = true;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player.x).toBeCloseTo(PLAYER_CENTER.x + STEP_PX * Math.SQRT1_2);
+    expect(harness.player.y).toBeCloseTo(PLAYER_CENTER.y - STEP_PX * Math.SQRT1_2);
+    harness.key('UP').isDown = false;
+    harness.key('D').isDown = false;
+    const { x, y } = harness.player;
+    harness.key('LEFT').isDown = true;
+    harness.key('RIGHT').isDown = true;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject({ x, y });
+  });
+
+  it('キーの移動はポインターの押し続けより優先する（左を押し続けていても → で右へ進む）', () => {
+    const harness = createPlayingFixture();
+    const pointer = harness.scene.input.activePointer;
+    pointer.isDown = true;
+    pointer.worldX = 100;
+    pointer.worldY = PLAYER_CENTER.y;
+    harness.scene.attackPointerHeld = false;
+    harness.key('RIGHT').isDown = true;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player.x).toBe(PLAYER_CENTER.x + STEP_PX);
+    // キーを離せば、これまでどおりポインターの位置へ向かう。
+    harness.key('RIGHT').isDown = false;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player.x).toBe(PLAYER_CENTER.x);
+  });
+
+  it('境界値: フィールドの端を越えて進まない（左端で ← を押し続けても主人公の半分の幅の位置で止まる）', () => {
+    const harness = createPlayingFixture();
+    harness.key('LEFT').isDown = true;
+    for (let i = 0; i < 10; i += 1) harness.scene.update(0, STEP_MS);
+    const stopped = harness.player.x;
+    expect(stopped).toBeGreaterThan(0);
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player.x).toBe(stopped);
+  });
+
+  it('初期配置の間とゲームの説明を開いている間は、キーを押していても動かない', () => {
+    const harness = createHarness();
+    harness.scene.routes = [fixedRoute];
+    harness.scene.engineers = [engineerOn(fixedRoute)];
+    const player = harness.scene.player;
+    if (player === undefined) throw new Error('主人公がいません');
+    player.x = PLAYER_CENTER.x;
+    player.y = PLAYER_CENTER.y;
+    harness.key('RIGHT').isDown = true;
+    harness.scene.update(0, STEP_MS);
+    expect(player).toMatchObject(PLAYER_CENTER);
+    pressStart();
+    pressHelpIcon();
+    harness.scene.update(0, STEP_MS);
+    expect(player).toMatchObject(PLAYER_CENTER);
+    // 閉じたあとは押し続けているキーで動き出す。
+    closeHelpOverlay();
+    harness.scene.update(0, STEP_MS);
+    expect(player.x).toBe(PLAYER_CENTER.x + STEP_PX);
+  });
+
+  it('境界値: スペースは押した1回につき1回攻撃し、クールダウン（ATTACK_COOLDOWN_MS）の 1ms 前は攻撃せず、ちょうどで攻撃する', () => {
+    const harness = createPlayingFixture();
+    harness.scene.time.now = 10_000;
+    pressAttackKey(harness);
+    expect(render.drawAttackEffect).toHaveBeenCalledOnce();
+    expect(harness.scene.lastAttackTime).toBe(10_000);
+    harness.scene.time.now = 10_000 + ATTACK_COOLDOWN_MS - 1;
+    pressAttackKey(harness);
+    expect(render.drawAttackEffect).toHaveBeenCalledOnce();
+    harness.scene.time.now = 10_000 + ATTACK_COOLDOWN_MS;
+    pressAttackKey(harness);
+    expect(render.drawAttackEffect).toHaveBeenCalledTimes(2);
+    expect(harness.scene.lastAttackTime).toBe(10_000 + ATTACK_COOLDOWN_MS);
+  });
+
+  it('初期配置の間・ゲームの説明を開いている間・ゲームオーバー中はスペースで攻撃せず、ゲームオーバー中もリスタートしない', () => {
+    const harness = createHarness();
+    harness.scene.routes = [fixedRoute];
+    harness.scene.engineers = [engineerOn(fixedRoute)];
+    harness.scene.time.now = 10_000;
+    pressAttackKey(harness);
+    pressStart();
+    pressHelpIcon();
+    pressAttackKey(harness);
+    closeHelpOverlay();
+    harness.scene.gameOver = { over: true, at: 0 };
+    pressAttackKey(harness);
+    expect(render.drawAttackEffect).not.toHaveBeenCalled();
+    expect(harness.scene.lastAttackTime).toBeNull();
+    expect(harness.scene.scene.restart).not.toHaveBeenCalled();
+  });
+});
+
+describe('MainScene: バーチャルパッド(#182)', () => {
+  // パッドの左上からのセル (col, row) の中心。
+  const padCell = (col: number, row: number): { readonly x: number; readonly y: number } => ({
+    x: VIRTUAL_PAD_RECT.x + (col + 0.5) * VIRTUAL_PAD_CELL_SIZE,
+    y: VIRTUAL_PAD_RECT.y + (row + 0.5) * VIRTUAL_PAD_CELL_SIZE,
+  });
+  const RIGHT = padCell(2, 1);
+  const UP = padCell(1, 0);
+  const CENTER = padCell(1, 1);
+
+  // パッドのボタンを押す。Phaser と同じく、ボタンのコールバックに押した Pointer を渡し、シーンの pointerdown にはボタンを currentlyOver で渡す。
+  // 押す Pointer は activePointer（最後に操作した Pointer）にする。
+  const pressPad = (harness: Harness, point: { readonly x: number; readonly y: number }): FakePointer => {
+    const call = vi.mocked(render.drawVirtualPad).mock.calls.at(-1);
+    if (call === undefined) throw new Error('バーチャルパッドが描かれていません');
+    const pointer = harness.scene.input.activePointer;
+    pointer.worldX = point.x;
+    pointer.worldY = point.y;
+    pointer.isDown = true;
+    // render のコールバックは Phaser.Input.Pointer を受け取る。偽物の Pointer は main.ts が読むプロパティ（worldX・worldY・isDown）だけを持つ。
+    (call[1] as (pointer: FakePointer) => void)(pointer);
+    harness.pointerDown(point, [{}]);
+    return pointer;
+  };
+
+  it('初期配置の間は描かず、開始したときに1回描く', () => {
+    const harness = createHarness();
+    harness.scene.routes = [fixedRoute];
+    harness.scene.engineers = [engineerOn(fixedRoute)];
+    expect(render.drawVirtualPad).not.toHaveBeenCalled();
+    pressStart();
+    expect(render.drawVirtualPad).toHaveBeenCalledOnce();
+  });
+
+  it('向きのボタン（▶）を押している間はその向きへ進み、その Pointer を離すと止まる', () => {
+    const harness = createPlayingFixture();
+    const pointer = pressPad(harness, RIGHT);
+    expect(harness.scene.padPointer).toBe(pointer);
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject({ x: PLAYER_CENTER.x + STEP_PX, y: PLAYER_CENTER.y });
+    pointer.isDown = false;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject({ x: PLAYER_CENTER.x + STEP_PX, y: PLAYER_CENTER.y });
+    expect(harness.scene.padPointer).toBeNull();
+  });
+
+  it('押したまま隣のボタンへ滑らせると向きが変わり、中央・パッドの外へ滑らせると止まる（パッドの位置へは向かわない）', () => {
+    const harness = createPlayingFixture();
+    const pointer = pressPad(harness, RIGHT);
+    pointer.worldX = UP.x;
+    pointer.worldY = UP.y;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject({ x: PLAYER_CENTER.x, y: PLAYER_CENTER.y - STEP_PX });
+    // ポインターの押し続けの抑止（attackPointerHeld）が外れていても、パッドを押している指の位置へは向かわない。
+    harness.scene.attackPointerHeld = false;
+    pointer.worldX = CENTER.x;
+    pointer.worldY = CENTER.y;
+    harness.scene.update(0, STEP_MS);
+    pointer.worldX = VIRTUAL_PAD_RECT.x - 1;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject({ x: PLAYER_CENTER.x, y: PLAYER_CENTER.y - STEP_PX });
+    // 押したままの指をパッドの向きのボタンへ戻せば、また進む。
+    pointer.worldX = RIGHT.x;
+    pointer.worldY = RIGHT.y;
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject({ x: PLAYER_CENTER.x + STEP_PX, y: PLAYER_CENTER.y - STEP_PX });
+  });
+
+  it('パッドの押下はポインターの押し続けの移動にならない（中央を押したままでも、押した位置へ向かわない）', () => {
+    const harness = createPlayingFixture();
+    pressPad(harness, CENTER);
+    expect(harness.scene.padPointer).toBeNull();
+    expect(harness.scene.attackPointerHeld).toBe(true);
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject(PLAYER_CENTER);
+  });
+
+  it('境界値: 中央を押すと1回攻撃し（向きの Pointer は変えない）、クールダウンの 1ms 前は攻撃しない', () => {
+    const harness = createPlayingFixture();
+    harness.scene.time.now = 10_000;
+    pressPad(harness, CENTER);
+    expect(render.drawAttackEffect).toHaveBeenCalledOnce();
+    expect(harness.scene.lastAttackTime).toBe(10_000);
+    expect(harness.scene.padPointer).toBeNull();
+    harness.scene.time.now = 10_000 + ATTACK_COOLDOWN_MS - 1;
+    pressPad(harness, CENTER);
+    expect(render.drawAttackEffect).toHaveBeenCalledOnce();
+    harness.scene.time.now = 10_000 + ATTACK_COOLDOWN_MS;
+    pressPad(harness, CENTER);
+    expect(render.drawAttackEffect).toHaveBeenCalledTimes(2);
+  });
+
+  it('ゲームの説明を開く・閉じるとパッドの押下をやめ、開いている間のパッドの押下は受け付けない', () => {
+    const harness = createPlayingFixture();
+    pressPad(harness, RIGHT);
+    pressHelpIcon();
+    expect(harness.scene.padPointer).toBeNull();
+    pressPad(harness, RIGHT);
+    expect(harness.scene.padPointer).toBeNull();
+    closeHelpOverlay();
+    harness.scene.update(0, STEP_MS);
+    expect(harness.player).toMatchObject(PLAYER_CENTER);
+    pressPad(harness, RIGHT);
+    expect(harness.scene.padPointer).not.toBeNull();
+    pressHelpIcon();
+    closeHelpOverlay();
+    expect(harness.scene.padPointer).toBeNull();
+  });
+
+  it('倒産（ゲームオーバー）でパッドの押下をやめ、ゲームオーバー中のパッドの押下は受け付けない', () => {
+    const harness = createPlayingFixture();
+    pressPad(harness, RIGHT);
+    harness.scene.tweens = { pauseAll: vi.fn<() => void>() };
+    harness.scene.onFundsChanged(createFundsChangedEvent(0, -1, 'salary'));
+    expect(harness.scene.gameOver.over).toBe(true);
+    expect(harness.scene.padPointer).toBeNull();
+    const call = vi.mocked(render.drawVirtualPad).mock.calls.at(-1);
+    if (call === undefined) throw new Error('バーチャルパッドが描かれていません');
+    (call[1] as (pointer: FakePointer) => void)({ worldX: RIGHT.x, worldY: RIGHT.y, isDown: true });
+    expect(harness.scene.padPointer).toBeNull();
   });
 });
 

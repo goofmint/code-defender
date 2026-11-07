@@ -17,11 +17,14 @@ import {
   INITIAL_FUNDS,
   INITIAL_PLACEMENT_START_BUTTON_ALPHA,
   INITIAL_PLACEMENT_UI_BOUNDS,
+  INPUT_ACTIVE_POINTERS,
   ITEM_BLOCKED_RECTS,
   ITEM_PAGE_SIZE,
   MAX_ENGINEERS,
   PIZZA_DURATION_MS,
   PIZZA_TECH_DEBT,
+  PLAYER_ATTACK_KEY,
+  PLAYER_MOVE_KEYS,
   PLAYER_POINTER_DEAD_ZONE,
   PLAYER_SPEED,
   REVENUE_PER_NORMAL_CODE,
@@ -40,7 +43,18 @@ import {
 } from './attack';
 import type { CodeHitEvent } from './attack';
 import { codeSpeedAt, effectiveMaliciousRate, vacationMaliciousRateModifiers } from './difficulty';
-import { clampToField, facingFromHorizontal, getPointerDirection, movePlayerToward } from './player';
+import {
+  clampToField,
+  directionFromInput,
+  facingFromHorizontal,
+  getPointerDirection,
+  mergeDirectionInputs,
+  movePlayerInDirection,
+  movePlayerToward,
+  NO_DIRECTION_INPUT,
+} from './player';
+import type { DirectionInput } from './player';
+import { directionInputForZone, virtualPadZoneAt } from './virtualPad';
 import {
   drawAttackEffect,
   drawBalanceMenu,
@@ -74,6 +88,7 @@ import {
   drawRoutes,
   drawStatusPanel,
   drawVacationMarker,
+  drawVirtualPad,
   flashCode,
   setPlayerFacing,
   updatePlacementPreview,
@@ -281,6 +296,9 @@ import { getMessages, setLocale } from './i18n';
 import { applyDocumentLang, getBrowserLanguages, getLocationSearch } from './i18n/browserEnvironment';
 import { resolveLocale } from './i18n/resolveLocale';
 
+// 主人公を動かすキー(#182)。向きごとに PLAYER_MOVE_KEYS のキー（矢印と WASD）を持ち、どれかを押していればその向きを押している。
+type MovementKeys = { readonly [direction in keyof DirectionInput]: readonly Phaser.Input.Keyboard.Key[] };
+
 // revealed はラバーダック(#58)で正体を暴いた不正なコード。一度暴いたら場から消えるまで true のまま（攻撃で正常なコードに直ったとき(#173)は外す）。
 type ActiveCode = FlowingCode & { readonly graphics: Phaser.GameObjects.Graphics; readonly revealed?: boolean };
 
@@ -368,6 +386,10 @@ class MainScene extends Phaser.Scene {
   // ゲームの説明(#165)。右上の ℹ️ で開き、背景か ✕ で閉じる。開いている間（helpOpen）は update() とシーンの押下を止める（時計も止まる）。
   private helpOpen = false;
   private helpOverlay?: FloatingPanel;
+  // 主人公を動かすキー(#182)。キーボードが使えない環境（input.keyboard が null）では null。
+  private movementKeys: MovementKeys | null = null;
+  // バーチャルパッドの向きのボタンを押した Pointer(#182)。離すまで、この Pointer の位置のボタン（virtualPadZoneAt）の向きへ動く。押していなければ null。
+  private padPointer: Phaser.Input.Pointer | null = null;
 
   constructor() {
     super('main');
@@ -380,6 +402,8 @@ class MainScene extends Phaser.Scene {
     this.lastAttackTime = null;
     // タップでリスタートしたとき、押したままのポインターで主人公が動かないよう、離すまでポインター移動を止める（updatePlayer で解除）。
     this.attackPointerHeld = this.input.activePointer.isDown;
+    // バーチャルパッド(#182)は startPlay() で描き直す。前回の押下は引き継がない。
+    this.clearPadInput();
     this.gameOver = INITIAL_GAME_OVER_STATE;
     drawField(this);
     // 経過時間 0 なので Lv.1（初期配置の間も Lv.1 / 0日のまま #164）。
@@ -475,7 +499,10 @@ class MainScene extends Phaser.Scene {
     this.refreshInitialPlacementControls();
     drawReleasePoint(this);
     this.player = drawPlayer(this);
-    // キーボードの操作は登録しない(#165、マウスだけで操作する)。移動は押し続け、攻撃は主人公のクリック、開始・リスタートはボタンとクリック。
+    // キーボードは主人公の移動・攻撃だけに使う(#182)。ほかの操作（雇用・アイテム・開始・リスタートなど）はマウスだけのまま(#165)。
+    // 移動はポインターの押し続けでもでき、攻撃は主人公のクリックでもできる。開始・リスタートはボタンとクリック。
+    // Phaser はシーンの shutdown でキーとそのリスナーを破棄するので、scene.restart() のたびにここで登録し直す。
+    this.movementKeys = this.registerPlayerKeys();
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, currentlyOver: Phaser.GameObjects.GameObject[]) => {
       // ゲームの説明(#165)を開いている間は、押下を説明の背景・✕ だけが受け取る（置く・移動・攻撃・メニューの開閉をしない）。
       if (this.helpOpen) {
@@ -527,6 +554,52 @@ class MainScene extends Phaser.Scene {
       this.lastSetupPointer = { point: { x: pointer.worldX, y: pointer.worldY }, overUi: currentlyOver.length > 0 };
       this.refreshSetupPlacementPreview();
     });
+  }
+
+  // 主人公の移動キー（矢印・WASD）と攻撃キー（スペース）を登録する(#182)。キーはキャプチャして、ページのスクロールに使わせない。
+  // 攻撃キーは押した1回につき1回だけ攻撃する（emitOnRepeat=false で押し続けても繰り返さない）。キーボードが使えない環境では何も登録せず null を返す。
+  private registerPlayerKeys(): MovementKeys | null {
+    const keyboard = this.input.keyboard;
+    if (!keyboard) {
+      return null;
+    }
+    keyboard.addKey(PLAYER_ATTACK_KEY, true, false).on('down', () => this.onAttackKeyDown());
+    const addKeys = (names: readonly string[]): Phaser.Input.Keyboard.Key[] => names.map((name) => keyboard.addKey(name, true, false));
+    return {
+      up: addKeys(PLAYER_MOVE_KEYS.up),
+      down: addKeys(PLAYER_MOVE_KEYS.down),
+      left: addKeys(PLAYER_MOVE_KEYS.left),
+      right: addKeys(PLAYER_MOVE_KEYS.right),
+    };
+  }
+
+  // 攻撃キー（スペース）を押したとき(#182)。ゲームの説明を開いている間・初期配置の間・ゲームオーバー中は攻撃しない（リスタートはポインターだけ #165）。
+  private onAttackKeyDown(): void {
+    if (this.helpOpen || this.phase === 'setup' || this.gameOver.over) {
+      return;
+    }
+    this.tryAttack();
+  }
+
+  // バーチャルパッドのボタンを押したとき(#182)。中央は攻撃（押している Pointer は変えない）、上下左右はその Pointer を離すまで動く。
+  // プレイ中だけ受け付ける（ゲームの説明を開いている間・ゲームオーバー中は何もしない）。
+  private onVirtualPadPressed(pointer: Phaser.Input.Pointer): void {
+    if (this.helpOpen || this.phase !== 'playing' || this.gameOver.over) {
+      return;
+    }
+    const zone = virtualPadZoneAt({ x: pointer.worldX, y: pointer.worldY });
+    if (zone === 'attack') {
+      this.tryAttack();
+      return;
+    }
+    if (zone !== null) {
+      this.padPointer = pointer;
+    }
+  }
+
+  // バーチャルパッドの押下をやめる(#182)。プレイの開始・ゲームの説明の開閉・ゲームオーバーで、押していた向きの移動を続けないようにする。
+  private clearPadInput(): void {
+    this.padPointer = null;
   }
 
   // 置けるかどうかの枠(#162)を view にする。いま描いている状態と同じなら描き直さない。枠を作る前（create() の前）は何もしない。
@@ -807,6 +880,9 @@ class MainScene extends Phaser.Scene {
     this.refreshItemMenu();
     this.refreshMonthEndPayment();
     this.attackPointerHeld = this.input.activePointer.isDown;
+    // バーチャルパッド(#182)はプレイ中だけ出す（初期配置UIを消したあとに描く）。scene.restart() で Phaser が破棄する。
+    this.clearPadInput();
+    drawVirtualPad(this, (pointer) => this.onVirtualPadPressed(pointer));
   }
 
   // 現在の攻撃対象（フィールド上を流れているコードの一覧）を返す。
@@ -892,16 +968,33 @@ class MainScene extends Phaser.Scene {
     if (!this.input.activePointer.isDown) {
       this.attackPointerHeld = false;
     }
+    // バーチャルパッドを押していた指を離したら（画面の外で離した・タッチの取り消しも Pointer.isDown が false になる）向きの移動をやめる(#182)。
+    if (this.padPointer && !this.padPointer.isDown) {
+      this.clearPadInput();
+    }
     const position = { x: player.x, y: player.y };
-    // エナジードリンク(#58)の加速期・鈍化期は主人公の速度に倍率を掛ける。
+    // エナジードリンク(#58)の加速期・鈍化期は主人公の速度に倍率を掛ける（キーボード・パッド・ポインターのどの移動にも同じ倍率）。
     const speed = PLAYER_SPEED * playerSpeedMultiplier(this.activeEffects, this.elapsedMs);
 
-    // 移動はポインターだけ（キーボードの移動は #165 で廃止）。ポインター（タッチ・マウス）を押している間、ゲーム座標の押下位置へ向かう。
+    // キーボード（矢印・WASD）とバーチャルパッドの向き(#182)。どちらかで押していれば、ポインターより優先してその向きへ進む。
+    const inputDirection = directionFromInput(mergeDirectionInputs([this.movementKeyInput(), this.padDirectionInput()]));
+    if (inputDirection.x !== 0 || inputDirection.y !== 0) {
+      const next = clampToField(movePlayerInDirection(position, inputDirection, delta, speed));
+      player.setPosition(next.x, next.y);
+      this.updatePlayerFacing(player, inputDirection.x);
+      return;
+    }
+
+    // ポインター（タッチ・マウス）を押している間、ゲーム座標の押下位置へ向かう。
     const pointer = this.input.activePointer;
     if (!pointer.isDown) {
       return;
     }
     if (this.attackPointerHeld) {
+      return;
+    }
+    // バーチャルパッドを押している指（中央・パッドの外へ滑らせたとき）の位置へは向かわない(#182)。
+    if (pointer === this.padPointer) {
       return;
     }
     const target = { x: pointer.worldX, y: pointer.worldY };
@@ -912,6 +1005,25 @@ class MainScene extends Phaser.Scene {
     const next = clampToField(movePlayerToward(position, target, direction, delta, speed));
     player.setPosition(next.x, next.y);
     this.updatePlayerFacing(player, direction.x);
+  }
+
+  // 移動キー（矢印・WASD #182）の押している向き。キーボードが使えない環境では何も押していない。
+  private movementKeyInput(): DirectionInput {
+    const keys = this.movementKeys;
+    if (!keys) {
+      return NO_DIRECTION_INPUT;
+    }
+    const pressed = (direction: keyof DirectionInput): boolean => keys[direction].some((key) => key.isDown);
+    return { up: pressed('up'), down: pressed('down'), left: pressed('left'), right: pressed('right') };
+  }
+
+  // バーチャルパッド(#182)の押している向き。押している Pointer のいまの位置のボタンで決める（隣のボタンへ滑らせると向きが変わり、中央・四隅・パッドの外では止まる）。
+  private padDirectionInput(): DirectionInput {
+    const pointer = this.padPointer;
+    if (!pointer) {
+      return NO_DIRECTION_INPUT;
+    }
+    return directionInputForZone(virtualPadZoneAt({ x: pointer.worldX, y: pointer.worldY }));
   }
 
   // 水平方向の移動の向きが変わったときだけ、主人公の見た目の向きを反転する(#144)。水平に動かないときは向きを保つ。位置には影響しない。
@@ -1184,6 +1296,8 @@ class MainScene extends Phaser.Scene {
       return;
     }
     this.helpOpen = true;
+    // 開いている間に離した指でパッドの移動が残らないようにする(#182)。
+    this.clearPadInput();
     this.helpOverlay = drawHelpOverlay(this, getMessages().help.title, buildHelpLines(), () => this.closeHelp());
   }
 
@@ -1196,6 +1310,7 @@ class MainScene extends Phaser.Scene {
     this.helpOverlay = undefined;
     this.helpOpen = false;
     this.attackPointerHeld = this.input.activePointer.isDown;
+    this.clearPadInput();
   }
 
   // 出現地点（休暇マーカー）を押したとき、そのルートを担当するエンジニアのポップオーバーを開く(#156)。休暇・AIエージェントはここから操作する。
@@ -1670,6 +1785,8 @@ class MainScene extends Phaser.Scene {
     this.scheduledIncidents = [];
     // 開いているメニュー・ポップオーバーは閉じる(#156)。ゲームオーバー中はアイコンもマーカーも開かない。
     this.closeFloatingUi();
+    // バーチャルパッドの押下をやめる(#182)。ゲームオーバー中は動かない（リスタートで create() が初期化する）。
+    this.clearPadInput();
     this.tweens.pauseAll();
     drawGameOver(this, this.score, getElapsedDays(this.elapsedMs));
     this.events.emit(GAME_OVER_EVENT, createGameOverEvent('bankruptcy', event.current, this.elapsedMs));
@@ -2040,6 +2157,8 @@ const config: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
+  // バーチャルパッド(#182)の向きを押したまま別の指で中央を押せるよう、タッチを複数扱う。restart のたびに増えないよう addPointer は使わない。
+  input: { activePointers: INPUT_ACTIVE_POINTERS },
   scene: MainScene,
 };
 

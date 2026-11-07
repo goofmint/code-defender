@@ -70,3 +70,30 @@ export const clampToField = (position: Point): Point => {
     y: Math.min(Math.max(position.y, half), FIELD_HEIGHT - half),
   };
 };
+
+// 上下左右の入力（キーボードの矢印・WASD、バーチャルパッドのボタン #182）。true は押している。
+export type DirectionInput = { readonly up: boolean; readonly down: boolean; readonly left: boolean; readonly right: boolean };
+
+export const NO_DIRECTION_INPUT: DirectionInput = { up: false, down: false, left: false, right: false };
+
+// 複数の入力（キーボードとバーチャルパッド #182）を向きごとに合わせる（どれかで押していれば押している）。
+export const mergeDirectionInputs = (inputs: readonly DirectionInput[]): DirectionInput => ({
+  up: inputs.some((input) => input.up),
+  down: inputs.some((input) => input.down),
+  left: inputs.some((input) => input.left),
+  right: inputs.some((input) => input.right),
+});
+
+// 上下左右の入力から進む方向（長さ 1）を返す(#182)。反対の向きを同時に押すと打ち消し、斜めは正規化する（斜めでも速くならない）。
+// 何も押していない・すべて打ち消したときは {0,0}。
+export const directionFromInput = (input: DirectionInput): Point =>
+  normalize(Number(input.right) - Number(input.left), Number(input.down) - Number(input.up));
+
+// 方向（長さ 1 か {0,0}）へ deltaMs の間 speed（ピクセル/秒）で進んだ位置を返す(#182)。目標がないので止める位置はなく、フィールドへの制限は clampToField で行う。
+export const movePlayerInDirection = (position: Point, direction: Point, deltaMs: number, speed: number): Point => {
+  const step = (speed * deltaMs) / 1000;
+  return {
+    x: position.x + direction.x * step,
+    y: position.y + direction.y * step,
+  };
+};
