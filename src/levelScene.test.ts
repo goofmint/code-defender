@@ -332,6 +332,7 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
     expect(scene.phase).toBe('playing');
     expect(lastItemMenu().view.labels).toEqual(labelsOf(['codeRabbit', 'linter', 'testTool']));
     expect(lastItemMenu().view.pageLabel).toBe('1/1');
+    expect(lastItemMenu().view.pageCount).toBe(1);
   });
 
   it('境界値: 29日はまだ Lv.1 でメニューを描き直さず、30日ちょうどで Lv.2 になり CI が増える', () => {
@@ -372,6 +373,7 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
     const { scene } = startPlaying();
     scene.advanceClock(levelStartMs(5));
     expect(lastItemMenu().view.pageLabel).toBe('1/2');
+    expect(lastItemMenu().view.pageCount).toBe(2);
     lastItemMenu().onPage('next');
     expect(scene.itemPage).toBe(1);
     expect(lastItemMenu().view.labels).toEqual(labelsOf(['cat']));
@@ -380,6 +382,7 @@ describe('MainScene: レベルによるアイテムの解放(#164)', () => {
     expect(scene.itemPage).toBe(1);
     expect(lastItemMenu().view.labels).toEqual(labelsOf(ITEM_TYPES.slice(6, 12)));
     expect(lastItemMenu().view.pageLabel).toBe('2/3');
+    expect(lastItemMenu().view.pageCount).toBe(3);
   });
 
   it('ページ切替ボタンは解放済みの一覧のページ数で回り込む（Lv.1 は1ページ、Lv.5 は2ページ）', () => {

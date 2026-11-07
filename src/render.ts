@@ -1257,6 +1257,8 @@ export const drawEngineerMenu = (
 export type ItemMenuView = {
   readonly labels: readonly (string | null)[];
   readonly pageLabel: string;
+  // 総ページ数（1以上）。1ページしかないときは ◀ ▶ を出さない(#187)。
+  readonly pageCount: number;
   readonly selectedSlot: number | null;
 };
 export type ItemMenuCallbacks = {
@@ -1281,9 +1283,14 @@ export const drawItemMenu = (scene: Phaser.Scene, view: ItemMenuView, callbacks:
       {
         kind: 'buttons',
         buttons: [
-          { label: ITEM_PAGE_BUTTON_LABELS.previous, onPress: () => callbacks.onPage('previous'), selected: false },
+          // 1ページ（以下）のときは矢印を空の非対話セルにする(#187)。3セルの構成とパネル背景の入力遮断は保つ。
+          view.pageCount > 1
+            ? { label: ITEM_PAGE_BUTTON_LABELS.previous, onPress: () => callbacks.onPage('previous'), selected: false }
+            : { label: '', onPress: null },
           { label: view.pageLabel, onPress: null },
-          { label: ITEM_PAGE_BUTTON_LABELS.next, onPress: () => callbacks.onPage('next'), selected: false },
+          view.pageCount > 1
+            ? { label: ITEM_PAGE_BUTTON_LABELS.next, onPress: () => callbacks.onPage('next'), selected: false }
+            : { label: '', onPress: null },
         ],
       },
     ],
