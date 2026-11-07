@@ -62,8 +62,8 @@ describe('buildHelpLines（日本語）(#165)', () => {
   it('初期配置のポイント・開始ボタンの文言、雇用の上限、レベルの間隔、割合の刻みとボタンの文字は config と同じ', () => {
     expect(lines[3]).toContain(`（${STAGE_POINTS_INITIAL}pt）`);
     expect(lines[3]).toContain(`「${getMessages().initialPlacement.startButton}」`);
-    // 初期は0人なので、初期配置の間にエンジニアを雇って色付きの床に置く手順を書く(#172)。
-    expect(lines[3]).toContain('右上のエンジニアで雇い、色付きの床に置く');
+    // 初期は0人なので、初期配置の間にエンジニアのランクを選んで色付きの床に置く手順を書く(#172, #184)。
+    expect(lines[3]).toContain('エンジニアのランクを選んで色付きの床へ');
     expect(lines[6]).toContain(`最大${MAX_ENGINEERS}人`);
     expect(lines[8]).toContain(`${LEVEL_UP_INTERVAL_DAYS}日ごと`);
     expect(lines[9]).toContain(`${BALANCE_STEP_BUTTON_LABELS.refactoring} ${BALANCE_STEP_BUTTON_LABELS.feature}で${REFACTORING_RATIO_STEP_PERCENT}%ずつ`);
@@ -108,14 +108,16 @@ describe.each(SUPPORTED_LOCALES)('ゲームの説明（言語 %s #165）', (loca
     expect(line).not.toMatch(/\b(enter|shift|esc)\b|\[\d\]/i);
   });
 
-  it('初期配置の行は、人数が自由（1人以上）で雇った全員を置くと始められる条件を含む(#178)', () => {
+  it('初期配置の行は、ランクを選んで床をクリックして置き、1人以上で始められることを含み、全員の配置は求めない(#178, #184)', () => {
     const setupLine = buildHelpLines()[3];
     if (locale === 'ja') {
-      expect(setupLine).toContain('1人以上');
-      expect(setupLine).toContain('全員');
+      expect(setupLine).toContain('ランクを選んで');
+      expect(setupLine).toContain('1人以上で開始');
+      expect(setupLine).not.toContain('全員');
     } else {
-      expect(setupLine).toContain('1 or more');
-      expect(setupLine).toContain('place all');
+      expect(setupLine).toContain('pick a rank');
+      expect(setupLine).toContain('start with 1 or more');
+      expect(setupLine).not.toContain('place all');
     }
   });
 

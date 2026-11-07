@@ -459,10 +459,10 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
 
   describe('初期配置UIのレイアウト(#47, #156)', () => {
     const fontPx = parseInt(INITIAL_PLACEMENT_FONT_SIZE, 10);
-    // 最長想定のパネルの行。残ポイントは初期値より増えない（撤去しても初期値まで）ので、初期値で全アイテム・エンジニア・未選択を選んだときの最長(#157)。
+    // 最長想定のパネルの行。残ポイントは初期値より増えない（撤去しても初期値まで）ので、初期値で全アイテム・全ランクのエンジニア(#184)・未選択を選んだときの最長(#157)。
     const selections: readonly InitialPlacementSelection[] = [
       { kind: 'none' },
-      { kind: 'engineer' },
+      ...ENGINEER_RANKS.map((entry): InitialPlacementSelection => ({ kind: 'engineer', rank: entry.id })),
       ...ITEM_TYPES.map((itemType): InitialPlacementSelection => ({ kind: 'item', itemType })),
     ];
     // 文言は現在の言語で見積もる（言語は beforeEach で決まるので、検査の中で呼ぶ #158）。
@@ -501,9 +501,10 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
         text.engineerRemoved,
         text.engineerNotCandidate,
         text.engineerOverlapsItem,
-        text.noUnplacedEngineer,
+        // 初期配置の間に上限まで置いたとき(#184)は、雇用の上限のメッセージを初期配置のメッセージの位置に出す。
+        getMessages().engineer.hireLimit,
         text.selectFirst,
-        text.placeAllEngineers,
+        text.hireAndPlaceEngineer,
       ];
       const longest = messages.reduce((a, b) => (estimateTextWidth(a, fontPx) >= estimateTextWidth(b, fontPx) ? a : b));
       return textRect(INITIAL_PLACEMENT_MESSAGE_POSITION, longest, fontPx);
@@ -550,10 +551,12 @@ describe.each(SUPPORTED_LOCALES)('言語 %s(#158)', (locale) => {
       expect(estimateTextWidth(getMessages().initialPlacement.startButton, fontPx)).toBeLessThanOrEqual(INITIAL_PLACEMENT_START_BUTTON_SIZE.width);
     });
 
-    it('境界値: エンジニアの選択ボタンは開始ボタンの左に同じ行で重ならず並び、人数が最大（MAX_ENGINEERS）の文言もボタン幅に収まる(#157)', () => {
+    it('境界値: エンジニアの選択ボタンは開始ボタンの左に同じ行で重ならず並び、どのランク(#184)の文言もボタン幅に収まる(#157)', () => {
       expect(engineerButtonRect.y).toBe(startButtonRect.y);
       expect(engineerButtonRect.x + engineerButtonRect.width).toBeLessThanOrEqual(startButtonRect.x);
-      expect(estimateTextWidth(formatInitialPlacementEngineerButton(MAX_ENGINEERS), fontPx)).toBeLessThanOrEqual(engineerButtonRect.width);
+      for (const entry of ENGINEER_RANKS) {
+        expect(estimateTextWidth(formatInitialPlacementEngineerButton(entry.id), fontPx)).toBeLessThanOrEqual(engineerButtonRect.width);
+      }
     });
 
     // #162: UI の要素ごとに、どれか1つの矩形（INITIAL_PLACEMENT_UI_BOUNDS）に収まる（矩形の間の隙間にはみ出さない）。
